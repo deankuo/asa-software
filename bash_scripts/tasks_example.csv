@@ -1,0 +1,9 @@
+id,prompt,output_format,template_vars
+1,"What is the population of Tokyo?",text,
+2,"What is the capital of France?",text,
+3,"Find the birth year and nationality of Marie Curie. Return as JSON with fields: birth_year, nationality.",json,
+4,"Find information about {{person}} in {{year}}.",json,"{""person"":""Albert Einstein"",""year"":1905}"
+5,"What are the three largest countries by area?",text,
+6,"Who won the Nobel Prize in Physics in 2020? Return JSON with fields: names, discovery.",json,
+7,"What is the current population of {{city}}?",text,"{""city"":""New York City""}"
+8,"Find the GDP of {{country}} in {{year}}.",json,"{""country"":""Japan"",""year"":2023}"
