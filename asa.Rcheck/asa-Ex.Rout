@@ -115,6 +115,61 @@ Type 'q()' to quit R.
 > base::assign(".dptime", (proc.time() - get(".ptime", pos = "CheckExEnv")), pos = "CheckExEnv")
 > base::cat("check_backend", base::get(".format_ptime", pos = 'CheckExEnv')(get(".dptime", pos = "CheckExEnv")), "\n", file=base::get(".ExTimings", pos = 'CheckExEnv'), append=TRUE, sep="\t")
 > cleanEx()
+> nameEx("configure_search")
+> ### * configure_search
+> 
+> flush(stderr()); flush(stdout())
+> 
+> base::assign(".ptime", proc.time(), pos = "CheckExEnv")
+> ### Name: configure_search
+> ### Title: Configure Python Search Parameters
+> ### Aliases: configure_search
+> 
+> ### ** Examples
+> 
+> ## Not run: 
+> ##D # Increase timeout for slow connections
+> ##D configure_search(timeout = 30, max_retries = 5)
+> ##D 
+> ##D # Get more results
+> ##D configure_search(max_results = 20)
+> ## End(Not run)
+> 
+> 
+> 
+> 
+> base::assign(".dptime", (proc.time() - get(".ptime", pos = "CheckExEnv")), pos = "CheckExEnv")
+> base::cat("configure_search", base::get(".format_ptime", pos = 'CheckExEnv')(get(".dptime", pos = "CheckExEnv")), "\n", file=base::get(".ExTimings", pos = 'CheckExEnv'), append=TRUE, sep="\t")
+> cleanEx()
+> nameEx("configure_search_logging")
+> ### * configure_search_logging
+> 
+> flush(stderr()); flush(stdout())
+> 
+> base::assign(".ptime", proc.time(), pos = "CheckExEnv")
+> ### Name: configure_search_logging
+> ### Title: Configure Python Search Logging Level
+> ### Aliases: configure_search_logging
+> 
+> ### ** Examples
+> 
+> ## Not run: 
+> ##D # Enable verbose debugging output
+> ##D configure_search_logging("DEBUG")
+> ##D 
+> ##D # Run a search (will show detailed logs)
+> ##D result <- run_task("What is the population of Tokyo?", agent = agent)
+> ##D 
+> ##D # Disable verbose output
+> ##D configure_search_logging("WARNING")
+> ## End(Not run)
+> 
+> 
+> 
+> 
+> base::assign(".dptime", (proc.time() - get(".ptime", pos = "CheckExEnv")), pos = "CheckExEnv")
+> base::cat("configure_search_logging", base::get(".format_ptime", pos = 'CheckExEnv')(get(".dptime", pos = "CheckExEnv")), "\n", file=base::get(".ExTimings", pos = 'CheckExEnv'), append=TRUE, sep="\t")
+> cleanEx()
 > nameEx("extract_agent_results")
 > ### * extract_agent_results
 > 
@@ -278,6 +333,12 @@ Type 'q()' to quit R.
 > ##D   model = "llama-3.3-70b-versatile",
 > ##D   use_memory_folding = FALSE,
 > ##D   proxy = NULL  # No Tor proxy
+> ##D )
+> ##D 
+> ##D # Initialize with OpenRouter (access to 100+ models)
+> ##D agent <- initialize_agent(
+> ##D   backend = "openrouter",
+> ##D   model = "anthropic/claude-3-sonnet"  # Note: provider/model format
 > ##D )
 > ## End(Not run)
 > 
@@ -458,7 +519,7 @@ Type 'q()' to quit R.
 > cleanEx()
 > options(digits = 7L)
 > base::cat("Time elapsed: ", proc.time() - base::get("ptime", pos = 'CheckExEnv'),"\n")
-Time elapsed:  0.206 0.009 0.216 0 0 
+Time elapsed:  0.211 0.008 0.219 0 0 
 > grDevices::dev.off()
 null device 
           1 

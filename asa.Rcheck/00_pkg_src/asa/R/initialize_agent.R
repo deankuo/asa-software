@@ -4,7 +4,7 @@
 #' search tools (Wikipedia, DuckDuckGo). The agent can use multiple LLM
 #' backends and supports DeepAgent-style memory folding.
 #'
-#' @param backend LLM backend to use. One of: "openai", "groq", "xai", "exo"
+#' @param backend LLM backend to use. One of: "openai", "groq", "xai", "exo", "openrouter"
 #' @param model Model identifier (e.g., "gpt-4.1-mini", "llama-3.3-70b-versatile")
 #' @param conda_env Name of the conda environment with Python dependencies
 #' @param proxy SOCKS5 proxy URL for Tor (default: "socks5h://127.0.0.1:9050").
@@ -36,7 +36,19 @@
 #'   \item OpenAI: \code{OPENAI_API_KEY}
 #'   \item Groq: \code{GROQ_API_KEY}
 #'   \item xAI: \code{XAI_API_KEY}
+#'   \item OpenRouter: \code{OPENROUTER_API_KEY}
 #' }
+#'
+#' @section OpenRouter Models:
+#' When using the \code{"openrouter"} backend, model names must be in
+#' \code{provider/model-name} format. Examples:
+#' \itemize{
+#'   \item \code{"openai/gpt-4o"}
+#'   \item \code{"anthropic/claude-3-sonnet"}
+#'   \item \code{"google/gemma-2-9b-it:free"}
+#'   \item \code{"meta-llama/llama-3-70b-instruct"}
+#' }
+#' See \url{https://openrouter.ai/models} for available models.
 #'
 #' @examples
 #' \dontrun{
@@ -52,6 +64,12 @@
 #'   model = "llama-3.3-70b-versatile",
 #'   use_memory_folding = FALSE,
 #'   proxy = NULL  # No Tor proxy
+#' )
+#'
+#' # Initialize with OpenRouter (access to 100+ models)
+#' agent <- initialize_agent(
+#'   backend = "openrouter",
+#'   model = "anthropic/claude-3-sonnet"  # Note: provider/model format
 #' )
 #' }
 #'
@@ -70,7 +88,14 @@ initialize_agent <- function(backend = "openai",
                              verbose = TRUE) {
 
   # Validate backend
- backend <- match.arg(backend, c("openai", "groq", "xai", "exo"))
+  backend <- match.arg(backend, c("openai", "groq", "xai", "exo", "openrouter"))
+
+  # Validate OpenRouter model format
+  if (backend == "openrouter" && !grepl("/", model)) {
+    warning("OpenRouter models should be in 'provider/model-name' format ",
+            "(e.g., 'openai/gpt-4o', 'anthropic/claude-3-sonnet'). ",
+            "Got: '", model, "'", call. = FALSE)
+  }
 
   if (verbose) message("Initializing ASA agent...")
 
@@ -88,10 +113,15 @@ initialize_agent <- function(backend = "openai",
     if (proxy == "") proxy <- NULL
   }
 
-  # Create HTTP clients for OpenAI
+  # Close any existing HTTP clients before creating new ones (prevents resource leak)
+  .close_http_clients()
+
+  # Create HTTP clients for backends that need them (OpenAI-compatible APIs)
   clients <- NULL
-  if (backend == "openai") {
+  if (backend %in% c("openai", "openrouter")) {
     clients <- .create_http_clients(proxy, timeout)
+    # Store clients in asa_env for cleanup on reset/unload
+    asa_env$http_clients <- clients
   }
 
   # Create LLM instance
@@ -242,14 +272,32 @@ initialize_agent <- function(backend = "openai",
   } else if (backend == "exo") {
     # Exo is a local LLM server
     chat_models <- reticulate::import("langchain_openai")
-    base_url <- system("ifconfig | grep 'inet ' | awk '{print $2}'", intern = TRUE)
-    base_url <- sprintf("http://%s:52415/v1", base_url[length(base_url)])
+    local_ip <- .get_local_ip()
+    base_url <- sprintf("http://%s:52415/v1", local_ip)
 
     llm <- chat_models$ChatOpenAI(
       model_name = model,
       openai_api_base = base_url,
       temperature = 0.01,
       streaming = TRUE
+    )
+  } else if (backend == "openrouter") {
+    # OpenRouter uses OpenAI-compatible API with provider/model format
+    chat_models <- reticulate::import("langchain_openai")
+    llm <- chat_models$ChatOpenAI(
+      model_name = model,
+      openai_api_key = Sys.getenv("OPENROUTER_API_KEY"),
+      openai_api_base = "https://openrouter.ai/api/v1",
+      temperature = 0.5,
+      streaming = TRUE,
+      http_client = clients$sync,
+      http_async_client = clients$async,
+      include_response_headers = FALSE,
+      rate_limiter = rate_limiter,
+      default_headers = list(
+        "HTTP-Referer" = "https://github.com/cjerzak/asa-software",
+        "X-Title" = "asa"
+      )
     )
   }
 
@@ -355,15 +403,75 @@ get_agent <- function() {
 #' Reset the Agent
 #'
 #' Clears the initialized agent state, forcing reinitialization on next use.
+#' Also closes any open HTTP clients to prevent resource leaks.
 #'
 #' @return Invisibly returns NULL
 #'
 #' @export
 reset_agent <- function() {
+  # Close HTTP clients to prevent resource leak (BUG-007 fix)
+  .close_http_clients()
+
   asa_env$initialized <- FALSE
   asa_env$agent <- NULL
   asa_env$llm <- NULL
   asa_env$tools <- NULL
   asa_env$config <- NULL
   invisible(NULL)
+}
+
+
+# ============================================================================
+# Internal helper functions
+# ============================================================================
+
+#' Get Local IP Address (Cross-Platform)
+#'
+#' Returns the local IP address for use with Exo backend.
+#' Works on Windows, macOS, and Linux.
+#'
+#' @return Character string with the local IP address, or "127.0.0.1" on failure.
+#' @keywords internal
+.get_local_ip <- function() {
+  os <- Sys.info()["sysname"]
+
+  ip <- tryCatch({
+    if (os == "Windows") {
+      # Windows: parse ipconfig output
+      output <- system("ipconfig", intern = TRUE, ignore.stderr = TRUE)
+      ipv4_lines <- grep("IPv4", output, value = TRUE)
+      if (length(ipv4_lines) > 0) {
+        # Extract IP from "IPv4 Address. . . . . . . . . . . : 192.168.1.100"
+        ip <- gsub(".*:\\s*", "", ipv4_lines[1])
+        trimws(ip)
+      } else {
+        NULL
+      }
+    } else if (os == "Darwin") {
+      # macOS: use ipconfig getifaddr
+      ip <- system("ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null",
+                   intern = TRUE, ignore.stderr = TRUE)
+      if (length(ip) == 0 || ip == "") {
+        # Fallback to ifconfig
+        ip <- system("ifconfig | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | head -1",
+                     intern = TRUE, ignore.stderr = TRUE)
+      }
+      if (length(ip) > 0 && ip != "") ip[1] else NULL
+    } else {
+      # Linux: try hostname -I first, then ifconfig
+      ip <- system("hostname -I 2>/dev/null | awk '{print $1}'",
+                   intern = TRUE, ignore.stderr = TRUE)
+      if (length(ip) == 0 || ip == "") {
+        ip <- system("ifconfig 2>/dev/null | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | head -1",
+                     intern = TRUE, ignore.stderr = TRUE)
+      }
+      if (length(ip) > 0 && ip != "") ip[1] else NULL
+    }
+  }, error = function(e) NULL)
+
+  # Fallback to localhost
+  if (is.null(ip) || length(ip) == 0 || ip == "") {
+    return("127.0.0.1")
+  }
+  ip
 }

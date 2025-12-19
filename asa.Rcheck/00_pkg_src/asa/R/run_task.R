@@ -311,12 +311,13 @@ run_task_batch <- function(prompts,
 
   # Run tasks
   if (parallel) {
-    if (!requireNamespace("future.apply", quietly = TRUE)) {
-      stop("Package 'future.apply' required for parallel processing.",
+    if (!requireNamespace("future", quietly = TRUE) ||
+        !requireNamespace("future.apply", quietly = TRUE)) {
+      stop("Packages 'future' and 'future.apply' required for parallel processing.",
            call. = FALSE)
     }
-    future.apply::plan(future.apply::multisession(workers = workers))
-    on.exit(future.apply::plan(future.apply::sequential), add = TRUE)
+    future::plan(future::multisession(workers = workers))
+    on.exit(future::plan(future::sequential), add = TRUE)
 
     results <- future.apply::future_lapply(
       seq_len(n),
