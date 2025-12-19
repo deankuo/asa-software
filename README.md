@@ -197,6 +197,172 @@ summary(result)
 df <- as.data.frame(result)
 ```
 
+## Advanced Use
+
+### Memory Folding Configuration
+
+Memory folding compresses older conversation messages into summaries, enabling longer research sessions without exceeding context limits. This follows the DeepAgent paper methodology.
+
+```r
+# Custom memory settings for extended research sessions
+agent <- initialize_agent(
+  backend = "openai",
+  model = "gpt-4.1-mini",
+  use_memory_folding = TRUE,   # Enable memory compression (default)
+  memory_threshold = 6,         # Fold after 6 messages (default: 4)
+  memory_keep_recent = 3        # Keep 3 recent messages after fold (default: 2)
+)
+
+# Monitor folding activity in responses
+response <- run_agent("Complex multi-step research query...", agent = agent)
+print(response$fold_count)  # Number of times memory was folded
+
+# Disable memory folding for short, single-turn tasks
+agent_simple <- initialize_agent(
+  backend = "openai",
+  model = "gpt-4.1-mini",
+  use_memory_folding = FALSE   # Uses standard agent with lower recursion limit
+)
+```
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `use_memory_folding` | `TRUE` | Enable DeepAgent-style memory compression |
+| `memory_threshold` | `4` | Number of messages that trigger folding |
+| `memory_keep_recent` | `2` | Recent messages to preserve after each fold |
+
+**When to disable:** For simple single-turn queries where conversation history isn't needed, disabling memory folding reduces overhead.
+
+### Parallel Batch Processing
+
+Process large batches efficiently using parallel workers:
+
+```r
+# Parallel processing with custom worker count
+results <- run_task_batch(
+  prompts = prompts,
+  output_format = "json",
+  agent = agent,
+  parallel = TRUE,      # Enable parallel execution
+  workers = 8,          # Number of parallel workers (default: 4)
+  progress = TRUE       # Show progress messages
+)
+```
+
+**Data frame workflow with automatic JSON field extraction:**
+
+```r
+# Prepare structured batch input
+df <- data.frame(
+  entity = c("Marie Curie", "Nikola Tesla", "Ada Lovelace"),
+  prompt = c(
+    "Find birth_year and primary_field for Marie Curie. Return as JSON.",
+    "Find birth_year and primary_field for Nikola Tesla. Return as JSON.",
+    "Find birth_year and primary_field for Ada Lovelace. Return as JSON."
+  )
+)
+
+# Run batch with JSON parsing
+results_df <- run_task_batch(
+  df,
+  output_format = "json",
+  agent = agent,
+  parallel = TRUE,
+  workers = 4
+)
+
+# Results include original columns plus:
+# - response: Full agent response text
+# - status: "success" or "error"
+# - elapsed_time: Execution time in minutes
+# - birth_year, primary_field: Parsed JSON fields as columns
+```
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `parallel` | `FALSE` | Enable parallel execution (requires `future.apply`) |
+| `workers` | `4` | Number of parallel workers |
+| `progress` | `TRUE` | Show `[1/N] Processing...` messages |
+
+### Search Configuration
+
+Fine-tune search behavior globally:
+
+```r
+# Configure search parameters for reliability
+configure_search(
+  max_results = 15,        # Results per search (default: 10)
+  timeout = 20,            # Request timeout in seconds (default: 15)
+  max_retries = 5,         # Retry attempts (default: 3)
+  retry_delay = 3,         # Seconds between retries (default: 2)
+  backoff_multiplier = 2.0 # Exponential backoff factor (default: 1.5)
+)
+
+# Enable debug logging for troubleshooting
+configure_search_logging("DEBUG")  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+```
+
+### Tor/Proxy Management
+
+Manage anonymous searching through Tor:
+
+```r
+# Check if Tor is running
+if (is_tor_running()) {
+  # Get current exit IP
+  current_ip <- get_tor_ip()
+  message("Current Tor IP: ", current_ip)
+
+  # Rotate to new circuit between sensitive batches
+  rotate_tor_circuit(
+    method = "brew",   # "brew" (macOS), "systemctl" (Linux), or "signal"
+    wait = 15          # Seconds to wait for new circuit (default: 12)
+  )
+
+  new_ip <- get_tor_ip()
+  message("New Tor IP: ", new_ip)
+}
+
+# Initialize agent without proxy
+agent_direct <- initialize_agent(
+  backend = "openai",
+  model = "gpt-4.1-mini",
+  proxy = NULL  # Disable Tor proxy
+)
+```
+
+### Output Extraction
+
+Extract detailed information from agent traces for analysis:
+
+```r
+# Run a task and extract structured data from the trace
+result <- run_task(
+  prompt = "Research quantum computing applications in drug discovery.",
+  agent = agent
+)
+
+# Extract search artifacts from raw trace
+extracted <- extract_agent_results(result$raw_output)
+
+# Access extracted data
+extracted$search_snippets     # List of search result text by source number
+extracted$search_urls         # List of URLs from search results
+extracted$wikipedia_snippets  # Wikipedia content retrieved
+extracted$json_data           # Any JSON data found in response
+
+# Get snippets from specific search call
+snippets_from_search_1 <- extract_search_snippets(result$raw_output, source = 1)
+urls_from_search_1 <- extract_urls(result$raw_output, source = 1)
+
+# Batch output processing - add extraction columns to results
+processed_df <- process_outputs(
+  results_df,
+  parallel = TRUE  # Parallel extraction
+)
+# Adds columns: search_count, wiki_count, plus parsed JSON fields
+```
+
 ## Requirements
 
 - R >= 4.0
