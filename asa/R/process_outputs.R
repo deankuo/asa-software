@@ -358,9 +358,11 @@ process_outputs <- function(df, parallel = FALSE, workers = 10L) {
   }
 
   # Process all rows
-  if (parallel && requireNamespace("future.apply", quietly = TRUE)) {
-    future.apply::plan(future.apply::multisession(workers = workers))
-    on.exit(future.apply::plan(future.apply::sequential), add = TRUE)
+  if (parallel &&
+      requireNamespace("future", quietly = TRUE) &&
+      requireNamespace("future.apply", quietly = TRUE)) {
+    future::plan(future::multisession(workers = workers))
+    on.exit(future::plan(future::sequential), add = TRUE)
 
     results <- future.apply::future_lapply(df$raw_output, process_one)
   } else {
