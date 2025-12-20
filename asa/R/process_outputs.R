@@ -1,8 +1,8 @@
 #' Extract Structured Data from Agent Traces
 #'
 #' Parses raw agent output to extract search snippets, Wikipedia content,
-#' URLs, and JSON data. This is the main function for post-processing
-#' agent traces.
+#' URLs, JSON data, and search tier information. This is the main function
+#' for post-processing agent traces.
 #'
 #' @param raw_output Raw output string from agent invocation (the trace field
 #'   from an asa_response object)
@@ -13,6 +13,8 @@
 #'   \item search_urls: Character vector of URLs from search results
 #'   \item wikipedia_snippets: Character vector of Wikipedia content
 #'   \item json_data: Extracted JSON data as a list (if present)
+#'   \item search_tiers: Character vector of unique search tiers used
+#'     (e.g., "primp", "selenium", "ddgs", "requests")
 #' }
 #'
 #' @examples
@@ -20,6 +22,7 @@
 #' response <- run_agent("Who is the president of France?", agent)
 #' extracted <- extract_agent_results(response$trace)
 #' print(extracted$search_snippets)
+#' print(extracted$search_tiers)  # Shows which search tier was used
 #' }
 #'
 #' @export
@@ -29,7 +32,8 @@ extract_agent_results <- function(raw_output) {
       search_snippets = character(0),
       search_urls = character(0),
       wikipedia_snippets = character(0),
-      json_data = NULL
+      json_data = NULL,
+      search_tiers = character(0)
     ))
   }
 
@@ -40,7 +44,8 @@ extract_agent_results <- function(raw_output) {
     search_snippets = extract_search_snippets(raw_output),
     search_urls = extract_urls(raw_output),
     wikipedia_snippets = extract_wikipedia_content(raw_output),
-    json_data = json_data
+    json_data = json_data,
+    search_tiers = extract_search_tiers(raw_output)
   )
 }
 
@@ -277,6 +282,48 @@ extract_urls <- function(text) {
   }
 
   result
+}
+
+#' Extract Search Tier Information
+#'
+#' Extracts which search tier was used from the agent trace.
+#' The search module uses a multi-tier fallback system:
+#' \itemize{
+#'   \item primp: Fast HTTP client with browser impersonation (Tier 0)
+#'   \item selenium: Headless browser for JS-rendered content (Tier 1)
+#'   \item ddgs: Standard DDGS Python library (Tier 2)
+#'   \item requests: Raw POST to DuckDuckGo HTML endpoint (Tier 3)
+#' }
+#'
+#' @param text Raw agent trace text
+#'
+#' @return Character vector of unique tier names encountered
+#'   (e.g., "primp", "selenium", "ddgs", "requests")
+#'
+#' @examples
+#' \dontrun{
+#' tiers <- extract_search_tiers(response$trace)
+#' print(tiers)  # e.g., "primp"
+#' }
+#'
+#' @export
+extract_search_tiers <- function(text) {
+  if (is.null(text) || text == "") {
+    return(character(0))
+  }
+
+  # Match '_tier': 'primp' patterns in Python dict repr
+  # Handle both single and double quotes
+  tier_pattern <- "['\"]_tier['\"]:\\s*['\"]?(primp|selenium|ddgs|requests)['\"]?"
+  matches <- gregexpr(tier_pattern, text, perl = TRUE)[[1]]
+
+  if (matches[1] == -1) {
+    return(character(0))
+  }
+
+  match_texts <- regmatches(text, list(matches))[[1]]
+  tiers <- gsub(tier_pattern, "\\1", match_texts, perl = TRUE)
+  unique(tiers)
 }
 
 #' Extract JSON from Agent Traces
