@@ -11,4 +11,4 @@ library(asa)
 test_check("asa")
 
 # test_check("asa") # - designed for R CMD check, not interactive use
-devtools::test("~/Documents/asa-software/asa/")#  - use this for interactive testing
+# devtools::test("~/Documents/asa-software/asa/")#  - use this for interactive testing

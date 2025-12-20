@@ -12,10 +12,10 @@ TOLERANCE_FACTOR <- 1.25
 
 # Baseline times (in seconds) - established on reference hardware (Dec 19, 2024)
 # These should be updated if significant intentional performance changes are made
-BASELINE_BUILD_PROMPT <- 0.15      # 10 iterations x 50 build_prompt calls each
-BASELINE_HELPER_FUNCS <- 0.15      # 10 iterations x 100 helper function calls each
-BASELINE_COMBINED <- 0.20          # Combined workload
-BASELINE_AGENT_SEARCH <- 60.0      # Single agent search task (includes network/API latency)
+BASELINE_BUILD_PROMPT <- 0.090     # 10 iterations x 50 build_prompt calls each
+BASELINE_HELPER_FUNCS <- 0.070     # 10 iterations x 100 helper function calls each
+BASELINE_COMBINED <- 0.091         # Combined workload
+BASELINE_AGENT_SEARCH <- 17.6      # Single agent search task (includes network/API latency)
 
 # Environment to store results across tests for final report
 .speed_results <- new.env(parent = emptyenv())
