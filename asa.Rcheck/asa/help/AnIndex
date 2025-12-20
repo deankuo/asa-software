@@ -32,6 +32,7 @@ configure_search_logging	configure_search_logging
 decode_html	decode_html
 extract_agent_results	extract_agent_results
 extract_search_snippets	extract_search_snippets
+extract_search_tiers	extract_search_tiers
 extract_urls	extract_urls
 extract_wikipedia_content	extract_wikipedia_content
 format_duration	format_duration

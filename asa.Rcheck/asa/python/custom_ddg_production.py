@@ -53,6 +53,7 @@ class SearchConfig:
         backoff_multiplier: Multiplier for exponential backoff (default: 1.5)
         captcha_backoff_base: Base multiplier for CAPTCHA backoff (default: 3.0)
         page_load_wait: Wait time after page load in seconds (default: 2.0)
+        inter_search_delay: Delay between consecutive searches in seconds (default: 0.5)
     """
     max_results: int = 10
     timeout: float = 15.0
@@ -61,10 +62,12 @@ class SearchConfig:
     backoff_multiplier: float = 1.5
     captcha_backoff_base: float = 3.0
     page_load_wait: float = 2.0
+    inter_search_delay: float = 0.5
 
 
 # Default configuration instance
 _default_config = SearchConfig()
+_last_search_time: float = 0.0  # Track last search timestamp for inter-search delay
 
 
 def configure_search(
@@ -75,6 +78,7 @@ def configure_search(
     backoff_multiplier: float = None,
     captcha_backoff_base: float = None,
     page_load_wait: float = None,
+    inter_search_delay: float = None,
 ) -> SearchConfig:
     """Configure global search defaults. Call from R via reticulate.
 
@@ -95,6 +99,8 @@ def configure_search(
         _default_config.captcha_backoff_base = captcha_backoff_base
     if page_load_wait is not None:
         _default_config.page_load_wait = page_load_wait
+    if inter_search_delay is not None:
+        _default_config.inter_search_delay = inter_search_delay
     return _default_config
 
 
@@ -326,10 +332,11 @@ def _browser_search(
                     else ""
                     )
                 return_content.append({
-                "id": idx + 1,
-                "title": link.get_text(strip=True),
-                "href": raw_href,
-                    "body": f"__START_OF_SOURCE {idx + 1}__ <CONTENT> {snippet} </CONTENT> <URL> {real_url} </URL> __END_OF_SOURCE  {idx + 1}__"
+                    "id": idx + 1,
+                    "title": link.get_text(strip=True),
+                    "href": raw_href,
+                    "body": f"__START_OF_SOURCE {idx + 1}__ <CONTENT> {snippet} </CONTENT> <URL> {real_url} </URL> __END_OF_SOURCE  {idx + 1}__",
+                    "_tier": "selenium",
                 })
 
             logger.info("Browser search SUCCESS: returning %d results", len(return_content))
@@ -381,7 +388,7 @@ def _requests_scrape(
     soup = BeautifulSoup(resp.text, "html.parser")
     results: List[Dict[str, str]] = []
     for i, a in enumerate(soup.select("a.result__a")[:max_results], 1):
-        results.append({"id": i, "title": a.get_text(strip=True), "href": a["href"], "body": ""})
+        results.append({"id": i, "title": a.get_text(strip=True), "href": a["href"], "body": "", "_tier": "requests"})
     return results
 
 
@@ -412,6 +419,17 @@ class PatchedDuckDuckGoSearchAPIWrapper(DuckDuckGoSearchAPIWrapper):
         """
         Unified dispatcher for text search with multi‑level fallback.
         """
+        global _last_search_time
+        cfg = _default_config
+
+        # Apply inter-search delay to avoid rate limiting
+        if cfg.inter_search_delay > 0:
+            elapsed = time.time() - _last_search_time
+            if elapsed < cfg.inter_search_delay:
+                wait_time = cfg.inter_search_delay - elapsed
+                logger.debug("Inter-search delay: waiting %.2fs", wait_time)
+                time.sleep(wait_time)
+        _last_search_time = time.time()
 
         # tier 0 - primp
         # ────────────────────────────────────────────────────────────────────────
@@ -422,7 +440,6 @@ class PatchedDuckDuckGoSearchAPIWrapper(DuckDuckGoSearchAPIWrapper):
         #   • No global env mutation; proxy is passed directly from `self.proxy`.
         #   • Optional overrides via env: PRIMP_IMPERSONATE, PRIMP_IMPERSONATE_OS.
         #   • Includes retry logic for CAPTCHA with delay and impersonation rotation.
-        cfg = _default_config
         logger.debug("PRIMP starting search for: %s", query[:60])
 
         # Impersonation options to rotate through on CAPTCHA
@@ -526,6 +543,7 @@ class PatchedDuckDuckGoSearchAPIWrapper(DuckDuckGoSearchAPIWrapper):
                                     "title": a.get_text(strip=True),
                                     "href": _raw,
                                     "body": f"__START_OF_SOURCE {i}__ <CONTENT> {_snip} </CONTENT> <URL> {_real} </URL> __END_OF_SOURCE {i}__",
+                                    "_tier": "primp",
                                 }
                             )
                         if _out:
@@ -577,7 +595,7 @@ class PatchedDuckDuckGoSearchAPIWrapper(DuckDuckGoSearchAPIWrapper):
         # Tier 2 – ddgs HTTP API
         logger.debug("Trying DDGS tier...")
         try:
-            return _with_ddgs(
+            ddgs_results = _with_ddgs(
                 self.proxy,
                 self.headers,
                 lambda d: list(
@@ -590,6 +608,10 @@ class PatchedDuckDuckGoSearchAPIWrapper(DuckDuckGoSearchAPIWrapper):
                     )
                 ),
             )
+            # Add tier info to each result
+            for item in ddgs_results:
+                item["_tier"] = "ddgs"
+            return ddgs_results
         except DDGSException as exc:
             logger.warning("DDGS tier failed (%s); falling back to raw scrape.", exc)
 

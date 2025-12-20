@@ -17,18 +17,21 @@ A list with components:
   \item search_urls: Character vector of URLs from search results
   \item wikipedia_snippets: Character vector of Wikipedia content
   \item json_data: Extracted JSON data as a list (if present)
+  \item search_tiers: Character vector of unique search tiers used
+    (e.g., "primp", "selenium", "ddgs", "requests")
 }
 }
 \description{
 Parses raw agent output to extract search snippets, Wikipedia content,
-URLs, and JSON data. This is the main function for post-processing
-agent traces.
+URLs, JSON data, and search tier information. This is the main function
+for post-processing agent traces.
 }
 \examples{
 \dontrun{
 response <- run_agent("Who is the president of France?", agent)
 extracted <- extract_agent_results(response$trace)
 print(extracted$search_snippets)
+print(extracted$search_tiers)  # Shows which search tier was used
 }
 
 }

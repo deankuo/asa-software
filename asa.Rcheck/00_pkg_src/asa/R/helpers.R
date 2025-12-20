@@ -312,6 +312,7 @@ configure_search_logging <- function(level = "WARNING",
 #' @param backoff_multiplier Multiplier for exponential backoff (default: 1.5)
 #' @param captcha_backoff_base Base multiplier for CAPTCHA backoff (default: 3)
 #' @param page_load_wait Wait time after page load in seconds (default: 2)
+#' @param inter_search_delay Delay between consecutive searches in seconds (default: 0.5)
 #' @param conda_env Name of the conda environment (default: "asa_env")
 #'
 #' @return Invisibly returns a list with the current configuration
@@ -323,6 +324,9 @@ configure_search_logging <- function(level = "WARNING",
 #'
 #' # Get more results
 #' configure_search(max_results = 20)
+#'
+#' # Add delay between searches to avoid rate limiting
+#' configure_search(inter_search_delay = 2.0)
 #' }
 #'
 #' @export
@@ -333,6 +337,7 @@ configure_search <- function(max_results = NULL,
                              backoff_multiplier = NULL,
                              captcha_backoff_base = NULL,
                              page_load_wait = NULL,
+                             inter_search_delay = NULL,
                              conda_env = "asa_env") {
   # Use specified conda environment
   reticulate::use_condaenv(conda_env, required = TRUE)
@@ -347,7 +352,8 @@ configure_search <- function(max_results = NULL,
       retry_delay = retry_delay,
       backoff_multiplier = backoff_multiplier,
       captcha_backoff_base = captcha_backoff_base,
-      page_load_wait = page_load_wait
+      page_load_wait = page_load_wait,
+      inter_search_delay = inter_search_delay
     )
 
     # Build message showing which values were set
@@ -356,6 +362,7 @@ configure_search <- function(max_results = NULL,
     if (!is.null(timeout)) set_values <- c(set_values, paste0("timeout=", timeout))
     if (!is.null(max_retries)) set_values <- c(set_values, paste0("max_retries=", max_retries))
     if (!is.null(retry_delay)) set_values <- c(set_values, paste0("retry_delay=", retry_delay))
+    if (!is.null(inter_search_delay)) set_values <- c(set_values, paste0("inter_search_delay=", inter_search_delay))
 
     if (length(set_values) > 0) {
       message("Search configuration updated: ", paste(set_values, collapse = ", "))

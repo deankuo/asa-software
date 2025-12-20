@@ -195,12 +195,20 @@ initialize_agent <- function(backend = "openai",
   invisible(NULL)
 }
 
-#' Create HTTP Clients for API Calls
+#' Create HTTP Client for API Calls
+#'
+#' Creates a synchronous httpx client for LLM API calls.
+#' Note: We intentionally do NOT create an async client. LangChain/OpenAI SDK
+#' creates its own async client internally when needed (for async operations).
+#' This avoids R-CRIT-001 where async client cleanup was unreliable from R
+#' since aclose() requires an async context.
+#'
 #' @param proxy Proxy URL or NULL
 #' @param timeout Timeout in seconds
+#' @return A list with 'sync' client (async is NULL, letting LangChain manage it)
 #' @keywords internal
 .create_http_clients <- function(proxy, timeout) {
-  # Generate fake headers
+  # Generate fake headers for browser-like fingerprint
   headers <- asa_env$fake_headers$Headers(headers = TRUE)$generate()
 
   sync_client <- asa_env$httpx$Client(
@@ -211,15 +219,9 @@ initialize_agent <- function(backend = "openai",
     follow_redirects = TRUE
   )
 
-  async_client <- asa_env$httpx$AsyncClient(
-    proxy = proxy,
-    timeout = as.integer(timeout),
-    http2 = FALSE,
-    headers = headers,
-    follow_redirects = TRUE
-  )
-
-  list(sync = sync_client, async = async_client)
+  # Return only sync client; async is NULL to let LangChain manage its own
+  # This fixes R-CRIT-001: async client cleanup was unreliable from R
+  list(sync = sync_client, async = NULL)
 }
 
 #' Create LLM Instance
@@ -245,7 +247,7 @@ initialize_agent <- function(backend = "openai",
       temperature = 0.5,
       streaming = TRUE,
       http_client = clients$sync,
-      http_async_client = clients$async,
+      # http_async_client omitted: LangChain manages its own (R-CRIT-001 fix)
       include_response_headers = FALSE,
       rate_limiter = rate_limiter
     )
@@ -291,7 +293,7 @@ initialize_agent <- function(backend = "openai",
       temperature = 0.5,
       streaming = TRUE,
       http_client = clients$sync,
-      http_async_client = clients$async,
+      # http_async_client omitted: LangChain manages its own (R-CRIT-001 fix)
       include_response_headers = FALSE,
       rate_limiter = rate_limiter,
       default_headers = list(

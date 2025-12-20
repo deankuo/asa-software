@@ -10,7 +10,11 @@
 Invisibly returns NULL
 }
 \description{
-Safely closes any open httpx clients to prevent resource leaks.
+Safely closes the synchronous httpx client to prevent resource leaks.
 This is called automatically by reset_agent() and when reinitializing.
+}
+\details{
+Note: We no longer create or manage async clients from R (R-CRIT-001 fix).
+LangChain manages its own async client lifecycle internally.
 }
 \keyword{internal}

@@ -12,6 +12,7 @@ configure_search_logging
 extract_agent_results   Extract Structured Data from Agent Traces
 extract_search_snippets
                         Extract Search Snippets by Source Number
+extract_search_tiers    Extract Search Tier Information
 extract_urls            Extract URLs by Source Number
 extract_wikipedia_content
                         Extract Wikipedia Content

@@ -12,6 +12,7 @@ configure_search(
   backoff_multiplier = NULL,
   captcha_backoff_base = NULL,
   page_load_wait = NULL,
+  inter_search_delay = NULL,
   conda_env = "asa_env"
 )
 }
@@ -30,6 +31,8 @@ configure_search(
 
 \item{page_load_wait}{Wait time after page load in seconds (default: 2)}
 
+\item{inter_search_delay}{Delay between consecutive searches in seconds (default: 0.5)}
+
 \item{conda_env}{Name of the conda environment (default: "asa_env")}
 }
 \value{
@@ -46,6 +49,9 @@ configure_search(timeout = 30, max_retries = 5)
 
 # Get more results
 configure_search(max_results = 20)
+
+# Add delay between searches to avoid rate limiting
+configure_search(inter_search_delay = 2.0)
 }
 
 }

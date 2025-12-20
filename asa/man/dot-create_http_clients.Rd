@@ -2,7 +2,7 @@
 % Please edit documentation in R/initialize_agent.R
 \name{.create_http_clients}
 \alias{.create_http_clients}
-\title{Create HTTP Clients for API Calls}
+\title{Create HTTP Client for API Calls}
 \usage{
 .create_http_clients(proxy, timeout)
 }
@@ -11,7 +11,14 @@
 
 \item{timeout}{Timeout in seconds}
 }
+\value{
+A list with 'sync' client (async is NULL, letting LangChain manage it)
+}
 \description{
-Create HTTP Clients for API Calls
+Creates a synchronous httpx client for LLM API calls.
+Note: We intentionally do NOT create an async client. LangChain/OpenAI SDK
+creates its own async client internally when needed (for async operations).
+This avoids R-CRIT-001 where async client cleanup was unreliable from R
+since aclose() requires an async context.
 }
 \keyword{internal}

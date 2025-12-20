@@ -27,14 +27,14 @@ Type 'q()' to quit R.
 > 
 > test_check("asa")
 
-  build_prompt: 0.0547 sec (baseline: 0.09, threshold: 0.11, ratio: 0.61x)
+  build_prompt: 0.0878 sec (baseline: 0.09, threshold: 0.11, ratio: 0.98x)
 
-  helper_funcs: 0.0441 sec (baseline: 0.07, threshold: 0.09, ratio: 0.63x)
+  helper_funcs: 0.0689 sec (baseline: 0.07, threshold: 0.09, ratio: 0.98x)
 
-  combined:     0.0613 sec (baseline: 0.09, threshold: 0.11, ratio: 0.67x)
+  combined:     0.1001 sec (baseline: 0.09, threshold: 0.11, ratio: 1.10x)
 <sys>:0: LangChainDeprecationWarning: Calling .text() as a method is deprecated. Use .text as a property instead (e.g., message.text).
 
-  agent_search: 11.88 sec (baseline: 18, threshold: 22, ratio: 0.67x)
+  agent_search: 12.53 sec (baseline: 18, threshold: 22, ratio: 0.71x)
 
   Could not write speed report: cannot open the connection
   README.md updated: /Users/cjerzak/Documents/asa-software/README.md
@@ -47,4 +47,4 @@ Type 'q()' to quit R.
 > 
 > proc.time()
    user  system elapsed 
-  2.818   0.598  15.124 
+  4.336   0.847  17.364 

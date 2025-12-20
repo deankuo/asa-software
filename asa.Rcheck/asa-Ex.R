@@ -114,6 +114,9 @@ base::assign(".ptime", proc.time(), pos = "CheckExEnv")
 ##D 
 ##D # Get more results
 ##D configure_search(max_results = 20)
+##D 
+##D # Add delay between searches to avoid rate limiting
+##D configure_search(inter_search_delay = 2.0)
 ## End(Not run)
 
 
@@ -167,6 +170,7 @@ base::assign(".ptime", proc.time(), pos = "CheckExEnv")
 ##D response <- run_agent("Who is the president of France?", agent)
 ##D extracted <- extract_agent_results(response$trace)
 ##D print(extracted$search_snippets)
+##D print(extracted$search_tiers)  # Shows which search tier was used
 ## End(Not run)
 
 
@@ -196,6 +200,29 @@ base::assign(".ptime", proc.time(), pos = "CheckExEnv")
 
 base::assign(".dptime", (proc.time() - get(".ptime", pos = "CheckExEnv")), pos = "CheckExEnv")
 base::cat("extract_search_snippets", base::get(".format_ptime", pos = 'CheckExEnv')(get(".dptime", pos = "CheckExEnv")), "\n", file=base::get(".ExTimings", pos = 'CheckExEnv'), append=TRUE, sep="\t")
+cleanEx()
+nameEx("extract_search_tiers")
+### * extract_search_tiers
+
+flush(stderr()); flush(stdout())
+
+base::assign(".ptime", proc.time(), pos = "CheckExEnv")
+### Name: extract_search_tiers
+### Title: Extract Search Tier Information
+### Aliases: extract_search_tiers
+
+### ** Examples
+
+## Not run: 
+##D tiers <- extract_search_tiers(response$trace)
+##D print(tiers)  # e.g., "primp"
+## End(Not run)
+
+
+
+
+base::assign(".dptime", (proc.time() - get(".ptime", pos = "CheckExEnv")), pos = "CheckExEnv")
+base::cat("extract_search_tiers", base::get(".format_ptime", pos = 'CheckExEnv')(get(".dptime", pos = "CheckExEnv")), "\n", file=base::get(".ExTimings", pos = 'CheckExEnv'), append=TRUE, sep="\t")
 cleanEx()
 nameEx("extract_urls")
 ### * extract_urls
