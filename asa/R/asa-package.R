@@ -73,48 +73,32 @@ asa_env <- new.env(parent = emptyenv())
 
 #' Close HTTP Clients
 #'
-#' Safely closes any open httpx clients to prevent resource leaks.
+#' Safely closes the synchronous httpx client to prevent resource leaks.
 #' This is called automatically by reset_agent() and when reinitializing.
+#'
+#' Note: We no longer create or manage async clients from R (R-CRIT-001 fix).
+#' LangChain manages its own async client lifecycle internally.
 #'
 #' @return Invisibly returns NULL
 #' @keywords internal
 .close_http_clients <- function() {
-  # Close sync client if it exists
-
-if (exists("http_clients", envir = asa_env) && !is.null(asa_env$http_clients)) {
-    tryCatch({
-      if (!is.null(asa_env$http_clients$sync)) {
-        asa_env$http_clients$sync$close()
-      }
-    }, error = function(e) {
-      # Silently ignore errors during cleanup
-    })
-
-    tryCatch({
-      if (!is.null(asa_env$http_clients$async)) {
-        # For async client, we need to use aclose() in an async context
-        # but since we're in R, we'll try the sync close method if available
-        # or just let Python's garbage collector handle it
-        if (reticulate::py_has_attr(asa_env$http_clients$async, "aclose")) {
-          # Try to close using asyncio
-          tryCatch({
-            asyncio <- reticulate::import("asyncio")
-            loop <- tryCatch(asyncio$get_event_loop(), error = function(e) asyncio$new_event_loop())
-            if (!loop$is_running()) {
-              loop$run_until_complete(asa_env$http_clients$async$aclose())
-            }
-          }, error = function(e) {
-            # If async close fails, the client will be garbage collected
-          })
-        }
-      }
-    }, error = function(e) {
-      # Silently ignore errors during cleanup
-    })
-
-    asa_env$http_clients <- NULL
+  if (!exists("http_clients", envir = asa_env) || is.null(asa_env$http_clients)) {
+    return(invisible(NULL))
   }
 
+  # Close sync client if it exists
+  if (!is.null(asa_env$http_clients$sync)) {
+    tryCatch({
+      asa_env$http_clients$sync$close()
+    }, error = function(e) {
+      # Sync client cleanup rarely fails, but ignore if it does
+    })
+  }
+
+  # Note: async client is intentionally NULL - LangChain manages its own.
+  # This fixes R-CRIT-001 where async cleanup from R was unreliable.
+
+  asa_env$http_clients <- NULL
   invisible(NULL)
 }
 
