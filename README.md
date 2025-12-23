@@ -410,4 +410,21 @@ See [full report](asa/tests/testthat/SPEED_REPORT.md) for details.
 
 MIT
 
+```
+╔══════════════════════════════════════════════════════════════════════════════╗
+║ [R] ORCHESTRATION: ACTIVE  ::  [PYTHON] BACKEND: CONNECTED  ::  STATUS: OK   ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                              ║
+║           █████╗ ███████╗ █████╗     AI SEARCH AGENT                         ║
+║          ██╔══██╗██╔════╝██╔══██╗    Large-Scale Research Automation         ║
+║          ███████║███████╗███████║    -------------------------------         ║
+║          ██╔══██║╚════██║██╔══██║    > Reasoning: [ReAct Pattern]            ║
+║          ██║  ██║███████║██║  ██║    > Memory:    [DeepAgent Folding]        ║
+║          ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝    > Search:    [Multi-Tier Fallback]      ║
+║                                                                              ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║  v1.0.0  ::  DuckDuckGo + Wiki  ::  LangGraph  ::  Parallel Batch Processing ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+```
+
 
