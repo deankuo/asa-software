@@ -30,6 +30,7 @@
 #' @docType package
 #' @name asa-package
 #' @aliases asa
+#' @importFrom utils capture.output
 #' @keywords internal
 "_PACKAGE"
 

@@ -165,7 +165,7 @@ run_agent <- function(prompt,
     messages <- raw_response$messages
     if (length(messages) > 0) {
       last_message <- messages[[length(messages)]]
-      text <- last_message$text()
+      text <- last_message$text
       # Clean XML tags
       text <- gsub("<[^>]+>.*?</[^>]+>\\n?", "", text)
       # Handle exo backend format
