@@ -26,13 +26,13 @@ Type 'q()' to quit R.
 > 
 > test_check("asa")
 
-  build_prompt: 0.0859 sec (baseline: 0.09, threshold: 0.36, ratio: 0.95x)
+  build_prompt: 0.0871 sec (baseline: 0.09, threshold: 0.36, ratio: 0.97x)
 
-  helper_funcs: 0.0707 sec (baseline: 0.07, threshold: 0.28, ratio: 1.01x)
+  helper_funcs: 0.0669 sec (baseline: 0.07, threshold: 0.28, ratio: 0.96x)
 
-  combined:     0.0976 sec (baseline: 0.09, threshold: 0.36, ratio: 1.07x)
+  combined:     0.0938 sec (baseline: 0.09, threshold: 0.36, ratio: 1.03x)
 
-  agent_search: 12.45 sec (baseline: 18, threshold: 70, ratio: 0.71x)
+  agent_search: 12.36 sec (baseline: 18, threshold: 70, ratio: 0.70x)
 
   Could not write speed report: cannot open the connection
   README.md updated: /Users/cjerzak/Documents/asa-software/README.md
@@ -45,4 +45,4 @@ Type 'q()' to quit R.
 > 
 > proc.time()
    user  system elapsed 
-  4.237   0.834  17.164 
+  4.233   0.840  17.065 

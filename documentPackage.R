@@ -22,7 +22,7 @@
   devtools::document(package_path)
 
   # Remove old PDF manual
-  try(file.remove(sprintf("./%s.pdf", package_name)), silent = TRUE)
+  try(file.remove(sprintf("%s/../%s.pdf", package_path, package_name)), silent = TRUE)
 
   # Create new PDF manual
   system(sprintf("R CMD Rd2pdf %s", package_path))
