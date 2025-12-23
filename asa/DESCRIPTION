@@ -27,8 +27,7 @@ Suggests:
     knitr,
     rmarkdown,
     future,
-    future.apply,
-    dplyr
+    future.apply
 VignetteBuilder: knitr
 RoxygenNote: 7.3.3
 Config/testthat/edition: 3
