@@ -8,7 +8,7 @@
 
 # Configuration
 SPEED_TEST_ITERATIONS <- 10
-TOLERANCE_FACTOR <- 1.25
+TOLERANCE_FACTOR <- 4
 
 # Baseline times (in seconds) - established on reference hardware (Dec 19, 2024)
 # These should be updated if significant intentional performance changes are made

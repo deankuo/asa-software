@@ -4,7 +4,6 @@
 # Where should you do your testing?
 # Learn more about testing at https://r-pkgs.org/tests.html
 options(error = NULL)
-#setwd("~/Documents/asa-software/")
 library(testthat)
 library(asa)
 

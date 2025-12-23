@@ -26,6 +26,13 @@
 
   # Create new PDF manual
   system(sprintf("R CMD Rd2pdf %s", package_path))
+  
+  # run tests (stop on failure)
+  test_results <- devtools::test(package_path)
+  if (any(as.data.frame(test_results)$failed > 0)) {
+    stop("Tests failed! Stopping build process.")
+  }
+  cat("\n✓ All tests passed!\n\n") 
 
   # Show object sizes in environment (for debugging memory usage)
   log(sort(sapply(ls(), function(l_) { object.size(eval(parse(text = l_))) })))
