@@ -26,23 +26,23 @@ Type 'q()' to quit R.
 > 
 > test_check("asa")
 
-  build_prompt: 0.0629 sec (baseline: 0.09, threshold: 0.36, ratio: 0.70x)
+  build_prompt: 0.1309 sec (baseline: 0.09, threshold: 0.36, ratio: 1.45x)
 
-  helper_funcs: 0.0629 sec (baseline: 0.07, threshold: 0.28, ratio: 0.90x)
+  helper_funcs: 0.0729 sec (baseline: 0.07, threshold: 0.28, ratio: 1.04x)
 
-  combined:     0.1221 sec (baseline: 0.09, threshold: 0.36, ratio: 1.34x)
+  combined:     0.1202 sec (baseline: 0.09, threshold: 0.36, ratio: 1.32x)
 
-  agent_search: 12.38 sec (baseline: 18, threshold: 70, ratio: 0.70x)
+  agent_search: 12.66 sec (baseline: 18, threshold: 70, ratio: 0.72x)
 
   Could not write speed report: cannot open the connection
   README.md updated: /Users/cjerzak/Documents/asa-software/README.md
-[ FAIL 0 | WARN 1 | SKIP 0 | PASS 77 ]
+[ FAIL 0 | WARN 1 | SKIP 0 | PASS 221 ]
 
-[ FAIL 0 | WARN 1 | SKIP 0 | PASS 77 ]
+[ FAIL 0 | WARN 1 | SKIP 0 | PASS 221 ]
 > 
 > # test_check("asa") # - designed for R CMD check, not interactive use
 > # devtools::test("~/Documents/asa-software/asa/")#  - use this for interactive testing
 > 
 > proc.time()
    user  system elapsed 
- 14.362   4.626  72.092 
+ 19.075   5.112  73.093 

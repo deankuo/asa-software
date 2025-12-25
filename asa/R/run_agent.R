@@ -40,6 +40,14 @@ run_agent <- function(prompt,
                       recursion_limit = NULL,
                       verbose = FALSE) {
 
+  # Validate inputs
+  .validate_run_agent(
+    prompt = prompt,
+    agent = agent,
+    recursion_limit = recursion_limit,
+    verbose = verbose
+  )
+
   # Get or initialize agent
   if (is.null(agent)) {
     if (!.is_initialized()) {
@@ -47,12 +55,6 @@ run_agent <- function(prompt,
            call. = FALSE)
     }
     agent <- get_agent()
-  }
-
-  # Validate agent
-  if (!inherits(agent, "asa_agent")) {
-    stop("'agent' must be an asa_agent object from initialize_agent()",
-         call. = FALSE)
   }
 
   # Get config

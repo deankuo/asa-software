@@ -90,6 +90,21 @@ initialize_agent <- function(backend = "openai",
   # Validate backend
   backend <- match.arg(backend, c("openai", "groq", "xai", "exo", "openrouter"))
 
+  # Validate all inputs
+
+  .validate_initialize_agent(
+    backend = backend,
+    model = model,
+    conda_env = conda_env,
+    proxy = proxy,
+    use_memory_folding = use_memory_folding,
+    memory_threshold = memory_threshold,
+    memory_keep_recent = memory_keep_recent,
+    rate_limit = rate_limit,
+    timeout = timeout,
+    verbose = verbose
+  )
+
   # Validate OpenRouter model format
   if (backend == "openrouter" && !grepl("/", model)) {
     warning("OpenRouter models should be in 'provider/model-name' format ",

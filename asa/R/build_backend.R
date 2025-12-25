@@ -43,6 +43,13 @@ build_backend <- function(conda_env = "asa_env",
          call. = FALSE)
   }
 
+  # Validate inputs
+  .validate_build_backend(
+    conda_env = conda_env,
+    conda = conda,
+    python_version = python_version
+  )
+
   msg <- function(...) message(sprintf(...))
 
   # Create conda environment

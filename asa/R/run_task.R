@@ -58,10 +58,12 @@ run_task <- function(prompt,
                      verbose = FALSE) {
 
   # Validate inputs
-
-  if (missing(prompt) || !is.character(prompt) || length(prompt) != 1) {
-    stop("'prompt' must be a single character string", call. = FALSE)
-  }
+  .validate_run_task(
+    prompt = prompt,
+    output_format = output_format,
+    agent = agent,
+    verbose = verbose
+  )
 
   start_time <- Sys.time()
 
@@ -116,15 +118,13 @@ run_task <- function(prompt,
 #'
 #' @export
 build_prompt <- function(template, ...) {
+  # Validate template
+  .validate_build_prompt(template)
+
   args <- list(...)
 
   if (length(args) == 0) {
     return(template)
-  }
-
-  # Validate that template is a non-empty string
-  if (!is.character(template) || length(template) != 1 || nchar(template) == 0) {
-    stop("'template' must be a non-empty character string", call. = FALSE)
   }
 
   result <- template
@@ -315,12 +315,19 @@ run_task_batch <- function(prompts,
                            workers = 4L,
                            progress = TRUE) {
 
+  # Validate inputs
+  .validate_run_task_batch(
+    prompts = prompts,
+    output_format = output_format,
+    agent = agent,
+    parallel = parallel,
+    workers = workers,
+    progress = progress
+  )
+
   # Handle data frame input
   is_df <- is.data.frame(prompts)
   if (is_df) {
-    if (!"prompt" %in% names(prompts)) {
-      stop("Data frame must have a 'prompt' column", call. = FALSE)
-    }
     prompt_vec <- prompts$prompt
   } else {
     prompt_vec <- prompts

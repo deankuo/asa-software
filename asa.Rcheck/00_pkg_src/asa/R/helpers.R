@@ -339,6 +339,19 @@ configure_search <- function(max_results = NULL,
                              page_load_wait = NULL,
                              inter_search_delay = NULL,
                              conda_env = "asa_env") {
+  # Validate inputs
+  .validate_configure_search(
+    max_results = max_results,
+    timeout = timeout,
+    max_retries = max_retries,
+    retry_delay = retry_delay,
+    backoff_multiplier = backoff_multiplier,
+    captcha_backoff_base = captcha_backoff_base,
+    page_load_wait = page_load_wait,
+    inter_search_delay = inter_search_delay,
+    conda_env = conda_env
+  )
+
   # Use specified conda environment
   reticulate::use_condaenv(conda_env, required = TRUE)
 

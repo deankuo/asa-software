@@ -390,9 +390,12 @@ extract_search_tiers <- function(text) {
 #'
 #' @export
 process_outputs <- function(df, parallel = FALSE, workers = 10L) {
-  if (!"raw_output" %in% names(df)) {
-    stop("Data frame must have a 'raw_output' column", call. = FALSE)
-  }
+  # Validate inputs
+  .validate_process_outputs(
+    df = df,
+    parallel = parallel,
+    workers = workers
+  )
 
   # Process function
   process_one <- function(raw_out) {
