@@ -37,6 +37,49 @@ Type 'q()' to quit R.
 > base::assign(".oldSearch", base::search(), pos = 'CheckExEnv')
 > base::assign(".old_wd", base::getwd(), pos = 'CheckExEnv')
 > cleanEx()
+> nameEx("asa_enumerate")
+> ### * asa_enumerate
+> 
+> flush(stderr()); flush(stdout())
+> 
+> base::assign(".ptime", proc.time(), pos = "CheckExEnv")
+> ### Name: asa_enumerate
+> ### Title: Multi-Agent Research for Open-Ended Queries
+> ### Aliases: asa_enumerate
+> 
+> ### ** Examples
+> 
+> ## Not run: 
+> ##D # Find all US senators
+> ##D senators <- asa_enumerate(
+> ##D   query = "Find all current US senators with state, party, and term end date",
+> ##D   schema = c(name = "character", state = "character",
+> ##D              party = "character", term_end = "character"),
+> ##D   stop_policy = list(target_items = 100),
+> ##D   include_provenance = TRUE
+> ##D )
+> ##D head(senators$data)
+> ##D 
+> ##D # Find countries with auto schema
+> ##D countries <- asa_enumerate(
+> ##D   query = "Find all countries with their capitals and populations",
+> ##D   schema = "auto",
+> ##D   output = "csv"
+> ##D )
+> ##D 
+> ##D # Resume from checkpoint
+> ##D result <- asa_enumerate(
+> ##D   query = "Find Fortune 500 CEOs",
+> ##D   resume_from = "/tmp/asa_enumerate_abc123.rds"
+> ##D )
+> ## End(Not run)
+> 
+> 
+> 
+> 
+> base::assign(".dptime", (proc.time() - get(".ptime", pos = "CheckExEnv")), pos = "CheckExEnv")
+> base::cat("asa_enumerate", base::get(".format_ptime", pos = 'CheckExEnv')(get(".dptime", pos = "CheckExEnv")), "\n", file=base::get(".ExTimings", pos = 'CheckExEnv'), append=TRUE, sep="\t")
+> cleanEx()
 > nameEx("build_backend")
 > ### * build_backend
 > 
@@ -546,7 +589,7 @@ Type 'q()' to quit R.
 > cleanEx()
 > options(digits = 7L)
 > base::cat("Time elapsed: ", proc.time() - base::get("ptime", pos = 'CheckExEnv'),"\n")
-Time elapsed:  0.272 0.01 0.283 0 0 
+Time elapsed:  0.249 0.009 0.259 0 0 
 > grDevices::dev.off()
 null device 
           1 

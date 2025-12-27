@@ -43,6 +43,7 @@ print(result)
 | `initialize_agent()` | Initialize the search agent with LLM backend |
 | `run_task()` | Execute a research task and get structured results |
 | `run_task_batch()` | Run multiple tasks in batch |
+| `asa_enumerate()` | **Open-ended enumeration** with multi-agent orchestration |
 | `build_prompt()` | Build prompts from templates with variable substitution |
 | `configure_search()` | Configure search timing and retry behavior |
 | `extract_search_tiers()` | Get which search tier was used from traces |
@@ -131,6 +132,61 @@ df <- asa::run_task_batch(df, agent = agent)
 # Returns df with added columns: response, status, elapsed_time
 ```
 
+## Open-Ended Enumeration
+
+For entity enumeration tasks like "find all US senators", use `asa_enumerate()` which orchestrates multi-agent search with intelligent stopping:
+
+```r
+# Find all current US senators
+senators <- asa::asa_enumerate(
+  query = "Find all current United States senators",
+  schema = c(name = "character", state = "character", party = "character"),
+  sources = list(wikidata = TRUE, web = TRUE, wikipedia = TRUE),
+  stop_policy = list(target_items = 100),
+  progress = TRUE
+)
+
+# Access results
+head(senators$data)
+#>              name       state      party
+#> 1 Tammy Baldwin   Wisconsin   Democratic
+#> 2 John Barrasso     Wyoming   Republican
+#> ...
+
+# Check coverage
+summary(senators)
+# Status: complete | Items: 95 | Rounds: 1 | Time: 11.9s
+```
+
+**Key features:**
+- **Multi-source search**: Wikidata SPARQL, web search, Wikipedia
+- **Smart stopping**: Target count, novelty plateau, budget limits
+- **Schema enforcement**: Structured output with specified columns
+- **Checkpointing**: Resume interrupted searches with `resume_from`
+- **Provenance tracking**: Optional source attribution per row
+
+**Available Wikidata entity types** (for authoritative enumeration):
+- `us_senators`, `us_representatives`, `countries`, `fortune500`, `us_states`
+
+```r
+# Full parameter control
+result <- asa::asa_enumerate(
+  query = "Find Fortune 500 companies with their CEOs",
+  schema = c(company = "character", ceo = "character", industry = "character"),
+  max_workers = 4,
+  max_rounds = 8,
+  budget = list(queries = 50, tokens = 200000, time_sec = 300),
+  stop_policy = list(
+    target_items = 500,
+    plateau_rounds = 2,
+    novelty_min = 0.05
+  ),
+  sources = list(wikidata = TRUE, web = TRUE),
+  checkpoint = TRUE,
+  include_provenance = TRUE
+)
+```
+
 ## Configuration
 
 ### LLM Backends
@@ -188,6 +244,7 @@ The package uses S3 classes for clean output handling:
 - `asa_agent`: Initialized agent object
 - `asa_response`: Raw agent response with trace
 - `asa_result`: Structured task result with parsed output
+- `asa_enumerate_result`: Enumeration results with provenance
 
 ```r
 # All classes have print and summary methods
@@ -196,6 +253,13 @@ summary(result)
 
 # Convert results to data frame
 df <- as.data.frame(result)
+
+# Enumeration results have additional accessors
+result <- asa_enumerate(query = "Find US states", ...)
+result$data        # Main data.frame
+result$status      # "complete", "partial", or "error"
+result$metrics     # Rounds, queries, timing info
+result$provenance  # Per-row source tracking (if requested)
 ```
 
 ## Advanced Use
@@ -388,14 +452,14 @@ processed_df <- asa::process_outputs(
 ## Performance
 
 <!-- SPEED_REPORT_START -->
-**Last Run:** 2025-12-25 09:00:09 EST | **Status:** PASS
+**Last Run:** 2025-12-26 23:52:45 EST | **Status:** PASS
 
 | Benchmark | Current | Baseline | Ratio | Status |
 |-----------|---------|----------|-------|--------|
-| `build_prompt` | 0.131s | 0.09s | 1.45x | PASS |
-| `helper_funcs` | 0.073s | 0.07s | 1.04x | PASS |
-| `combined` | 0.120s | 0.09s | 1.32x | PASS |
-| `agent_search` | 12.7s | 18s | 0.72x | PASS |
+| `build_prompt` | 0.120s | 0.09s | 1.33x | PASS |
+| `helper_funcs` | 0.065s | 0.07s | 0.93x | PASS |
+| `combined` | 0.123s | 0.09s | 1.35x | PASS |
+| `agent_search` | 12.4s | 18s | 0.71x | PASS |
 
 Tests fail if time exceeds 4.00x baseline. 
 See [full report](asa/tests/testthat/SPEED_REPORT.md) for details.

@@ -26,23 +26,26 @@ Type 'q()' to quit R.
 > 
 > test_check("asa")
 
-  build_prompt: 0.1309 sec (baseline: 0.09, threshold: 0.36, ratio: 1.45x)
+  build_prompt: 0.1198 sec (baseline: 0.09, threshold: 0.36, ratio: 1.33x)
 
-  helper_funcs: 0.0729 sec (baseline: 0.07, threshold: 0.28, ratio: 1.04x)
+  helper_funcs: 0.0649 sec (baseline: 0.07, threshold: 0.28, ratio: 0.93x)
 
-  combined:     0.1202 sec (baseline: 0.09, threshold: 0.36, ratio: 1.32x)
+  combined:     0.1226 sec (baseline: 0.09, threshold: 0.36, ratio: 1.35x)
 
-  agent_search: 12.66 sec (baseline: 18, threshold: 70, ratio: 0.72x)
+  agent_search: 12.44 sec (baseline: 18, threshold: 70, ratio: 0.71x)
 
   Could not write speed report: cannot open the connection
   README.md updated: /Users/cjerzak/Documents/asa-software/README.md
-[ FAIL 0 | WARN 1 | SKIP 0 | PASS 221 ]
+[ FAIL 0 | WARN 1 | SKIP 1 | PASS 275 ]
 
-[ FAIL 0 | WARN 1 | SKIP 0 | PASS 221 ]
+══ Skipped tests (1) ═══════════════════════════════════════════════════════════
+• On CRAN (1): 'test-research.R:355:3'
+
+[ FAIL 0 | WARN 1 | SKIP 1 | PASS 275 ]
 > 
 > # test_check("asa") # - designed for R CMD check, not interactive use
 > # devtools::test("~/Documents/asa-software/asa/")#  - use this for interactive testing
 > 
 > proc.time()
    user  system elapsed 
- 19.075   5.112  73.093 
+ 16.783   4.606  73.851 

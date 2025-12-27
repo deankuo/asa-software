@@ -288,3 +288,385 @@ as.data.frame.asa_result <- function(x, ...) {
 
   df
 }
+
+
+#' Constructor for asa_enumerate_result Objects
+#'
+#' Creates an S3 object representing the result of an enumeration task.
+#'
+#' @param data data.frame containing the enumeration results
+#' @param status Result status: "complete", "partial", or "failed"
+#' @param stop_reason Why the enumeration stopped (e.g., "target_reached", "novelty_plateau")
+#' @param metrics List with execution metrics (rounds, queries_used, etc.)
+#' @param provenance Optional data.frame with source information per row
+#' @param plan The enumeration plan from the planner agent
+#' @param checkpoint_file Path to saved checkpoint file
+#' @param query The original enumeration query
+#' @param schema The schema used for extraction
+#'
+#' @return An object of class \code{asa_enumerate_result}
+#'
+#' @export
+asa_enumerate_result <- function(data, status, stop_reason, metrics,
+                                 provenance = NULL, plan = NULL,
+                                 checkpoint_file = NULL, query = NULL,
+                                 schema = NULL) {
+  structure(
+    list(
+      data = data,
+      status = status,
+      stop_reason = stop_reason,
+      metrics = metrics,
+      provenance = provenance,
+      plan = plan,
+      checkpoint_file = checkpoint_file,
+      query = query,
+      schema = schema,
+      created_at = Sys.time()
+    ),
+    class = "asa_enumerate_result"
+  )
+}
+
+#' Print Method for asa_enumerate_result Objects
+#'
+#' @param x An asa_enumerate_result object
+#' @param n Number of data rows to preview (default: 6)
+#' @param ... Additional arguments (ignored)
+#'
+#' @return Invisibly returns the object
+#'
+#' @method print asa_enumerate_result
+#' @export
+print.asa_enumerate_result <- function(x, n = 6, ...) {
+  cat("ASA Enumeration Result\n")
+  cat("===================\n")
+  cat("Status:      ", x$status, "\n", sep = "")
+  cat("Stop Reason: ", x$stop_reason %||% "N/A", "\n", sep = "")
+  cat("Items Found: ", nrow(x$data), "\n", sep = "")
+
+  # Metrics summary
+  if (!is.null(x$metrics)) {
+    cat("\nMetrics:\n")
+    if (!is.null(x$metrics$round_number)) {
+      cat("  Rounds:        ", x$metrics$round_number, "\n", sep = "")
+    }
+    if (!is.null(x$metrics$queries_used)) {
+      cat("  Queries Used:  ", x$metrics$queries_used, "\n", sep = "")
+    }
+    if (!is.null(x$metrics$elapsed_total)) {
+      cat("  Time Elapsed:  ", format_duration(x$metrics$elapsed_total / 60), "\n", sep = "")
+    }
+    if (!is.null(x$metrics$novelty_rate)) {
+      cat("  Novelty Rate:  ", sprintf("%.1f%%", x$metrics$novelty_rate * 100), "\n", sep = "")
+    }
+  }
+
+  # Schema summary
+  if (!is.null(x$schema)) {
+    cat("\nSchema: ", paste(names(x$schema), collapse = ", "), "\n", sep = "")
+  }
+
+  # Data preview
+  if (nrow(x$data) > 0) {
+    cat("\nData Preview (first ", min(n, nrow(x$data)), " rows):\n", sep = "")
+    print(utils::head(x$data, n))
+  } else {
+    cat("\n[No data]\n")
+  }
+
+  # Checkpoint info
+  if (!is.null(x$checkpoint_file)) {
+    cat("\nCheckpoint: ", x$checkpoint_file, "\n", sep = "")
+  }
+
+  invisible(x)
+}
+
+#' Summary Method for asa_enumerate_result Objects
+#'
+#' @param object An asa_enumerate_result object
+#' @param ... Additional arguments (ignored)
+#'
+#' @return Invisibly returns a summary list
+#'
+#' @method summary asa_enumerate_result
+#' @export
+summary.asa_enumerate_result <- function(object, ...) {
+  cat("Enumeration Result Summary\n")
+  cat("-----------------------\n")
+  cat("Query: ", truncate_string(object$query %||% "[unknown]", 60), "\n", sep = "")
+  cat("Status: ", object$status, "\n", sep = "")
+  cat("Stop Reason: ", object$stop_reason %||% "N/A", "\n", sep = "")
+  cat("Total Items: ", nrow(object$data), "\n", sep = "")
+
+  if (!is.null(object$schema)) {
+    cat("Columns: ", paste(names(object$schema), collapse = ", "), "\n", sep = "")
+  }
+
+  if (!is.null(object$metrics)) {
+    cat("\nExecution Metrics:\n")
+    for (name in names(object$metrics)) {
+      val <- object$metrics[[name]]
+      if (is.numeric(val)) {
+        if (grepl("time|elapsed", name, ignore.case = TRUE)) {
+          cat("  ", name, ": ", format_duration(val / 60), "\n", sep = "")
+        } else if (grepl("rate", name, ignore.case = TRUE)) {
+          cat("  ", name, ": ", sprintf("%.2f", val), "\n", sep = "")
+        } else {
+          cat("  ", name, ": ", val, "\n", sep = "")
+        }
+      }
+    }
+  }
+
+  # Provenance summary
+  if (!is.null(object$provenance) && nrow(object$provenance) > 0) {
+    cat("\nProvenance:\n")
+    sources <- unique(object$provenance$source_url)
+    cat("  Unique sources: ", length(sources), "\n", sep = "")
+    avg_conf <- mean(object$provenance$confidence, na.rm = TRUE)
+    cat("  Avg confidence: ", sprintf("%.2f", avg_conf), "\n", sep = "")
+  }
+
+  invisible(list(
+    status = object$status,
+    stop_reason = object$stop_reason,
+    n_items = nrow(object$data),
+    n_columns = ncol(object$data),
+    metrics = object$metrics,
+    has_provenance = !is.null(object$provenance)
+  ))
+}
+
+#' Convert asa_enumerate_result to Data Frame
+#'
+#' @param x An asa_enumerate_result object
+#' @param ... Additional arguments (ignored)
+#'
+#' @return The data data.frame from the result
+#'
+#' @method as.data.frame asa_enumerate_result
+#' @export
+as.data.frame.asa_enumerate_result <- function(x, ...) {
+  x$data
+}
+
+#' Write asa_enumerate_result to CSV
+#'
+#' @param x An asa_enumerate_result object
+#' @param file Path to output CSV file
+#' @param include_provenance Include provenance as additional columns
+#' @param ... Additional arguments passed to write.csv
+#'
+#' @return Invisibly returns the file path
+#'
+#' @export
+write_csv.asa_enumerate_result <- function(x, file, include_provenance = FALSE, ...) {
+  data_to_write <- x$data
+
+  if (include_provenance && !is.null(x$provenance)) {
+    # Merge provenance columns
+    prov <- x$provenance
+    names(prov) <- paste0("_prov_", names(prov))
+    if (nrow(prov) == nrow(data_to_write)) {
+      data_to_write <- cbind(data_to_write, prov)
+    }
+  }
+
+  utils::write.csv(data_to_write, file, row.names = FALSE, ...)
+  message("Written to: ", file)
+  invisible(file)
+}
+
+#' Constructor for asa_audit_result Objects
+#'
+#' Creates an S3 object representing the result of a data quality audit.
+#'
+#' @param data data.frame with original data plus audit columns (_audit_flag, _audit_notes)
+#' @param audit_summary Character string with high-level findings
+#' @param issues List of identified issues with severity and descriptions
+#' @param recommendations Character vector of suggested remediation queries
+#' @param completeness_score Numeric 0-1 score for data completeness
+#' @param consistency_score Numeric 0-1 score for data consistency
+#' @param backend_used Which backend performed the audit ("claude_code" or "langgraph")
+#' @param elapsed_time Execution time in seconds
+#' @param query The original query (if available)
+#' @param checks Character vector of checks that were performed
+#'
+#' @return An object of class \code{asa_audit_result}
+#'
+#' @export
+asa_audit_result <- function(data, audit_summary, issues, recommendations,
+                             completeness_score, consistency_score,
+                             backend_used, elapsed_time,
+                             query = NULL, checks = NULL) {
+  structure(
+    list(
+      data = data,
+      audit_summary = audit_summary,
+      issues = issues,
+      recommendations = recommendations,
+      completeness_score = completeness_score,
+      consistency_score = consistency_score,
+      backend_used = backend_used,
+      elapsed_time = elapsed_time,
+      query = query,
+      checks = checks,
+      created_at = Sys.time()
+    ),
+    class = "asa_audit_result"
+  )
+}
+
+#' Print Method for asa_audit_result Objects
+#'
+#' @param x An asa_audit_result object
+#' @param n Number of data rows to preview (default: 6)
+#' @param ... Additional arguments (ignored)
+#'
+#' @return Invisibly returns the object
+#'
+#' @method print asa_audit_result
+#' @export
+print.asa_audit_result <- function(x, n = 6, ...) {
+  cat("ASA Audit Result\n")
+  cat("================\n")
+
+  # Scores
+  cat("Completeness: ", sprintf("%.0f%%", x$completeness_score * 100), "\n", sep = "")
+  cat("Consistency:  ", sprintf("%.0f%%", x$consistency_score * 100), "\n", sep = "")
+  cat("Backend:      ", x$backend_used, "\n", sep = "")
+  cat("Time:         ", sprintf("%.1fs", x$elapsed_time), "\n", sep = "")
+
+  # Summary
+  if (!is.null(x$audit_summary) && x$audit_summary != "") {
+    cat("\nSummary:\n")
+    summary_lines <- strwrap(x$audit_summary, width = 74)
+    cat(paste("  ", summary_lines, collapse = "\n"), "\n", sep = "")
+  }
+
+  # Issues
+  if (length(x$issues) > 0) {
+    cat("\nIssues Found: ", length(x$issues), "\n", sep = "")
+    for (i in seq_along(x$issues)) {
+      issue <- x$issues[[i]]
+      severity <- issue$severity %||% "info"
+      desc <- issue$description %||% issue$message %||% "[no description]"
+      cat("  [", toupper(severity), "] ", truncate_string(desc, 60), "\n", sep = "")
+      if (i >= 5 && length(x$issues) > 5) {
+        cat("  ... and ", length(x$issues) - 5, " more\n", sep = "")
+        break
+      }
+    }
+  } else {
+    cat("\nNo issues found.\n")
+  }
+
+  # Recommendations
+  if (length(x$recommendations) > 0) {
+    cat("\nRecommendations:\n")
+    for (i in seq_along(x$recommendations)) {
+      cat("  - ", truncate_string(x$recommendations[[i]], 70), "\n", sep = "")
+      if (i >= 3 && length(x$recommendations) > 3) {
+        cat("  ... and ", length(x$recommendations) - 3, " more\n", sep = "")
+        break
+      }
+    }
+  }
+
+  # Data preview with audit flags
+  if (nrow(x$data) > 0) {
+    # Count by flag
+    if ("_audit_flag" %in% names(x$data)) {
+      flag_counts <- table(x$data[["_audit_flag"]])
+      cat("\nFlag Distribution:\n")
+      for (flag in names(flag_counts)) {
+        cat("  ", flag, ": ", flag_counts[[flag]], "\n", sep = "")
+      }
+    }
+
+    cat("\nData Preview (first ", min(n, nrow(x$data)), " rows):\n", sep = "")
+    # Show key columns including audit flags
+    preview_cols <- names(x$data)
+    if (length(preview_cols) > 6) {
+      # Prioritize audit columns and first few data columns
+      audit_cols <- grep("^_audit", preview_cols, value = TRUE)
+      data_cols <- setdiff(preview_cols, audit_cols)[1:min(4, length(setdiff(preview_cols, audit_cols)))]
+      preview_cols <- c(data_cols, audit_cols)
+    }
+    print(utils::head(x$data[, preview_cols, drop = FALSE], n))
+  }
+
+  invisible(x)
+}
+
+#' Summary Method for asa_audit_result Objects
+#'
+#' @param object An asa_audit_result object
+#' @param ... Additional arguments (ignored)
+#'
+#' @return Invisibly returns a summary list
+#'
+#' @method summary asa_audit_result
+#' @export
+summary.asa_audit_result <- function(object, ...) {
+  cat("Audit Result Summary\n")
+  cat("--------------------\n")
+  if (!is.null(object$query)) {
+    cat("Query: ", truncate_string(object$query, 60), "\n", sep = "")
+  }
+  cat("Checks Performed: ", paste(object$checks %||% "all", collapse = ", "), "\n", sep = "")
+  cat("Backend: ", object$backend_used, "\n", sep = "")
+  cat("Time: ", sprintf("%.1fs", object$elapsed_time), "\n", sep = "")
+
+  cat("\nScores:\n")
+  cat("  Completeness: ", sprintf("%.1f%%", object$completeness_score * 100), "\n", sep = "")
+  cat("  Consistency:  ", sprintf("%.1f%%", object$consistency_score * 100), "\n", sep = "")
+
+  cat("\nData:\n")
+  cat("  Total Rows: ", nrow(object$data), "\n", sep = "")
+
+  if ("_audit_flag" %in% names(object$data)) {
+    flag_counts <- table(object$data[["_audit_flag"]])
+    cat("  Flags:\n")
+    for (flag in names(flag_counts)) {
+      pct <- flag_counts[[flag]] / nrow(object$data) * 100
+      cat("    ", flag, ": ", flag_counts[[flag]], " (", sprintf("%.1f%%", pct), ")\n", sep = "")
+    }
+  }
+
+  cat("\nIssues: ", length(object$issues), "\n", sep = "")
+  if (length(object$issues) > 0) {
+    severities <- sapply(object$issues, function(x) x$severity %||% "info")
+    sev_table <- table(severities)
+    for (sev in names(sev_table)) {
+      cat("  ", sev, ": ", sev_table[[sev]], "\n", sep = "")
+    }
+  }
+
+  cat("Recommendations: ", length(object$recommendations), "\n", sep = "")
+
+  invisible(list(
+    completeness_score = object$completeness_score,
+    consistency_score = object$consistency_score,
+    n_rows = nrow(object$data),
+    n_issues = length(object$issues),
+    n_recommendations = length(object$recommendations),
+    backend = object$backend_used,
+    elapsed_time = object$elapsed_time
+  ))
+}
+
+#' Convert asa_audit_result to Data Frame
+#'
+#' @param x An asa_audit_result object
+#' @param ... Additional arguments (ignored)
+#'
+#' @return The audited data.frame with audit columns
+#'
+#' @method as.data.frame asa_audit_result
+#' @export
+as.data.frame.asa_audit_result <- function(x, ...) {
+  x$data
+}

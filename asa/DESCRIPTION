@@ -21,7 +21,9 @@ LazyData: false
 Imports:
     reticulate (>= 1.28),
     jsonlite,
-    rlang
+    rlang,
+    digest,
+    processx
 Suggests:
     testthat (>= 3.0.0),
     knitr,

@@ -1,6 +1,10 @@
+as.data.frame.asa_enumerate_result
+                        Convert asa_enumerate_result to Data Frame
 as.data.frame.asa_result
                         Convert asa_result to Data Frame
 asa_agent               Constructor for asa_agent Objects
+asa_enumerate           Multi-Agent Research for Open-Ended Queries
+asa_enumerate_result    Constructor for asa_enumerate_result Objects
 asa_response            Constructor for asa_response Objects
 asa_result              Constructor for asa_result Objects
 build_backend           Build the Python Backend Environment
@@ -21,6 +25,8 @@ get_tor_ip              Get External IP via Tor
 initialize_agent        Initialize the ASA Search Agent
 is_tor_running          Check if Tor is Running
 print.asa_agent         Print Method for asa_agent Objects
+print.asa_enumerate_result
+                        Print Method for asa_enumerate_result Objects
 print.asa_response      Print Method for asa_response Objects
 print.asa_result        Print Method for asa_result Objects
 process_outputs         Process Multiple Agent Outputs
@@ -31,5 +37,9 @@ run_agent_batch         Run Agent in Batch Mode
 run_task                Run a Structured Task with the Agent
 run_task_batch          Run Multiple Tasks in Batch
 summary.asa_agent       Summary Method for asa_agent Objects
+summary.asa_enumerate_result
+                        Summary Method for asa_enumerate_result Objects
 summary.asa_response    Summary Method for asa_response Objects
 summary.asa_result      Summary Method for asa_result Objects
+write_csv.asa_enumerate_result
+                        Write asa_enumerate_result to CSV
