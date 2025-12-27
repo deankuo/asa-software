@@ -43,7 +43,7 @@ print(result)
 | `initialize_agent()` | Initialize the search agent with LLM backend |
 | `run_task()` | Execute a research task and get structured results |
 | `run_task_batch()` | Run multiple tasks in batch |
-| `asa_enumerate()` | **Open-ended enumeration** with multi-agent orchestration |
+| `asa_enumerate()` | **Open-ended enumeration** with multi-agent orchestration and temporal filtering |
 | `asa_audit()` | **Data quality auditing** for enumeration results |
 | `build_prompt()` | Build prompts from templates with variable substitution |
 | `configure_search()` | Configure search timing and retry behavior |
@@ -161,6 +161,7 @@ summary(senators)
 
 **Key features:**
 - **Multi-source search**: Wikidata SPARQL, web search, Wikipedia
+- **Temporal filtering**: Filter results by date range, use Wayback Machine for historical data
 - **Smart stopping**: Target count, novelty plateau, budget limits
 - **Schema enforcement**: Structured output with specified columns
 - **Checkpointing**: Resume interrupted searches with `resume_from`
@@ -187,6 +188,54 @@ result <- asa::asa_enumerate(
   include_provenance = TRUE
 )
 ```
+
+## Temporal Filtering
+
+Filter enumeration results by date to find information from specific time periods:
+
+```r
+# Results from a specific date range
+companies <- asa::asa_enumerate(
+  query = "Find tech companies founded recently",
+  schema = c(name = "character", founded = "character", industry = "character"),
+  temporal = list(
+    after = "2020-01-01",      # Only results after this date
+    before = "2024-01-01",     # Only results before this date
+    strictness = "best_effort" # or "strict" for post-hoc verification
+  )
+)
+
+# Use DuckDuckGo's native time filter for recent results
+recent <- asa::asa_enumerate(
+  query = "AI research breakthroughs",
+  temporal = list(time_filter = "y")  # "d"=day, "w"=week, "m"=month, "y"=year
+)
+
+# Strict historical research with Internet Archive
+historical <- asa::asa_enumerate(
+  query = "Fortune 500 companies",
+  temporal = list(
+    before = "2015-01-01",
+    strictness = "strict",
+    use_wayback = TRUE  # Use Wayback Machine for guaranteed pre-date content
+  )
+)
+```
+
+**Temporal filtering parameters:**
+
+| Parameter | Values | Description |
+|-----------|--------|-------------|
+| `after` | ISO 8601 date | Only include results valid after this date |
+| `before` | ISO 8601 date | Only include results valid before this date |
+| `time_filter` | `"d"`, `"w"`, `"m"`, `"y"` | DuckDuckGo native filter (day/week/month/year) |
+| `strictness` | `"best_effort"`, `"strict"` | Verification level for web results |
+| `use_wayback` | `TRUE`, `FALSE` | Use Wayback Machine for pre-date guarantees |
+
+**How it works by source:**
+- **Wikidata**: Uses SPARQL temporal qualifiers (P580/P582) for precise filtering
+- **Web search**: Best-effort query-time filtering with optional post-hoc date extraction
+- **Wayback Machine**: Searches archived web snapshots for strict historical accuracy
 
 ## Data Quality Auditing
 
