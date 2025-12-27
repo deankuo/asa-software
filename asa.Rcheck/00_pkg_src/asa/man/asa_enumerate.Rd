@@ -14,6 +14,7 @@ asa_enumerate(
   stop_policy = list(target_items = NULL, plateau_rounds = 2L, novelty_min = 0.05,
     novelty_window = 20L),
   sources = list(web = TRUE, wikipedia = TRUE, wikidata = TRUE),
+  temporal = NULL,
   pagination = TRUE,
   progress = TRUE,
   include_provenance = FALSE,
@@ -61,6 +62,15 @@ Use NULL or "auto" for LLM-proposed schema.}
   \item web: Use DuckDuckGo web search (default: TRUE)
   \item wikipedia: Use Wikipedia (default: TRUE)
   \item wikidata: Use Wikidata SPARQL for authoritative enumerations (default: TRUE)
+}}
+
+\item{temporal}{Named list for temporal filtering:
+\itemize{
+  \item after: ISO 8601 date string (e.g., "2020-01-01") - results after this date
+  \item before: ISO 8601 date string (e.g., "2024-01-01") - results before this date
+  \item time_filter: DuckDuckGo time filter ("d", "w", "m", "y") for day/week/month/year
+  \item strictness: "best_effort" (default) or "strict" (verifies dates via metadata)
+  \item use_wayback: Use Wayback Machine for strict pre-date guarantees (default: FALSE)
 }}
 
 \item{pagination}{Enable pagination for large result sets (default: TRUE).}
@@ -157,6 +167,34 @@ countries <- asa_enumerate(
 result <- asa_enumerate(
   query = "Find Fortune 500 CEOs",
   resume_from = "/tmp/asa_enumerate_abc123.rds"
+)
+
+# Temporal filtering: results from specific date range
+companies_2020s <- asa_enumerate(
+  query = "Find tech companies founded recently",
+  temporal = list(
+    after = "2020-01-01",
+    before = "2024-01-01",
+    strictness = "best_effort"
+  )
+)
+
+# Temporal filtering: past year with DuckDuckGo time filter
+recent_news <- asa_enumerate(
+  query = "Find AI research breakthroughs",
+  temporal = list(
+    time_filter = "y"  # past year
+  )
+)
+
+# Strict temporal filtering with Wayback Machine
+historical <- asa_enumerate(
+  query = "Find Fortune 500 companies",
+  temporal = list(
+    before = "2015-01-01",
+    strictness = "strict",
+    use_wayback = TRUE
+  )
 )
 }
 

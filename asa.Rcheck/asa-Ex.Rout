@@ -37,6 +37,43 @@ Type 'q()' to quit R.
 > base::assign(".oldSearch", base::search(), pos = 'CheckExEnv')
 > base::assign(".old_wd", base::getwd(), pos = 'CheckExEnv')
 > cleanEx()
+> nameEx("asa_audit")
+> ### * asa_audit
+> 
+> flush(stderr()); flush(stdout())
+> 
+> base::assign(".ptime", proc.time(), pos = "CheckExEnv")
+> ### Name: asa_audit
+> ### Title: Audit Enumeration Results for Completeness and Quality
+> ### Aliases: asa_audit
+> 
+> ### ** Examples
+> 
+> ## Not run: 
+> ##D # Audit enumeration results with Claude Code
+> ##D senators <- asa_enumerate(
+> ##D   query = "Find all current US senators",
+> ##D   schema = c(name = "character", state = "character", party = "character")
+> ##D )
+> ##D audit <- asa_audit(senators, backend = "claude_code")
+> ##D print(audit)
+> ##D 
+> ##D # Audit with known universe for precise completeness check
+> ##D audit <- asa_audit(senators, known_universe = state.abb)
+> ##D 
+> ##D # Interactive mode for complex audits
+> ##D asa_audit(senators, backend = "claude_code", interactive = TRUE)
+> ##D 
+> ##D # Use LangGraph backend
+> ##D audit <- asa_audit(senators, backend = "langgraph", agent = agent)
+> ## End(Not run)
+> 
+> 
+> 
+> 
+> base::assign(".dptime", (proc.time() - get(".ptime", pos = "CheckExEnv")), pos = "CheckExEnv")
+> base::cat("asa_audit", base::get(".format_ptime", pos = 'CheckExEnv')(get(".dptime", pos = "CheckExEnv")), "\n", file=base::get(".ExTimings", pos = 'CheckExEnv'), append=TRUE, sep="\t")
+> cleanEx()
 > nameEx("asa_enumerate")
 > ### * asa_enumerate
 > 
@@ -71,6 +108,34 @@ Type 'q()' to quit R.
 > ##D result <- asa_enumerate(
 > ##D   query = "Find Fortune 500 CEOs",
 > ##D   resume_from = "/tmp/asa_enumerate_abc123.rds"
+> ##D )
+> ##D 
+> ##D # Temporal filtering: results from specific date range
+> ##D companies_2020s <- asa_enumerate(
+> ##D   query = "Find tech companies founded recently",
+> ##D   temporal = list(
+> ##D     after = "2020-01-01",
+> ##D     before = "2024-01-01",
+> ##D     strictness = "best_effort"
+> ##D   )
+> ##D )
+> ##D 
+> ##D # Temporal filtering: past year with DuckDuckGo time filter
+> ##D recent_news <- asa_enumerate(
+> ##D   query = "Find AI research breakthroughs",
+> ##D   temporal = list(
+> ##D     time_filter = "y"  # past year
+> ##D   )
+> ##D )
+> ##D 
+> ##D # Strict temporal filtering with Wayback Machine
+> ##D historical <- asa_enumerate(
+> ##D   query = "Find Fortune 500 companies",
+> ##D   temporal = list(
+> ##D     before = "2015-01-01",
+> ##D     strictness = "strict",
+> ##D     use_wayback = TRUE
+> ##D   )
 > ##D )
 > ## End(Not run)
 > 
@@ -589,7 +654,7 @@ Type 'q()' to quit R.
 > cleanEx()
 > options(digits = 7L)
 > base::cat("Time elapsed: ", proc.time() - base::get("ptime", pos = 'CheckExEnv'),"\n")
-Time elapsed:  0.249 0.009 0.259 0 0 
+Time elapsed:  0.318 0.011 0.331 0 0 
 > grDevices::dev.off()
 null device 
           1 

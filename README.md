@@ -44,6 +44,7 @@ print(result)
 | `run_task()` | Execute a research task and get structured results |
 | `run_task_batch()` | Run multiple tasks in batch |
 | `asa_enumerate()` | **Open-ended enumeration** with multi-agent orchestration |
+| `asa_audit()` | **Data quality auditing** for enumeration results |
 | `build_prompt()` | Build prompts from templates with variable substitution |
 | `configure_search()` | Configure search timing and retry behavior |
 | `extract_search_tiers()` | Get which search tier was used from traces |
@@ -187,6 +188,69 @@ result <- asa::asa_enumerate(
 )
 ```
 
+## Data Quality Auditing
+
+Validate enumeration results for completeness, consistency, and quality using `asa_audit()`. Supports two backends: **Claude Code CLI** for reasoning-heavy validation or **LangGraph** for programmatic checks.
+
+```r
+# Audit enumeration results with Claude Code
+senators <- asa_enumerate(
+  query = "Find all current US senators",
+  schema = c(name = "character", state = "character", party = "character")
+)
+
+audit <- asa_audit(senators, backend = "claude_code")
+print(audit)
+#> ASA Audit Result
+#> ================
+#> Completeness: 96%
+#> Consistency:  98%
+#>
+#> Issues Found: 2
+#>   [MEDIUM] Missing 2 expected states: AK, HI
+#>   [LOW] 1 row has inconsistent party format
+#>
+#> Recommendations:
+#>   - Search specifically for: Alaska senators, Hawaii senators
+```
+
+**Key features:**
+- **Completeness check**: Identifies missing items vs. expected (known universe)
+- **Consistency check**: Validates data types, patterns, and value formats
+- **Gap analysis**: Detects systematic patterns (geographic, temporal, categorical gaps)
+- **Anomaly detection**: Finds duplicates, outliers, and suspicious entries
+- **Claude Code integration**: Leverages Claude's reasoning for complex validation
+- **Interactive mode**: Spawn a Claude Code session for hands-on auditing
+
+```r
+# Precise completeness check with known universe
+audit <- asa_audit(
+  senators,
+  known_universe = state.abb,  # All 50 US state abbreviations
+  checks = c("completeness", "gaps")
+)
+
+# Interactive Claude Code session
+asa_audit(senators, backend = "claude_code", interactive = TRUE)
+
+# Use LangGraph backend with existing agent
+audit <- asa_audit(senators, backend = "langgraph", agent = agent)
+
+# Access annotated data with audit flags
+head(audit$data)
+#>           name  state party _audit_flag      _audit_notes
+#> 1  John Smith     CA     D          ok              <NA>
+#> 2  Jane Doe       TX     R     warning  Possible duplicate
+```
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `backend` | `"claude_code"` | `"claude_code"` (CLI) or `"langgraph"` |
+| `checks` | all | `"completeness"`, `"consistency"`, `"gaps"`, `"anomalies"` |
+| `known_universe` | `NULL` | Expected items for completeness check |
+| `interactive` | `FALSE` | Spawn interactive Claude Code session |
+| `confidence_threshold` | `0.8` | Flag items below this confidence |
+
 ## Configuration
 
 ### LLM Backends
@@ -245,6 +309,7 @@ The package uses S3 classes for clean output handling:
 - `asa_response`: Raw agent response with trace
 - `asa_result`: Structured task result with parsed output
 - `asa_enumerate_result`: Enumeration results with provenance
+- `asa_audit_result`: Audit results with quality scores and annotations
 
 ```r
 # All classes have print and summary methods
@@ -260,6 +325,14 @@ result$data        # Main data.frame
 result$status      # "complete", "partial", or "error"
 result$metrics     # Rounds, queries, timing info
 result$provenance  # Per-row source tracking (if requested)
+
+# Audit results have quality information
+audit <- asa_audit(result)
+audit$data                # Annotated data with _audit_flag column
+audit$completeness_score  # 0-1 completeness score
+audit$consistency_score   # 0-1 consistency score
+audit$issues              # List of identified issues
+audit$recommendations     # Suggested remediation queries
 ```
 
 ## Advanced Use
@@ -452,14 +525,14 @@ processed_df <- asa::process_outputs(
 ## Performance
 
 <!-- SPEED_REPORT_START -->
-**Last Run:** 2025-12-26 23:52:45 EST | **Status:** PASS
+**Last Run:** 2025-12-27 10:44:41 EST | **Status:** PASS
 
 | Benchmark | Current | Baseline | Ratio | Status |
 |-----------|---------|----------|-------|--------|
-| `build_prompt` | 0.120s | 0.09s | 1.33x | PASS |
+| `build_prompt` | 0.125s | 0.09s | 1.39x | PASS |
 | `helper_funcs` | 0.065s | 0.07s | 0.93x | PASS |
-| `combined` | 0.123s | 0.09s | 1.35x | PASS |
-| `agent_search` | 12.4s | 18s | 0.71x | PASS |
+| `combined` | 0.104s | 0.09s | 1.15x | PASS |
+| `agent_search` | 12.0s | 18s | 0.68x | PASS |
 
 Tests fail if time exceeds 4.00x baseline. 
 See [full report](asa/tests/testthat/SPEED_REPORT.md) for details.
@@ -469,7 +542,10 @@ See [full report](asa/tests/testthat/SPEED_REPORT.md) for details.
 
 - R >= 4.0
 - Python >= 3.10 (managed via conda)
-- reticulate, jsonlite, rlang
+- reticulate, jsonlite, rlang, processx
+
+**Optional:**
+- Claude Code CLI (for `asa_audit()` with `backend = "claude_code"`)
 
 ## License
 

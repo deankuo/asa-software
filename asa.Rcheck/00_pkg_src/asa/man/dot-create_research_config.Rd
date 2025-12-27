@@ -4,7 +4,14 @@
 \alias{.create_research_config}
 \title{Create Research Configuration}
 \usage{
-.create_research_config(max_workers, max_rounds, budget, stop_policy, sources)
+.create_research_config(
+  max_workers,
+  max_rounds,
+  budget,
+  stop_policy,
+  sources,
+  temporal = NULL
+)
 }
 \description{
 Create Research Configuration

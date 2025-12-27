@@ -26,26 +26,42 @@ Type 'q()' to quit R.
 > 
 > test_check("asa")
 
-  build_prompt: 0.1198 sec (baseline: 0.09, threshold: 0.36, ratio: 1.33x)
+  build_prompt: 0.1250 sec (baseline: 0.09, threshold: 0.36, ratio: 1.39x)
 
-  helper_funcs: 0.0649 sec (baseline: 0.07, threshold: 0.28, ratio: 0.93x)
+  helper_funcs: 0.0650 sec (baseline: 0.07, threshold: 0.28, ratio: 0.93x)
 
-  combined:     0.1226 sec (baseline: 0.09, threshold: 0.36, ratio: 1.35x)
+  combined:     0.1045 sec (baseline: 0.09, threshold: 0.36, ratio: 1.15x)
 
-  agent_search: 12.44 sec (baseline: 18, threshold: 70, ratio: 0.71x)
+  agent_search: 11.96 sec (baseline: 18, threshold: 70, ratio: 0.68x)
 
   Could not write speed report: cannot open the connection
   README.md updated: /Users/cjerzak/Documents/asa-software/README.md
-[ FAIL 0 | WARN 1 | SKIP 1 | PASS 275 ]
+  Using auto schema detection...
+  Using auto schema detection...
+  Using auto schema detection...
+  Using auto schema detection...
+  Using auto schema detection...
+  Using auto schema detection...
+  Using auto schema detection...
+  Using auto schema detection...
+  Using auto schema detection...
+  Using auto schema detection...
+  Using auto schema detection...
+  Using auto schema detection...
+[ FAIL 0 | WARN 1 | SKIP 3 | PASS 454 ]
 
-══ Skipped tests (1) ═══════════════════════════════════════════════════════════
+══ Skipped tests (3) ═══════════════════════════════════════════════════════════
 • On CRAN (1): 'test-research.R:355:3'
+• Skipping Claude Code integration test in automated testing (1):
+  'test-audit.R:306:3'
+• Skipping LangGraph integration test - requires initialized agent (1):
+  'test-audit.R:320:3'
 
-[ FAIL 0 | WARN 1 | SKIP 1 | PASS 275 ]
+[ FAIL 0 | WARN 1 | SKIP 3 | PASS 454 ]
 > 
 > # test_check("asa") # - designed for R CMD check, not interactive use
 > # devtools::test("~/Documents/asa-software/asa/")#  - use this for interactive testing
 > 
 > proc.time()
    user  system elapsed 
- 16.783   4.606  73.851 
+ 17.334   4.931  78.682 

@@ -41,6 +41,12 @@ class ResearchConfig:
     use_wikidata: bool = True
     use_web: bool = True
     use_wikipedia: bool = True
+    # Temporal filtering parameters
+    time_filter: Optional[str] = None      # DDG time filter: "d", "w", "m", "y"
+    date_after: Optional[str] = None       # ISO 8601: "2020-01-01"
+    date_before: Optional[str] = None      # ISO 8601: "2024-01-01"
+    temporal_strictness: str = "best_effort"  # "best_effort" | "strict"
+    use_wayback: bool = False              # Use Wayback Machine for pre-date guarantees
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -203,7 +209,7 @@ def create_planner_node(llm):
 # ────────────────────────────────────────────────────────────────────────
 # Searcher Node
 # ────────────────────────────────────────────────────────────────────────
-def create_searcher_node(llm, tools, wikidata_tool=None):
+def create_searcher_node(llm, tools, wikidata_tool=None, research_config: ResearchConfig = None):
     """Create the searcher node that executes searches."""
 
     def searcher_node(state: ResearchState) -> Dict:
@@ -212,6 +218,11 @@ def create_searcher_node(llm, tools, wikidata_tool=None):
         query = state.get("query", "")
         schema = state.get("schema", {})
         config = state.get("config", {})
+
+        # Extract temporal config
+        time_filter = config.get("time_filter") or (research_config.time_filter if research_config else None)
+        date_after = config.get("date_after") or (research_config.date_after if research_config else None)
+        date_before = config.get("date_before") or (research_config.date_before if research_config else None)
 
         results = []
         queries_used = state.get("queries_used", 0)
@@ -270,9 +281,18 @@ def create_searcher_node(llm, tools, wikidata_tool=None):
         if len(results) == 0 and config.get("use_web", True):
             logger.info("Falling back to web search")
             try:
+                # Apply temporal filter to search tools
+                search_tools = []
+                for tool in tools:
+                    # Check if it's a DDG search tool and apply time filter
+                    if hasattr(tool, 'api_wrapper') and time_filter:
+                        tool.api_wrapper.time = time_filter
+                        logger.info(f"Applied time filter '{time_filter}' to search tool")
+                    search_tools.append(tool)
+
                 # Use LLM with tools
-                model_with_tools = llm.bind_tools(tools)
-                tool_node = ToolNode(tools)
+                model_with_tools = llm.bind_tools(search_tools)
+                tool_node = ToolNode(search_tools)
 
                 search_prompt = f"""Search for: {query}
 Extract entities with these fields: {list(schema.keys())}
@@ -403,7 +423,7 @@ def create_research_graph(
 
     # Create nodes
     planner = create_planner_node(llm)
-    searcher = create_searcher_node(llm, tools, wikidata_tool)
+    searcher = create_searcher_node(llm, tools, wikidata_tool, research_config=config)
     deduper = create_deduper_node()
     stopper = create_stopper_node(config)
 

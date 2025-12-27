@@ -52,10 +52,13 @@ asa-package	asa-package
 .validate_s3_class	dot-validate_s3_class
 .validate_string	dot-validate_string
 .validate_string_vector	dot-validate_string_vector
+as.data.frame.asa_audit_result	as.data.frame.asa_audit_result
 as.data.frame.asa_enumerate_result	as.data.frame.asa_enumerate_result
 as.data.frame.asa_result	as.data.frame.asa_result
 asa	asa-package
 asa_agent	asa_agent
+asa_audit	asa_audit
+asa_audit_result	asa_audit_result
 asa_enumerate	asa_enumerate
 asa_enumerate_result	asa_enumerate_result
 asa_response	asa_response
@@ -79,6 +82,7 @@ initialize_agent	initialize_agent
 is_tor_running	is_tor_running
 json_escape	json_escape
 print.asa_agent	print.asa_agent
+print.asa_audit_result	print.asa_audit_result
 print.asa_enumerate_result	print.asa_enumerate_result
 print.asa_response	print.asa_response
 print.asa_result	print.asa_result
@@ -92,6 +96,7 @@ run_task	run_task
 run_task_batch	run_task_batch
 safe_json_parse	safe_json_parse
 summary.asa_agent	summary.asa_agent
+summary.asa_audit_result	summary.asa_audit_result
 summary.asa_enumerate_result	summary.asa_enumerate_result
 summary.asa_response	summary.asa_response
 summary.asa_result	summary.asa_result

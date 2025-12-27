@@ -31,6 +31,14 @@
 #'     \item wikipedia: Use Wikipedia (default: TRUE)
 #'     \item wikidata: Use Wikidata SPARQL for authoritative enumerations (default: TRUE)
 #'   }
+#' @param temporal Named list for temporal filtering:
+#'   \itemize{
+#'     \item after: ISO 8601 date string (e.g., "2020-01-01") - results after this date
+#'     \item before: ISO 8601 date string (e.g., "2024-01-01") - results before this date
+#'     \item time_filter: DuckDuckGo time filter ("d", "w", "m", "y") for day/week/month/year
+#'     \item strictness: "best_effort" (default) or "strict" (verifies dates via metadata)
+#'     \item use_wayback: Use Wayback Machine for strict pre-date guarantees (default: FALSE)
+#'   }
 #' @param pagination Enable pagination for large result sets (default: TRUE).
 #' @param progress Show progress bar and status updates (default: TRUE).
 #' @param include_provenance Include source URLs and confidence per row (default: FALSE).
@@ -106,6 +114,34 @@
 #'   query = "Find Fortune 500 CEOs",
 #'   resume_from = "/tmp/asa_enumerate_abc123.rds"
 #' )
+#'
+#' # Temporal filtering: results from specific date range
+#' companies_2020s <- asa_enumerate(
+#'   query = "Find tech companies founded recently",
+#'   temporal = list(
+#'     after = "2020-01-01",
+#'     before = "2024-01-01",
+#'     strictness = "best_effort"
+#'   )
+#' )
+#'
+#' # Temporal filtering: past year with DuckDuckGo time filter
+#' recent_news <- asa_enumerate(
+#'   query = "Find AI research breakthroughs",
+#'   temporal = list(
+#'     time_filter = "y"  # past year
+#'   )
+#' )
+#'
+#' # Strict temporal filtering with Wayback Machine
+#' historical <- asa_enumerate(
+#'   query = "Find Fortune 500 companies",
+#'   temporal = list(
+#'     before = "2015-01-01",
+#'     strictness = "strict",
+#'     use_wayback = TRUE
+#'   )
+#' )
 #' }
 #'
 #' @seealso \code{\link{run_task}}, \code{\link{initialize_agent}}
@@ -120,6 +156,7 @@ asa_enumerate <- function(query,
                          stop_policy = list(target_items = NULL, plateau_rounds = 2L,
                                            novelty_min = 0.05, novelty_window = 20L),
                          sources = list(web = TRUE, wikipedia = TRUE, wikidata = TRUE),
+                         temporal = NULL,
                          pagination = TRUE,
                          progress = TRUE,
                          include_provenance = FALSE,
@@ -181,7 +218,8 @@ asa_enumerate <- function(query,
     max_rounds = max_rounds,
     budget = budget,
     stop_policy = stop_policy,
-    sources = sources
+    sources = sources,
+    temporal = temporal
   )
 
   # Create checkpoint file path
@@ -302,8 +340,8 @@ asa_enumerate <- function(query,
 
 #' Create Research Configuration
 #' @keywords internal
-.create_research_config <- function(max_workers, max_rounds, budget, stop_policy, sources) {
-  list(
+.create_research_config <- function(max_workers, max_rounds, budget, stop_policy, sources, temporal = NULL) {
+  config <- list(
     max_workers = as.integer(max_workers),
     max_rounds = as.integer(max_rounds),
     budget_queries = as.integer(budget$queries %||% 50L),
@@ -317,13 +355,52 @@ asa_enumerate <- function(query,
     use_web = isTRUE(sources$web),
     use_wikipedia = isTRUE(sources$wikipedia)
   )
+
+  # Add temporal filtering parameters if provided
+
+  if (!is.null(temporal)) {
+    # Validate and normalize temporal parameters
+    if (!is.null(temporal$time_filter)) {
+      valid_filters <- c("d", "w", "m", "y")
+      if (!temporal$time_filter %in% valid_filters) {
+        stop("`temporal$time_filter` must be one of: 'd', 'w', 'm', 'y'", call. = FALSE)
+      }
+      config$time_filter <- temporal$time_filter
+    }
+
+    if (!is.null(temporal$after)) {
+      # Validate ISO 8601 date format
+      tryCatch(
+        as.Date(temporal$after),
+        error = function(e) stop("`temporal$after` must be a valid ISO 8601 date (YYYY-MM-DD)", call. = FALSE)
+      )
+      config$date_after <- temporal$after
+    }
+
+    if (!is.null(temporal$before)) {
+      tryCatch(
+        as.Date(temporal$before),
+        error = function(e) stop("`temporal$before` must be a valid ISO 8601 date (YYYY-MM-DD)", call. = FALSE)
+      )
+      config$date_before <- temporal$before
+    }
+
+    config$temporal_strictness <- temporal$strictness %||% "best_effort"
+    if (!config$temporal_strictness %in% c("best_effort", "strict")) {
+      stop("`temporal$strictness` must be 'best_effort' or 'strict'", call. = FALSE)
+    }
+
+    config$use_wayback <- isTRUE(temporal$use_wayback)
+  }
+
+  config
 }
 
 
 #' Create Research Graph
 #' @keywords internal
 .create_research_graph <- function(agent, config_dict) {
-  # Create Python config object
+  # Create Python config object with temporal parameters
   py_config <- asa_env$research_graph$ResearchConfig(
     max_workers = config_dict$max_workers,
     max_rounds = config_dict$max_rounds,
@@ -336,13 +413,22 @@ asa_enumerate <- function(query,
     novelty_window = config_dict$novelty_window,
     use_wikidata = config_dict$use_wikidata,
     use_web = config_dict$use_web,
-    use_wikipedia = config_dict$use_wikipedia
+    use_wikipedia = config_dict$use_wikipedia,
+    # Temporal filtering parameters
+    time_filter = config_dict$time_filter,
+    date_after = config_dict$date_after,
+    date_before = config_dict$date_before,
+    temporal_strictness = config_dict$temporal_strictness %||% "best_effort",
+    use_wayback = config_dict$use_wayback %||% FALSE
   )
 
-  # Create Wikidata tool if enabled
+  # Create Wikidata tool if enabled (with temporal filtering if specified)
   wikidata_tool <- NULL
   if (config_dict$use_wikidata) {
-    wikidata_tool <- asa_env$wikidata_tool$create_wikidata_tool()
+    wikidata_tool <- asa_env$wikidata_tool$create_wikidata_tool(
+      date_after = config_dict$date_after,
+      date_before = config_dict$date_before
+    )
   }
 
   # Create research graph

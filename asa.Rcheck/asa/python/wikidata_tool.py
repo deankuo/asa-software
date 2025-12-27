@@ -29,6 +29,98 @@ class WikidataConfig:
     max_results: int = 500
     retry_count: int = 3
     retry_delay: float = 2.0
+    # Temporal filtering
+    date_after: Optional[str] = None   # ISO 8601: "2020-01-01"
+    date_before: Optional[str] = None  # ISO 8601: "2024-01-01"
+
+
+def _build_temporal_filter(date_after: Optional[str], date_before: Optional[str]) -> str:
+    """Build SPARQL FILTER clause for temporal constraints.
+
+    This generates filters that work with Wikidata's temporal qualifiers:
+    - P580 (start time): When something began
+    - P582 (end time): When something ended
+
+    For entities that are "current" (no end date), we treat them as still valid.
+
+    Args:
+        date_after: Only include entities valid AFTER this date (ISO 8601)
+        date_before: Only include entities valid BEFORE this date (ISO 8601)
+
+    Returns:
+        SPARQL FILTER clause string (or empty string if no constraints)
+    """
+    filters = []
+
+    if date_after:
+        # Entity must be valid after this date
+        # Either: no end date (still valid), OR end date is after our threshold
+        filters.append(f'''
+  FILTER(
+    !BOUND(?termEnd) ||
+    ?termEnd >= "{date_after}T00:00:00Z"^^xsd:dateTime
+  )''')
+
+    if date_before:
+        # Entity must have started before this date
+        # Either: no start date (unknown), OR start date is before our threshold
+        filters.append(f'''
+  FILTER(
+    !BOUND(?termStart) ||
+    ?termStart < "{date_before}T00:00:00Z"^^xsd:dateTime
+  )''')
+
+    return "\n".join(filters)
+
+
+def _inject_temporal_filter(query: str, date_after: Optional[str], date_before: Optional[str]) -> str:
+    """Inject temporal filtering into a SPARQL query.
+
+    Looks for existing OPTIONAL clauses for P580/P582 and adds FILTER clauses.
+    If the query doesn't have these optionals, adds them.
+
+    Args:
+        query: Original SPARQL query
+        date_after: Filter entities valid after this date
+        date_before: Filter entities valid before this date
+
+    Returns:
+        Modified SPARQL query with temporal filters
+    """
+    if not date_after and not date_before:
+        return query
+
+    temporal_filter = _build_temporal_filter(date_after, date_before)
+
+    if not temporal_filter:
+        return query
+
+    # Check if query already has termStart/termEnd variables
+    has_term_start = "?termStart" in query or "pq:P580" in query
+    has_term_end = "?termEnd" in query or "pq:P582" in query
+
+    # If query uses different variable names, try to adapt
+    # Common patterns: ?start, ?end, ?startTime, ?endTime
+    if not has_term_start and "?start" in query:
+        temporal_filter = temporal_filter.replace("?termStart", "?start")
+        has_term_start = True
+    if not has_term_end and "?end" in query:
+        temporal_filter = temporal_filter.replace("?termEnd", "?end")
+        has_term_end = True
+
+    # Insert filter before SERVICE or closing brace
+    if "SERVICE wikibase:label" in query:
+        # Insert before SERVICE clause
+        parts = query.rsplit("SERVICE wikibase:label", 1)
+        modified = parts[0] + temporal_filter + "\n  SERVICE wikibase:label" + parts[1]
+    elif query.rstrip().endswith("}"):
+        # Insert before closing brace
+        modified = query.rstrip()[:-1] + temporal_filter + "\n}"
+    else:
+        modified = query + temporal_filter
+
+    logger.info(f"Injected temporal filter: after={date_after}, before={date_before}")
+    return modified
 
 
 # Known entity type templates for common enumeration queries
@@ -247,13 +339,17 @@ def get_entity_template(entity_type: str) -> Optional[Dict]:
 
 def query_known_entity(
     entity_type: str,
-    config: Optional[WikidataConfig] = None
+    config: Optional[WikidataConfig] = None,
+    date_after: Optional[str] = None,
+    date_before: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """Query Wikidata for a known entity type using pre-built query.
 
     Args:
         entity_type: One of the known entity types (us_senators, countries, etc.)
         config: Optional configuration
+        date_after: Only include entities valid AFTER this date (ISO 8601)
+        date_before: Only include entities valid BEFORE this date (ISO 8601)
 
     Returns:
         List of entity dictionaries
@@ -268,8 +364,19 @@ def query_known_entity(
             f"Known types: {', '.join(ENTITY_TEMPLATES.keys())}"
         )
 
+    # Use config temporal params if not explicitly provided
+    config = config or WikidataConfig()
+    date_after = date_after or config.date_after
+    date_before = date_before or config.date_before
+
+    # Inject temporal filter into the query if needed
+    query = template["query"]
+    if date_after or date_before:
+        query = _inject_temporal_filter(query, date_after, date_before)
+        logger.info(f"Temporal filter applied: after={date_after}, before={date_before}")
+
     logger.info(f"Querying Wikidata for entity type: {entity_type}")
-    return execute_sparql_query(template["query"], config)
+    return execute_sparql_query(query, config)
 
 
 def infer_entity_type(query: str) -> Optional[str]:
@@ -323,33 +430,81 @@ class WikidataSearchTool(BaseTool):
     For known entity types, provides complete authoritative data with Wikidata IDs.
     For custom queries, can execute raw SPARQL.
 
+    Supports temporal filtering:
+    - "entity_type:us_senators after:2020-01-01"
+    - "entity_type:fortune500 before:2015-01-01"
+    - "entity_type:countries after:2000-01-01 before:2020-01-01"
+
     Input format:
     - For known types: "entity_type:us_senators" or "entity_type:countries"
     - For inference: just describe what you want, e.g., "all US senators"
     - For raw SPARQL: "sparql:SELECT ..."
+    - With temporal: add "after:YYYY-MM-DD" and/or "before:YYYY-MM-DD"
     """
 
     config: WikidataConfig = Field(default_factory=WikidataConfig)
+    # Temporal parameters can be set externally
+    date_after: Optional[str] = None
+    date_before: Optional[str] = None
+
+    def _parse_temporal_from_query(self, query: str) -> tuple:
+        """Extract temporal parameters from query string.
+
+        Looks for patterns like "after:2020-01-01" and "before:2024-01-01"
+
+        Returns:
+            Tuple of (cleaned_query, date_after, date_before)
+        """
+        import re
+
+        date_after = self.date_after
+        date_before = self.date_before
+
+        # Pattern for after:YYYY-MM-DD
+        after_match = re.search(r'\bafter:(\d{4}-\d{2}-\d{2})\b', query)
+        if after_match:
+            date_after = after_match.group(1)
+            query = query.replace(after_match.group(0), "").strip()
+
+        # Pattern for before:YYYY-MM-DD
+        before_match = re.search(r'\bbefore:(\d{4}-\d{2}-\d{2})\b', query)
+        if before_match:
+            date_before = before_match.group(1)
+            query = query.replace(before_match.group(0), "").strip()
+
+        return query, date_after, date_before
 
     def _run(self, query: str) -> str:
         """Execute Wikidata search and return formatted results."""
         try:
+            # Parse temporal parameters from query string
+            query, date_after, date_before = self._parse_temporal_from_query(query)
+
             # Check for explicit entity type prefix
             if query.startswith("entity_type:"):
                 entity_type = query.split(":", 1)[1].strip()
-                results = query_known_entity(entity_type, self.config)
+                results = query_known_entity(
+                    entity_type, self.config,
+                    date_after=date_after, date_before=date_before
+                )
                 return self._format_results(results, entity_type)
 
             # Check for raw SPARQL prefix
             if query.startswith("sparql:"):
                 sparql_query = query.split(":", 1)[1].strip()
+                # Inject temporal filter into raw SPARQL if provided
+                if date_after or date_before:
+                    sparql_query = _inject_temporal_filter(sparql_query, date_after, date_before)
                 results = execute_sparql_query(sparql_query, self.config)
                 return self._format_results(results)
 
             # Try to infer entity type from natural language
             entity_type = infer_entity_type(query)
             if entity_type:
-                results = query_known_entity(entity_type, self.config)
+                results = query_known_entity(
+                    entity_type, self.config,
+                    date_after=date_after, date_before=date_before
+                )
                 return self._format_results(results, entity_type)
 
             # No match - return guidance
@@ -403,16 +558,27 @@ class WikidataSearchTool(BaseTool):
         return self._run(query)
 
 
-def create_wikidata_tool(config: Optional[WikidataConfig] = None) -> WikidataSearchTool:
+def create_wikidata_tool(
+    config: Optional[WikidataConfig] = None,
+    date_after: Optional[str] = None,
+    date_before: Optional[str] = None
+) -> WikidataSearchTool:
     """Factory function to create a WikidataSearchTool instance.
 
     Args:
         config: Optional WikidataConfig for customization
+        date_after: Default temporal filter - only include entities valid after this date
+        date_before: Default temporal filter - only include entities valid before this date
 
     Returns:
         Configured WikidataSearchTool instance
     """
-    return WikidataSearchTool(config=config or WikidataConfig())
+    tool = WikidataSearchTool(config=config or WikidataConfig())
+    if date_after:
+        tool.date_after = date_after
+    if date_before:
+        tool.date_before = date_before
+    return tool
 
 
 # ────────────────────────────────────────────────────────────────────────
