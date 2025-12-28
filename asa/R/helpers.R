@@ -377,17 +377,17 @@ configure_temporal <- function(time_filter = NULL) {
   tryCatch({
     search_tool$api_wrapper$time <- time_filter
     if (time_filter != "none") {
-      message("Temporal filter set to: ", time_filter,
+      message("DuckDuckGo time filter set to: ", time_filter,
               " (", switch(time_filter,
                            "d" = "past day",
                            "w" = "past week",
                            "m" = "past month",
                            "y" = "past year"), ")")
     } else {
-      message("Temporal filter cleared")
+      message("DuckDuckGo time filter cleared")
     }
   }, error = function(e) {
-    warning("Could not set temporal filter: ", e$message, call. = FALSE)
+    warning("Could not set DuckDuckGo time filter: ", e$message, call. = FALSE)
   })
 
   invisible(prev_filter)

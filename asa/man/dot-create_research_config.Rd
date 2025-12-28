@@ -5,7 +5,7 @@
 \title{Create Research Configuration}
 \usage{
 .create_research_config(
-  max_workers,
+  workers,
   max_rounds,
   budget,
   stop_policy,

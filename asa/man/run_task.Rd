@@ -8,6 +8,7 @@ run_task(
   prompt,
   output_format = "text",
   temporal = NULL,
+  config = NULL,
   agent = NULL,
   verbose = FALSE
 )
@@ -15,10 +16,15 @@ run_task(
 \arguments{
 \item{prompt}{The task prompt or question for the agent to research}
 
-\item{output_format}{Expected output format. One of: "text" (raw response),
-"json" (parse as JSON), or a character vector of field names to extract}
+\item{output_format}{Expected output format. One of:
+\itemize{
+  \item "text": Returns response text (default)
+  \item "json": Parse response as JSON
+  \item "raw": Include full trace in result for debugging
+  \item Character vector: Extract specific fields from response
+}}
 
-\item{temporal}{Named list for temporal filtering of search results:
+\item{temporal}{Named list or \code{asa_temporal} object for temporal filtering:
 \itemize{
   \item time_filter: DuckDuckGo time filter - "d" (day), "w" (week),
     "m" (month), "y" (year)
@@ -28,30 +34,37 @@ run_task(
     before this date (added to prompt context)
 }}
 
+\item{config}{An \code{asa_config} object for unified configuration, or NULL
+to use defaults}
+
 \item{agent}{An asa_agent object from \code{\link{initialize_agent}}, or
 NULL to use the currently initialized agent}
 
 \item{verbose}{Print progress messages (default: FALSE)}
 }
 \value{
-An object of class \code{asa_result} with components:
-\itemize{
-  \item prompt: The original prompt
-  \item message: The agent's response text
-  \item parsed: Parsed output (if output_format specified)
-  \item raw_output: Full agent trace
-  \item elapsed_time: Execution time in minutes
-  \item status: "success" or "error"
-}
+An \code{asa_result} object with:
+  \itemize{
+    \item prompt: The original prompt
+    \item message: The agent's response text
+    \item parsed: Parsed output (list for JSON/field extraction, NULL for text/raw)
+    \item raw_output: Full agent trace (always included, verbose for "raw" format)
+    \item elapsed_time: Execution time in minutes
+    \item status: "success" or "error"
+    \item trace: Full execution trace (for "raw" output_format)
+    \item fold_count: Number of memory folds (for "raw" output_format)
+  }
 }
 \description{
 Executes a research task using the AI search agent with a structured prompt
-and returns parsed results.
+and returns parsed results. This is the primary function for running
+agent tasks.
 }
 \details{
-This function provides a high-level interface for running research tasks.
+This function provides the primary interface for running research tasks.
 For simple text responses, use \code{output_format = "text"}. For structured
 outputs, use \code{output_format = "json"} or specify field names to extract.
+For debugging and full trace access, use \code{output_format = "raw"}.
 
 When temporal filtering is specified, the search tool's time filter is
 temporarily set for this task and restored afterward. Date hints (after/before)
@@ -79,10 +92,18 @@ result <- run_task(
 )
 print(result$parsed)
 
+# Raw output for debugging (includes full trace in asa_result)
+result <- run_task(
+  prompt = "Search for information",
+  output_format = "raw",
+  agent = agent
+)
+cat(result$trace)  # View full agent trace
+
 # With temporal filtering (past year only)
 result <- run_task(
   prompt = "Find recent AI research breakthroughs",
-  temporal = list(time_filter = "y"),
+  temporal = temporal_options(time_filter = "y"),
   agent = agent
 )
 
@@ -96,10 +117,18 @@ result <- run_task(
   ),
   agent = agent
 )
+
+# Using asa_config for unified configuration
+config <- asa_config(
+  backend = "openai",
+  model = "gpt-4.1-mini",
+  temporal = temporal_options(time_filter = "y")
+)
+result <- run_task(prompt, config = config)
 }
 
 }
 \seealso{
-\code{\link{initialize_agent}}, \code{\link{run_agent}},
-  \code{\link{run_task_batch}}, \code{\link{configure_temporal}}
+\code{\link{initialize_agent}}, \code{\link{run_task_batch}},
+  \code{\link{asa_config}}, \code{\link{temporal_options}}
 }

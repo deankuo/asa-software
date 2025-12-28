@@ -494,11 +494,14 @@ test_that(".validate_temporal accepts valid use_wayback values", {
 })
 
 test_that(".validate_temporal accepts complex valid temporal lists", {
-  expect_silent(.validate_temporal(list(
+  # Note: This combination triggers a warning about time_filter conflicting
+  # with the date range (after = 2020 is outside past year). We suppress
+  # the warning here since we're testing that validation passes.
+  expect_silent(suppressWarnings(.validate_temporal(list(
     time_filter = "y",
     after = "2020-01-01",
     before = "2024-12-31",
     strictness = "best_effort",
     use_wayback = FALSE
-  )))
+  ))))
 })

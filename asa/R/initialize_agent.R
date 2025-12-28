@@ -90,8 +90,10 @@ initialize_agent <- function(backend = "openai",
   # Validate backend
   backend <- match.arg(backend, c("openai", "groq", "xai", "exo", "openrouter"))
 
-  # Validate all inputs
+  # Validate API key for the selected backend (fail-fast before expensive operations)
+  .validate_api_key(backend)
 
+  # Validate all inputs
   .validate_initialize_agent(
     backend = backend,
     model = model,
@@ -367,8 +369,8 @@ initialize_agent <- function(backend = "openai",
 .create_agent <- function(llm, tools, use_memory_folding,
                           memory_threshold, memory_keep_recent) {
   if (use_memory_folding) {
-    # Use custom memory folding agent
-    agent <- asa_env$custom_ddg$create_memory_folding_agent_with_checkpointer(
+    # Use custom memory folding agent with unified API
+    agent <- asa_env$custom_ddg$create_memory_folding_agent(
       model = llm,
       tools = tools,
       checkpointer = asa_env$MemorySaver(),

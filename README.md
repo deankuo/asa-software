@@ -45,6 +45,9 @@ print(result)
 | `run_task_batch()` | Run multiple tasks in batch |
 | `asa_enumerate()` | **Open-ended enumeration** with multi-agent orchestration and temporal filtering |
 | `asa_audit()` | **Data quality auditing** for enumeration results |
+| `asa_config()` | Create unified configuration object |
+| `temporal_options()` | Create temporal filtering options |
+| `search_options()` | Create search configuration options |
 | `build_prompt()` | Build prompts from templates with variable substitution |
 | `configure_search()` | Configure search timing and retry behavior |
 | `extract_search_tiers()` | Get which search tier was used from traces |
@@ -175,7 +178,7 @@ summary(senators)
 result <- asa::asa_enumerate(
   query = "Find Fortune 500 companies with their CEOs",
   schema = c(company = "character", ceo = "character", industry = "character"),
-  max_workers = 4,
+  workers = 4,
   max_rounds = 8,
   budget = list(queries = 50, tokens = 200000, time_sec = 300),
   stop_policy = list(
@@ -343,6 +346,37 @@ agent <- asa::initialize_agent(
 )
 ```
 
+### Configuration Classes
+
+The package provides typed configuration classes for organized settings management:
+
+```r
+# Create temporal filtering options
+temporal <- asa::temporal_options(
+  time_filter = "y",      # DuckDuckGo time filter
+  after = "2023-01-01",   # ISO 8601 date
+  before = "2024-12-01"
+)
+
+# Create search options
+search <- asa::search_options(
+  max_retries = 5,
+  inter_search_delay = 1.0
+)
+
+# Create unified configuration
+config <- asa::asa_config(
+  backend = "openai",
+  model = "gpt-4.1-mini",
+  workers = 4,
+  temporal = temporal,
+  search = search
+)
+
+# Use with run_task
+result <- asa::run_task(prompt, config = config)
+```
+
 ## Search Architecture
 
 The agent uses two search tools:
@@ -355,10 +389,12 @@ The agent uses two search tools:
 The package uses S3 classes for clean output handling:
 
 - `asa_agent`: Initialized agent object
-- `asa_response`: Raw agent response with trace
-- `asa_result`: Structured task result with parsed output
+- `asa_result`: Structured task result with parsed output (all formats)
 - `asa_enumerate_result`: Enumeration results with provenance
 - `asa_audit_result`: Audit results with quality scores and annotations
+- `asa_config`: Unified configuration object
+- `asa_temporal`: Temporal filtering options
+- `asa_search`: Search configuration options
 
 ```r
 # All classes have print and summary methods
@@ -401,8 +437,12 @@ agent <- asa::initialize_agent(
 )
 
 # Monitor folding activity in responses
-response <- asa::run_agent("Complex multi-step research query...", agent = agent)
-print(response$fold_count)  # Number of times memory was folded
+result <- asa::run_task(
+  "Complex multi-step research query...",
+  output_format = "raw",  # Returns asa_result with trace and fold_count
+  agent = agent
+)
+print(result$fold_count)  # Number of times memory was folded
 
 # Disable memory folding for short, single-turn tasks
 agent_simple <- asa::initialize_agent(
@@ -574,14 +614,14 @@ processed_df <- asa::process_outputs(
 ## Performance
 
 <!-- SPEED_REPORT_START -->
-**Last Run:** 2025-12-28 07:48:59 EST | **Status:** PASS
+**Last Run:** 2025-12-28 12:29:49 EST | **Status:** PASS
 
 | Benchmark | Current | Baseline | Ratio | Status |
 |-----------|---------|----------|-------|--------|
-| `build_prompt` | 0.125s | 0.09s | 1.39x | PASS |
-| `helper_funcs` | 0.099s | 0.07s | 1.42x | PASS |
-| `combined` | 0.114s | 0.09s | 1.25x | PASS |
-| `agent_search` | 14.4s | 18s | 0.82x | PASS |
+| `build_prompt` | 0.122s | 0.09s | 1.36x | PASS |
+| `helper_funcs` | 0.093s | 0.07s | 1.33x | PASS |
+| `combined` | 0.107s | 0.09s | 1.17x | PASS |
+| `agent_search` | 38.8s | 18s | 2.20x | PASS |
 
 Tests fail if time exceeds 4.00x baseline. 
 See [full report](asa/tests/testthat/SPEED_REPORT.md) for details.

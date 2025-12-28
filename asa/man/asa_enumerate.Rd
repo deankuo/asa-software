@@ -8,8 +8,8 @@ asa_enumerate(
   query,
   schema = NULL,
   output = c("data.frame", "csv", "json"),
-  max_workers = 4L,
-  max_rounds = 8L,
+  workers = NULL,
+  max_rounds = NULL,
   budget = list(queries = 50L, tokens = 200000L, time_sec = 300L),
   stop_policy = list(target_items = NULL, plateau_rounds = 2L, novelty_min = 0.05,
     novelty_window = 20L),
@@ -22,9 +22,9 @@ asa_enumerate(
   checkpoint_dir = tempdir(),
   resume_from = NULL,
   agent = NULL,
-  backend = "openai",
-  model = "gpt-4.1-mini",
-  conda_env = "asa_env",
+  backend = NULL,
+  model = NULL,
+  conda_env = NULL,
   verbose = TRUE
 )
 }
@@ -38,9 +38,11 @@ Use NULL or "auto" for LLM-proposed schema.}
 
 \item{output}{Output format: "data.frame" (default), "csv", or "json".}
 
-\item{max_workers}{Maximum number of parallel search workers (default: 4).}
+\item{workers}{Number of parallel search workers. Defaults to value from
+\code{ASA_DEFAULT_WORKERS} (typically 4).}
 
-\item{max_rounds}{Maximum research iterations (default: 8).}
+\item{max_rounds}{Maximum research iterations. Defaults to value from
+\code{ASA_DEFAULT_MAX_ROUNDS} (typically 8).}
 
 \item{budget}{Named list with resource limits:
 \itemize{

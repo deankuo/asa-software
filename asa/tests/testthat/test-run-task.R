@@ -64,17 +64,39 @@ test_that(".augment_prompt_temporal returns unchanged prompt when no dates speci
 test_that(".augment_prompt_temporal adds context for after date only", {
   prompt <- "Find companies"
   temporal <- list(after = "2020-01-01")
-  result <- asa:::.augment_prompt_temporal(prompt, temporal)
+  result <- suppressMessages(asa:::.augment_prompt_temporal(prompt, temporal))
 
   expect_match(result, "Find companies")
   expect_match(result, "\\[Temporal context:")
   expect_match(result, "after 2020-01-01")
 })
 
+test_that(".augment_prompt_temporal shows message for date context", {
+  prompt <- "Find companies"
+
+  # Test after-only message
+  expect_message(
+    asa:::.augment_prompt_temporal(prompt, list(after = "2020-01-01")),
+    "Temporal context: focusing on results after 2020-01-01"
+  )
+
+  # Test before-only message
+  expect_message(
+    asa:::.augment_prompt_temporal(prompt, list(before = "2024-01-01")),
+    "Temporal context: focusing on results before 2024-01-01"
+  )
+
+  # Test date range message
+  expect_message(
+    asa:::.augment_prompt_temporal(prompt, list(after = "2020-01-01", before = "2024-01-01")),
+    "Temporal context: focusing on 2020-01-01 to 2024-01-01"
+  )
+})
+
 test_that(".augment_prompt_temporal adds context for before date only", {
   prompt <- "Find companies"
   temporal <- list(before = "2024-01-01")
-  result <- asa:::.augment_prompt_temporal(prompt, temporal)
+  result <- suppressMessages(asa:::.augment_prompt_temporal(prompt, temporal))
 
   expect_match(result, "Find companies")
   expect_match(result, "\\[Temporal context:")
@@ -84,7 +106,7 @@ test_that(".augment_prompt_temporal adds context for before date only", {
 test_that(".augment_prompt_temporal adds context for date range", {
   prompt <- "Find companies"
   temporal <- list(after = "2020-01-01", before = "2024-01-01")
-  result <- asa:::.augment_prompt_temporal(prompt, temporal)
+  result <- suppressMessages(asa:::.augment_prompt_temporal(prompt, temporal))
 
   expect_match(result, "Find companies")
   expect_match(result, "\\[Temporal context:")
@@ -94,13 +116,38 @@ test_that(".augment_prompt_temporal adds context for date range", {
 test_that(".augment_prompt_temporal preserves original prompt structure", {
   prompt <- "Line 1\nLine 2\nLine 3"
   temporal <- list(after = "2020-01-01")
-  result <- asa:::.augment_prompt_temporal(prompt, temporal)
+  result <- suppressMessages(asa:::.augment_prompt_temporal(prompt, temporal))
 
   # Original content preserved
-
   expect_match(result, "Line 1\nLine 2\nLine 3")
   # Temporal context appended (not prepended)
   expect_true(grepl("Line 3.*\\[Temporal context:", result))
+})
+
+# ============================================================================
+# run_task() output_format = "raw" Tests
+# ============================================================================
+
+test_that("run_task accepts output_format = 'raw'", {
+  # Test that "raw" is a valid output_format (validation passes)
+  # The validation function should not throw for "raw"
+  expect_silent(asa:::.validate_run_task("test", "raw", NULL, FALSE))
+})
+
+test_that("run_task validation accepts all output_format options", {
+  # Mock validation should pass for all valid formats
+  expect_silent(asa:::.validate_run_task("prompt", "text", NULL, FALSE))
+  expect_silent(asa:::.validate_run_task("prompt", "json", NULL, FALSE))
+  expect_silent(asa:::.validate_run_task("prompt", "raw", NULL, FALSE))
+  expect_silent(asa:::.validate_run_task("prompt", c("field1", "field2"), NULL, FALSE))
+})
+
+test_that("run_task_batch validation accepts 'raw' output_format", {
+  expect_silent(
+    asa:::.validate_run_task_batch(
+      c("prompt1", "prompt2"), "raw", NULL, FALSE, 4L, TRUE
+    )
+  )
 })
 
 # ============================================================================
@@ -132,6 +179,25 @@ test_that("run_task rejects after >= before", {
   expect_error(
     run_task("test prompt", temporal = list(after = "2024-06-01", before = "2024-01-01")),
     "after < before"
+  )
+})
+
+test_that("run_task warns when time_filter conflicts with date range", {
+  # time_filter="y" (past year) conflicts with after="1990-01-01" (30+ years ago)
+  expect_warning(
+    asa:::.validate_temporal(
+      list(time_filter = "y", after = "1990-01-01"),
+      "temporal"
+    ),
+    "Temporal conflict"
+  )
+
+  # No warning when date range is within time_filter window
+  expect_silent(
+    asa:::.validate_temporal(
+      list(time_filter = "y", after = as.character(Sys.Date() - 100)),
+      "temporal"
+    )
   )
 })
 
@@ -232,55 +298,6 @@ test_that(".with_temporal handles NULL temporal gracefully", {
 })
 
 # ============================================================================
-# run_agent() Temporal Validation Tests
+# Note: run_agent() and run_agent_batch() have been removed from the public API.
+# Use run_task(..., output_format = "raw") instead for full trace access.
 # ============================================================================
-
-test_that("run_agent rejects invalid temporal$time_filter", {
-  expect_error(
-    run_agent("test prompt", temporal = list(time_filter = "invalid")),
-    "time_filter"
-  )
-})
-
-test_that("run_agent rejects invalid temporal$after", {
-  expect_error(
-    run_agent("test prompt", temporal = list(after = "not-a-date")),
-    "after.*valid"
-  )
-})
-
-test_that("run_agent rejects invalid temporal$before", {
-  expect_error(
-    run_agent("test prompt", temporal = list(before = "not-a-date")),
-    "before.*valid"
-  )
-})
-
-test_that("run_agent rejects after >= before", {
-  expect_error(
-    run_agent("test prompt", temporal = list(after = "2024-06-01", before = "2024-01-01")),
-    "after < before"
-  )
-})
-
-# ============================================================================
-# run_agent_batch() Temporal Validation Tests
-# ============================================================================
-
-test_that("run_agent_batch rejects invalid temporal$time_filter", {
-  expect_error(
-    run_agent_batch(c("a", "b"), temporal = list(time_filter = "invalid")),
-    "time_filter"
-  )
-})
-
-test_that("run_agent_batch rejects invalid temporal dates", {
-  expect_error(
-    run_agent_batch(c("a", "b"), temporal = list(after = "bad-date")),
-    "after.*valid"
-  )
-  expect_error(
-    run_agent_batch(c("a", "b"), temporal = list(before = "bad-date")),
-    "before.*valid"
-  )
-})

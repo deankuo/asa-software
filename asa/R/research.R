@@ -10,8 +10,10 @@
 #'   Names are column names, values are R types ("character", "numeric", "logical").
 #'   Use NULL or "auto" for LLM-proposed schema.
 #' @param output Output format: "data.frame" (default), "csv", or "json".
-#' @param max_workers Maximum number of parallel search workers (default: 4).
-#' @param max_rounds Maximum research iterations (default: 8).
+#' @param workers Number of parallel search workers. Defaults to value from
+#'   \code{ASA_DEFAULT_WORKERS} (typically 4).
+#' @param max_rounds Maximum research iterations. Defaults to value from
+#'   \code{ASA_DEFAULT_MAX_ROUNDS} (typically 8).
 #' @param budget Named list with resource limits:
 #'   \itemize{
 #'     \item queries: Maximum search queries (default: 50)
@@ -150,8 +152,8 @@
 asa_enumerate <- function(query,
                          schema = NULL,
                          output = c("data.frame", "csv", "json"),
-                         max_workers = 4L,
-                         max_rounds = 8L,
+                         workers = NULL,
+                         max_rounds = NULL,
                          budget = list(queries = 50L, tokens = 200000L, time_sec = 300L),
                          stop_policy = list(target_items = NULL, plateau_rounds = 2L,
                                            novelty_min = 0.05, novelty_window = 20L),
@@ -164,10 +166,17 @@ asa_enumerate <- function(query,
                          checkpoint_dir = tempdir(),
                          resume_from = NULL,
                          agent = NULL,
-                         backend = "openai",
-                         model = "gpt-4.1-mini",
-                         conda_env = "asa_env",
+                         backend = NULL,
+                         model = NULL,
+                         conda_env = NULL,
                          verbose = TRUE) {
+
+  # Apply defaults from constants
+  workers <- workers %||% .get_default_workers()
+  max_rounds <- max_rounds %||% ASA_DEFAULT_MAX_ROUNDS
+  backend <- backend %||% .get_default_backend()
+  model <- model %||% .get_default_model()
+  conda_env <- conda_env %||% .get_default_conda_env()
 
   # Match output format
   output <- match.arg(output)
@@ -177,7 +186,7 @@ asa_enumerate <- function(query,
     query = query,
     schema = schema,
     output = output,
-    max_workers = max_workers,
+    workers = workers,
     max_rounds = max_rounds,
     budget = budget,
     stop_policy = stop_policy,
@@ -214,7 +223,7 @@ asa_enumerate <- function(query,
 
   # Create research config
   config_dict <- .create_research_config(
-    max_workers = max_workers,
+    workers = workers,
     max_rounds = max_rounds,
     budget = budget,
     stop_policy = stop_policy,
@@ -340,9 +349,9 @@ asa_enumerate <- function(query,
 
 #' Create Research Configuration
 #' @keywords internal
-.create_research_config <- function(max_workers, max_rounds, budget, stop_policy, sources, temporal = NULL) {
+.create_research_config <- function(workers, max_rounds, budget, stop_policy, sources, temporal = NULL) {
   config <- list(
-    max_workers = as.integer(max_workers),
+    max_workers = as.integer(workers),  # Python side still expects max_workers
     max_rounds = as.integer(max_rounds),
     budget_queries = as.integer(budget$queries %||% 50L),
     budget_tokens = as.integer(budget$tokens %||% 200000L),
@@ -619,7 +628,7 @@ asa_enumerate <- function(query,
 
 #' Validate Research Inputs
 #' @keywords internal
-.validate_research_inputs <- function(query, schema, output, max_workers, max_rounds,
+.validate_research_inputs <- function(query, schema, output, workers, max_rounds,
                                       budget, stop_policy, sources,
                                       checkpoint_dir, resume_from) {
   # Query validation
@@ -628,8 +637,8 @@ asa_enumerate <- function(query,
   }
 
   # Numeric parameters
-  if (!is.null(max_workers) && (!is.numeric(max_workers) || max_workers < 1 || max_workers > 10)) {
-    stop("`max_workers` must be a number between 1 and 10", call. = FALSE)
+  if (!is.null(workers) && (!is.numeric(workers) || workers < 1 || workers > 10)) {
+    stop("`workers` must be a number between 1 and 10", call. = FALSE)
   }
 
   if (!is.null(max_rounds) && (!is.numeric(max_rounds) || max_rounds < 1 || max_rounds > 100)) {
