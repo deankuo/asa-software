@@ -4,13 +4,29 @@
 \alias{run_task}
 \title{Run a Structured Task with the Agent}
 \usage{
-run_task(prompt, output_format = "text", agent = NULL, verbose = FALSE)
+run_task(
+  prompt,
+  output_format = "text",
+  temporal = NULL,
+  agent = NULL,
+  verbose = FALSE
+)
 }
 \arguments{
 \item{prompt}{The task prompt or question for the agent to research}
 
 \item{output_format}{Expected output format. One of: "text" (raw response),
 "json" (parse as JSON), or a character vector of field names to extract}
+
+\item{temporal}{Named list for temporal filtering of search results:
+\itemize{
+  \item time_filter: DuckDuckGo time filter - "d" (day), "w" (week),
+    "m" (month), "y" (year)
+  \item after: ISO 8601 date (e.g., "2020-01-01") - hint for results
+    after this date (added to prompt context)
+  \item before: ISO 8601 date (e.g., "2024-01-01") - hint for results
+    before this date (added to prompt context)
+}}
 
 \item{agent}{An asa_agent object from \code{\link{initialize_agent}}, or
 NULL to use the currently initialized agent}
@@ -36,6 +52,10 @@ and returns parsed results.
 This function provides a high-level interface for running research tasks.
 For simple text responses, use \code{output_format = "text"}. For structured
 outputs, use \code{output_format = "json"} or specify field names to extract.
+
+When temporal filtering is specified, the search tool's time filter is
+temporarily set for this task and restored afterward. Date hints (after/before)
+are appended to the prompt to guide the agent's search behavior.
 }
 \examples{
 \dontrun{
@@ -58,10 +78,28 @@ result <- run_task(
   agent = agent
 )
 print(result$parsed)
+
+# With temporal filtering (past year only)
+result <- run_task(
+  prompt = "Find recent AI research breakthroughs",
+  temporal = list(time_filter = "y"),
+  agent = agent
+)
+
+# With date range hint
+result <- run_task(
+  prompt = "Find tech companies founded recently",
+  temporal = list(
+    time_filter = "y",
+    after = "2020-01-01",
+    before = "2024-01-01"
+  ),
+  agent = agent
+)
 }
 
 }
 \seealso{
 \code{\link{initialize_agent}}, \code{\link{run_agent}},
-  \code{\link{run_task_batch}}
+  \code{\link{run_task_batch}}, \code{\link{configure_temporal}}
 }

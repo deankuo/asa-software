@@ -300,6 +300,146 @@ configure_search_logging <- function(level = "WARNING",
 }
 
 
+#' Configure Temporal Filtering for Search
+#'
+#' Sets or clears temporal filtering on the DuckDuckGo search tool.
+#' This affects all subsequent searches until changed or cleared.
+#'
+#' @param time_filter DuckDuckGo time filter: "d" (day), "w" (week),
+#'   "m" (month), "y" (year), or NULL/NA/"none" to clear
+#'
+#' @return Invisibly returns the previous time filter setting
+#'
+#' @details
+#' This function modifies the search tool's time parameter, which is
+#' passed to DuckDuckGo as the \code{df} parameter. The filter restricts
+#' results to content indexed within the specified time period.
+#'
+#' Note: This only affects DuckDuckGo searches. For Wikidata queries
+#' with temporal filtering, use \code{asa_enumerate()} with its
+#' \code{temporal} parameter.
+#'
+#' @section Time Filter Values:
+#' \itemize{
+#'   \item "d": Past 24 hours (day)
+#'   \item "w": Past 7 days (week)
+#'   \item "m": Past 30 days (month)
+#'   \item "y": Past 365 days (year)
+#'   \item NULL, NA, or "none": No time restriction (default)
+#' }
+#'
+#' @examples
+#' \dontrun{
+#' # Restrict to past year
+#' configure_temporal("y")
+#' result <- run_task("Find recent AI breakthroughs", agent = agent)
+#'
+#' # Clear temporal filter
+#' configure_temporal(NULL)
+#'
+#' # Past week only
+#' configure_temporal("w")
+#' }
+#'
+#' @seealso \code{\link{run_task}}, \code{\link{asa_enumerate}}
+#'
+#' @export
+configure_temporal <- function(time_filter = NULL) {
+  # Check if agent is initialized
+  if (!.is_initialized()) {
+    stop("Agent not initialized. Call initialize_agent() first.", call. = FALSE)
+  }
+
+  # Validate time_filter
+  if (!is.null(time_filter) && !is.na(time_filter) && time_filter != "none") {
+    valid_filters <- c("d", "w", "m", "y")
+    if (!time_filter %in% valid_filters) {
+      stop("`time_filter` must be one of: 'd', 'w', 'm', 'y', or NULL/NA/'none'",
+           call. = FALSE)
+    }
+  }
+
+  # Normalize NULL/NA/"none" to "none" (DuckDuckGo's no-filter value)
+  if (is.null(time_filter) || is.na(time_filter) || time_filter == "none") {
+    time_filter <- "none"
+  }
+
+  # Get the search tool (second in the tools list)
+  search_tool <- asa_env$tools[[2]]
+
+  # Store previous value for return
+  prev_filter <- tryCatch(
+    search_tool$api_wrapper$time,
+    error = function(e) "none"
+  )
+
+  # Update the time filter on the API wrapper
+  tryCatch({
+    search_tool$api_wrapper$time <- time_filter
+    if (time_filter != "none") {
+      message("Temporal filter set to: ", time_filter,
+              " (", switch(time_filter,
+                           "d" = "past day",
+                           "w" = "past week",
+                           "m" = "past month",
+                           "y" = "past year"), ")")
+    } else {
+      message("Temporal filter cleared")
+    }
+  }, error = function(e) {
+    warning("Could not set temporal filter: ", e$message, call. = FALSE)
+  })
+
+  invisible(prev_filter)
+}
+
+
+#' Apply Temporal Filtering for a Single Operation
+#'
+#' Internal helper that applies temporal filtering, runs a function,
+#' and restores the original setting. Used by run_task() and run_task_batch().
+#'
+#' @param temporal Named list with temporal options (time_filter, after, before)
+#' @param fn Function to run with temporal filtering applied
+#' @return Result of fn()
+#' @keywords internal
+.with_temporal <- function(temporal, fn) {
+  if (is.null(temporal)) {
+    return(fn())
+  }
+
+  # Store original setting
+  original_filter <- tryCatch({
+    if (.is_initialized()) {
+      asa_env$tools[[2]]$api_wrapper$time
+    } else {
+      "none"
+    }
+  }, error = function(e) "none")
+
+  # Apply temporal filter if specified
+  if (!is.null(temporal$time_filter)) {
+    configure_temporal(temporal$time_filter)
+  }
+
+  # Run the function
+  result <- tryCatch(
+    fn(),
+    finally = {
+      # Restore original setting
+      if (!is.null(temporal$time_filter)) {
+        tryCatch(
+          configure_temporal(original_filter),
+          error = function(e) NULL
+        )
+      }
+    }
+  )
+
+  result
+}
+
+
 #' Configure Python Search Parameters
 #'
 #' Sets global configuration values for the Python search module.

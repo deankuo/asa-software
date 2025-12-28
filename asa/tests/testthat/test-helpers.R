@@ -39,3 +39,46 @@ test_that("format_duration formats time correctly", {
   expect_match(format_duration(90), "hour")
   expect_equal(format_duration(NA), "N/A")
 })
+
+# ============================================================================
+# configure_temporal() Tests
+# ============================================================================
+
+test_that("configure_temporal rejects invalid time_filter values", {
+  # These tests only run when agent is initialized
+  skip_if(!asa:::.is_initialized(), "Agent not initialized")
+
+  expect_error(configure_temporal("invalid"), "one of: 'd', 'w', 'm', 'y'")
+  expect_error(configure_temporal("day"), "one of: 'd', 'w', 'm', 'y'")
+  expect_error(configure_temporal(123), "one of: 'd', 'w', 'm', 'y'")
+})
+
+test_that("configure_temporal normalizes NULL/NA/none to 'none'", {
+  skip_if(!asa:::.is_initialized(), "Agent not initialized")
+
+  search_tool <- asa:::asa_env$tools[[2]]
+
+  # All these should set time to "none"
+  suppressMessages(configure_temporal(NULL))
+  expect_equal(search_tool$api_wrapper$time, "none")
+
+  suppressMessages(configure_temporal(NA))
+  expect_equal(search_tool$api_wrapper$time, "none")
+
+  suppressMessages(configure_temporal("none"))
+  expect_equal(search_tool$api_wrapper$time, "none")
+})
+
+test_that("configure_temporal returns previous filter value", {
+  skip_if(!asa:::.is_initialized(), "Agent not initialized")
+
+  # Set to known value
+  suppressMessages(configure_temporal("m"))
+
+  # Set to new value, should return old
+  old <- suppressMessages(configure_temporal("y"))
+  expect_equal(old, "m")
+
+  # Clean up
+  suppressMessages(configure_temporal(NULL))
+})

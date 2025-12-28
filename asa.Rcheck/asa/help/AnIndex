@@ -1,4 +1,5 @@
 asa-package	asa-package
+.augment_prompt_temporal	dot-augment_prompt_temporal
 .build_trace	dot-build_trace
 .close_http_clients	dot-close_http_clients
 .create_agent	dot-create_agent
@@ -52,6 +53,8 @@ asa-package	asa-package
 .validate_s3_class	dot-validate_s3_class
 .validate_string	dot-validate_string
 .validate_string_vector	dot-validate_string_vector
+.validate_temporal	dot-validate_temporal
+.with_temporal	dot-with_temporal
 as.data.frame.asa_audit_result	as.data.frame.asa_audit_result
 as.data.frame.asa_enumerate_result	as.data.frame.asa_enumerate_result
 as.data.frame.asa_result	as.data.frame.asa_result
@@ -69,6 +72,7 @@ check_backend	check_backend
 clean_whitespace	clean_whitespace
 configure_search	configure_search
 configure_search_logging	configure_search_logging
+configure_temporal	configure_temporal
 decode_html	decode_html
 extract_agent_results	extract_agent_results
 extract_search_snippets	extract_search_snippets

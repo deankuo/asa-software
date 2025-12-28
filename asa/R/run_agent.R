@@ -7,6 +7,15 @@
 #' @param prompt The prompt to send to the agent
 #' @param agent An asa_agent object from \code{\link{initialize_agent}}, or
 #'   NULL to use/create the default agent
+#' @param temporal Named list for temporal filtering of search results:
+#'   \itemize{
+#'     \item time_filter: DuckDuckGo time filter - "d" (day), "w" (week),
+#'       "m" (month), "y" (year)
+#'     \item after: ISO 8601 date (e.g., "2020-01-01") - hint for results
+#'       after this date (added to prompt context)
+#'     \item before: ISO 8601 date (e.g., "2024-01-01") - hint for results
+#'       before this date (added to prompt context)
+#'   }
 #' @param recursion_limit Maximum number of agent steps (default: 100 for
 #'   memory folding, 20 otherwise)
 #' @param verbose Print status messages (default: FALSE)
@@ -21,6 +30,11 @@
 #'   \item fold_count: Number of memory folds (if memory folding enabled)
 #' }
 #'
+#' @details
+#' When temporal filtering is specified, the search tool's time filter is
+#' temporarily set for this invocation and restored afterward. Date hints
+#' (after/before) are appended to the prompt to guide the agent's search.
+#'
 #' @examples
 #' \dontrun{
 #' # Run with a custom prompt
@@ -30,13 +44,22 @@
 #'   agent = agent
 #' )
 #' print(result$message)
+#'
+#' # With temporal filtering (past year only)
+#' result <- run_agent(
+#'   prompt = "Find recent AI breakthroughs",
+#'   temporal = list(time_filter = "y"),
+#'   agent = agent
+#' )
 #' }
 #'
-#' @seealso \code{\link{initialize_agent}}, \code{\link{run_task}}
+#' @seealso \code{\link{initialize_agent}}, \code{\link{run_task}},
+#'   \code{\link{configure_temporal}}
 #'
 #' @export
 run_agent <- function(prompt,
                       agent = NULL,
+                      temporal = NULL,
                       recursion_limit = NULL,
                       verbose = FALSE) {
 
@@ -48,6 +71,9 @@ run_agent <- function(prompt,
     verbose = verbose
   )
 
+  # Validate temporal if provided
+  .validate_temporal(temporal)
+
   # Get or initialize agent
   if (is.null(agent)) {
     if (!.is_initialized()) {
@@ -56,6 +82,9 @@ run_agent <- function(prompt,
     }
     agent <- get_agent()
   }
+
+  # Augment prompt with temporal hints if dates specified
+  augmented_prompt <- .augment_prompt_temporal(prompt, temporal)
 
   # Get config
   config <- agent$config
@@ -69,15 +98,17 @@ run_agent <- function(prompt,
   if (verbose) message("Running agent...")
   t0 <- Sys.time()
 
-  # Build initial state and invoke agent
-  raw_response <- tryCatch({
-    if (use_memory_folding) {
-      .invoke_memory_folding_agent(agent$python_agent, prompt, recursion_limit)
-    } else {
-      .invoke_standard_agent(agent$python_agent, prompt, recursion_limit)
-    }
-  }, error = function(e) {
-    structure(list(error = e$message), class = "asa_error")
+  # Build initial state and invoke agent with temporal filtering
+  raw_response <- .with_temporal(temporal, function() {
+    tryCatch({
+      if (use_memory_folding) {
+        .invoke_memory_folding_agent(agent$python_agent, augmented_prompt, recursion_limit)
+      } else {
+        .invoke_standard_agent(agent$python_agent, augmented_prompt, recursion_limit)
+      }
+    }, error = function(e) {
+      structure(list(error = e$message), class = "asa_error")
+    })
   })
 
   elapsed <- as.numeric(difftime(Sys.time(), t0, units = "mins"))
@@ -221,6 +252,8 @@ run_agent <- function(prompt,
 #'
 #' @param prompts Character vector of prompts
 #' @param agent An asa_agent object
+#' @param temporal Named list for temporal filtering (applies to all prompts).
+#'   See \code{\link{run_agent}} for details.
 #' @param parallel Use parallel processing (requires future.apply package)
 #' @param workers Number of parallel workers (default: 4)
 #' @param progress Show progress bar (default: TRUE)
@@ -234,14 +267,27 @@ run_agent <- function(prompt,
 #'   "What is the population of New York?"
 #' )
 #' results <- run_agent_batch(prompts, agent)
+#'
+#' # With temporal filtering for all prompts
+#' results <- run_agent_batch(
+#'   prompts,
+#'   temporal = list(time_filter = "y"),
+#'   agent = agent
+#' )
 #' }
+#'
+#' @seealso \code{\link{run_agent}}, \code{\link{configure_temporal}}
 #'
 #' @export
 run_agent_batch <- function(prompts,
                             agent = NULL,
+                            temporal = NULL,
                             parallel = FALSE,
                             workers = 4L,
                             progress = TRUE) {
+
+  # Validate temporal if provided
+  .validate_temporal(temporal)
 
   if (parallel) {
     if (!requireNamespace("future", quietly = TRUE) ||
@@ -254,7 +300,7 @@ run_agent_batch <- function(prompts,
 
     results <- future.apply::future_lapply(
       prompts,
-      function(p) run_agent(p, agent = agent, verbose = FALSE),
+      function(p) run_agent(p, agent = agent, temporal = temporal, verbose = FALSE),
       future.seed = TRUE
     )
   } else {
@@ -262,7 +308,7 @@ run_agent_batch <- function(prompts,
     results <- vector("list", n)
     for (i in seq_len(n)) {
       if (progress) message(sprintf("[%d/%d] Processing...", i, n))
-      results[[i]] <- run_agent(prompts[[i]], agent = agent, verbose = FALSE)
+      results[[i]] <- run_agent(prompts[[i]], agent = agent, temporal = temporal, verbose = FALSE)
     }
   }
 

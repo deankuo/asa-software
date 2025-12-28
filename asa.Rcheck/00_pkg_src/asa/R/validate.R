@@ -653,3 +653,132 @@
 
   invisible(TRUE)
 }
+
+
+# ============================================================================
+# TEMPORAL FILTERING VALIDATORS
+# ============================================================================
+
+#' Validate Temporal Filtering Parameters
+#'
+#' Validates and normalizes temporal filtering parameters used by run_task()
+#' and asa_enumerate(). Returns a normalized list or NULL if input is NULL.
+#'
+#' @param temporal Named list with temporal filtering options, or NULL
+#' @param param_name Name for error messages (default: "temporal")
+#' @return Normalized temporal list or NULL
+#' @keywords internal
+.validate_temporal <- function(temporal, param_name = "temporal") {
+  if (is.null(temporal)) {
+    return(NULL)
+  }
+
+  if (!is.list(temporal)) {
+    .stop_validation(
+      param_name,
+      "be a list or NULL",
+      actual = class(temporal)[1],
+      fix = "Use temporal = list(time_filter = 'y') or temporal = NULL"
+    )
+  }
+
+  # Validate time_filter if present
+  if (!is.null(temporal$time_filter)) {
+    valid_filters <- c("d", "w", "m", "y")
+    if (!temporal$time_filter %in% valid_filters) {
+      .stop_validation(
+        paste0(param_name, "$time_filter"),
+        sprintf("be one of: %s", paste0('"', valid_filters, '"', collapse = ", ")),
+        actual = temporal$time_filter,
+        fix = 'Use "d" (day), "w" (week), "m" (month), or "y" (year)'
+      )
+    }
+  }
+
+  # Validate after date if present
+  if (!is.null(temporal$after)) {
+    if (!is.character(temporal$after) || length(temporal$after) != 1) {
+      .stop_validation(
+        paste0(param_name, "$after"),
+        "be a single character string in ISO 8601 format",
+        actual = temporal$after,
+        fix = 'Use format "YYYY-MM-DD" (e.g., "2020-01-01")'
+      )
+    }
+    tryCatch(
+      as.Date(temporal$after),
+      error = function(e) {
+        .stop_validation(
+          paste0(param_name, "$after"),
+          "be a valid ISO 8601 date",
+          actual = temporal$after,
+          fix = 'Use format "YYYY-MM-DD" (e.g., "2020-01-01")'
+        )
+      }
+    )
+  }
+
+  # Validate before date if present
+  if (!is.null(temporal$before)) {
+    if (!is.character(temporal$before) || length(temporal$before) != 1) {
+      .stop_validation(
+        paste0(param_name, "$before"),
+        "be a single character string in ISO 8601 format",
+        actual = temporal$before,
+        fix = 'Use format "YYYY-MM-DD" (e.g., "2024-01-01")'
+      )
+    }
+    tryCatch(
+      as.Date(temporal$before),
+      error = function(e) {
+        .stop_validation(
+          paste0(param_name, "$before"),
+          "be a valid ISO 8601 date",
+          actual = temporal$before,
+          fix = 'Use format "YYYY-MM-DD" (e.g., "2024-01-01")'
+        )
+      }
+    )
+  }
+
+  # Validate date ordering if both present
+  if (!is.null(temporal$after) && !is.null(temporal$before)) {
+    after_date <- as.Date(temporal$after)
+    before_date <- as.Date(temporal$before)
+    if (after_date >= before_date) {
+      .stop_validation(
+        param_name,
+        "have after < before when both are specified",
+        actual = sprintf("after=%s, before=%s", temporal$after, temporal$before),
+        fix = "Ensure the 'after' date is earlier than the 'before' date"
+      )
+    }
+  }
+
+  # Validate strictness if present
+  if (!is.null(temporal$strictness)) {
+    valid_strictness <- c("best_effort", "strict")
+    if (!temporal$strictness %in% valid_strictness) {
+      .stop_validation(
+        paste0(param_name, "$strictness"),
+        sprintf("be one of: %s", paste0('"', valid_strictness, '"', collapse = ", ")),
+        actual = temporal$strictness,
+        fix = 'Use "best_effort" (default) or "strict"'
+      )
+    }
+  }
+
+  # Validate use_wayback if present
+  if (!is.null(temporal$use_wayback)) {
+    if (!is.logical(temporal$use_wayback) || length(temporal$use_wayback) != 1) {
+      .stop_validation(
+        paste0(param_name, "$use_wayback"),
+        "be TRUE or FALSE",
+        actual = temporal$use_wayback,
+        fix = "Use TRUE or FALSE"
+      )
+    }
+  }
+
+  invisible(temporal)
+}

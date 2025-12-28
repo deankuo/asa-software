@@ -385,3 +385,120 @@ test_that("error messages handle different value types gracefully", {
     }
   )
 })
+
+# ============================================================================
+# Temporal Filtering Validation Tests
+# ============================================================================
+
+test_that(".validate_temporal returns NULL for NULL input", {
+  expect_null(.validate_temporal(NULL))
+})
+
+test_that(".validate_temporal rejects non-list input", {
+  expect_error(.validate_temporal("string"), "be a list or NULL")
+  expect_error(.validate_temporal(123), "be a list or NULL")
+  expect_error(.validate_temporal(c("a", "b")), "be a list or NULL")
+})
+
+test_that(".validate_temporal accepts valid empty list", {
+  expect_silent(.validate_temporal(list()))
+})
+
+test_that(".validate_temporal rejects invalid time_filter values", {
+  expect_error(.validate_temporal(list(time_filter = "x")), "time_filter")
+  expect_error(.validate_temporal(list(time_filter = "day")), "time_filter")
+  expect_error(.validate_temporal(list(time_filter = "year")), "time_filter")
+  expect_error(.validate_temporal(list(time_filter = 123)), "time_filter")
+  expect_error(.validate_temporal(list(time_filter = TRUE)), "time_filter")
+})
+
+test_that(".validate_temporal accepts valid time_filter values", {
+  expect_silent(.validate_temporal(list(time_filter = "d")))
+  expect_silent(.validate_temporal(list(time_filter = "w")))
+  expect_silent(.validate_temporal(list(time_filter = "m")))
+  expect_silent(.validate_temporal(list(time_filter = "y")))
+})
+
+test_that(".validate_temporal rejects invalid after date format", {
+  expect_error(.validate_temporal(list(after = "not-a-date")), "after.*valid")
+  expect_error(.validate_temporal(list(after = "January 1, 2024")), "after.*valid")
+  expect_error(.validate_temporal(list(after = 12345)), "after.*character string")
+  expect_error(.validate_temporal(list(after = c("2024-01-01", "2024-02-01"))), "after.*single character")
+})
+
+test_that(".validate_temporal rejects invalid after dates", {
+  expect_error(.validate_temporal(list(after = "2024-13-01")), "after.*valid")  # Invalid month
+  expect_error(.validate_temporal(list(after = "2024-00-15")), "after.*valid")  # Invalid month
+})
+
+test_that(".validate_temporal accepts valid after dates", {
+  expect_silent(.validate_temporal(list(after = "2024-01-01")))
+  expect_silent(.validate_temporal(list(after = "2020-12-31")))
+  expect_silent(.validate_temporal(list(after = "1999-06-15")))
+})
+
+test_that(".validate_temporal rejects invalid before date format", {
+  expect_error(.validate_temporal(list(before = "not-a-date")), "before.*valid")
+  expect_error(.validate_temporal(list(before = "Dec 25, 2024")), "before.*valid")
+  expect_error(.validate_temporal(list(before = 20240101)), "before.*character string")
+})
+
+test_that(".validate_temporal rejects invalid before dates", {
+  expect_error(.validate_temporal(list(before = "2024-02-30")), "before.*valid")  # Invalid day
+  expect_error(.validate_temporal(list(before = "2024-00-15")), "before.*valid")  # Invalid month
+})
+
+test_that(".validate_temporal accepts valid before dates", {
+  expect_silent(.validate_temporal(list(before = "2024-12-31")))
+  expect_silent(.validate_temporal(list(before = "2025-01-01")))
+})
+
+test_that(".validate_temporal rejects after >= before", {
+  # after == before
+  expect_error(
+    .validate_temporal(list(after = "2024-01-01", before = "2024-01-01")),
+    "after < before"
+  )
+  # after > before
+  expect_error(
+    .validate_temporal(list(after = "2024-06-01", before = "2024-01-01")),
+    "after < before"
+  )
+})
+
+test_that(".validate_temporal accepts valid date ranges", {
+  expect_silent(.validate_temporal(list(after = "2020-01-01", before = "2024-01-01")))
+  expect_silent(.validate_temporal(list(after = "2024-01-01", before = "2024-01-02")))
+})
+
+test_that(".validate_temporal rejects invalid strictness values", {
+  expect_error(.validate_temporal(list(strictness = "very_strict")), "strictness")
+  expect_error(.validate_temporal(list(strictness = "none")), "strictness")
+  expect_error(.validate_temporal(list(strictness = TRUE)), "strictness")
+})
+
+test_that(".validate_temporal accepts valid strictness values", {
+  expect_silent(.validate_temporal(list(strictness = "best_effort")))
+  expect_silent(.validate_temporal(list(strictness = "strict")))
+})
+
+test_that(".validate_temporal rejects invalid use_wayback values", {
+  expect_error(.validate_temporal(list(use_wayback = "yes")), "use_wayback.*TRUE or FALSE")
+  expect_error(.validate_temporal(list(use_wayback = 1)), "use_wayback.*TRUE or FALSE")
+  expect_error(.validate_temporal(list(use_wayback = c(TRUE, FALSE))), "use_wayback.*TRUE or FALSE")
+})
+
+test_that(".validate_temporal accepts valid use_wayback values", {
+  expect_silent(.validate_temporal(list(use_wayback = TRUE)))
+  expect_silent(.validate_temporal(list(use_wayback = FALSE)))
+})
+
+test_that(".validate_temporal accepts complex valid temporal lists", {
+  expect_silent(.validate_temporal(list(
+    time_filter = "y",
+    after = "2020-01-01",
+    before = "2024-12-31",
+    strictness = "best_effort",
+    use_wayback = FALSE
+  )))
+})

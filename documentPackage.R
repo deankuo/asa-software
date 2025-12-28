@@ -1,6 +1,7 @@
 {
   rm(list = ls())
   options(error = NULL)
+  # install.packages( "~/Documents/asa-software/asa",repos = NULL, type = "source",force = F) # install from local 
 
   # Set path and specify package name
   package_name <- "asa"

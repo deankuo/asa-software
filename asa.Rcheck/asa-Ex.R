@@ -262,6 +262,36 @@ base::assign(".ptime", proc.time(), pos = "CheckExEnv")
 base::assign(".dptime", (proc.time() - get(".ptime", pos = "CheckExEnv")), pos = "CheckExEnv")
 base::cat("configure_search_logging", base::get(".format_ptime", pos = 'CheckExEnv')(get(".dptime", pos = "CheckExEnv")), "\n", file=base::get(".ExTimings", pos = 'CheckExEnv'), append=TRUE, sep="\t")
 cleanEx()
+nameEx("configure_temporal")
+### * configure_temporal
+
+flush(stderr()); flush(stdout())
+
+base::assign(".ptime", proc.time(), pos = "CheckExEnv")
+### Name: configure_temporal
+### Title: Configure Temporal Filtering for Search
+### Aliases: configure_temporal
+
+### ** Examples
+
+## Not run: 
+##D # Restrict to past year
+##D configure_temporal("y")
+##D result <- run_task("Find recent AI breakthroughs", agent = agent)
+##D 
+##D # Clear temporal filter
+##D configure_temporal(NULL)
+##D 
+##D # Past week only
+##D configure_temporal("w")
+## End(Not run)
+
+
+
+
+base::assign(".dptime", (proc.time() - get(".ptime", pos = "CheckExEnv")), pos = "CheckExEnv")
+base::cat("configure_temporal", base::get(".format_ptime", pos = 'CheckExEnv')(get(".dptime", pos = "CheckExEnv")), "\n", file=base::get(".ExTimings", pos = 'CheckExEnv'), append=TRUE, sep="\t")
+cleanEx()
 nameEx("extract_agent_results")
 ### * extract_agent_results
 
@@ -596,6 +626,24 @@ base::assign(".ptime", proc.time(), pos = "CheckExEnv")
 ##D   agent = agent
 ##D )
 ##D print(result$parsed)
+##D 
+##D # With temporal filtering (past year only)
+##D result <- run_task(
+##D   prompt = "Find recent AI research breakthroughs",
+##D   temporal = list(time_filter = "y"),
+##D   agent = agent
+##D )
+##D 
+##D # With date range hint
+##D result <- run_task(
+##D   prompt = "Find tech companies founded recently",
+##D   temporal = list(
+##D     time_filter = "y",
+##D     after = "2020-01-01",
+##D     before = "2024-01-01"
+##D   ),
+##D   agent = agent
+##D )
 ## End(Not run)
 
 
@@ -623,6 +671,13 @@ base::assign(".ptime", proc.time(), pos = "CheckExEnv")
 ##D   "What is the population of London?"
 ##D )
 ##D results <- run_task_batch(prompts, agent = agent)
+##D 
+##D # With temporal filtering for all tasks
+##D results <- run_task_batch(
+##D   prompts,
+##D   temporal = list(time_filter = "y"),
+##D   agent = agent
+##D )
 ## End(Not run)
 
 

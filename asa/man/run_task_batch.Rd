@@ -7,6 +7,7 @@
 run_task_batch(
   prompts,
   output_format = "text",
+  temporal = NULL,
   agent = NULL,
   parallel = FALSE,
   workers = 4L,
@@ -18,6 +19,9 @@ run_task_batch(
 'prompt' column}
 
 \item{output_format}{Expected output format (applies to all tasks)}
+
+\item{temporal}{Named list for temporal filtering (applies to all tasks).
+See \code{\link{run_task}} for details.}
 
 \item{agent}{An asa_agent object}
 
@@ -42,6 +46,16 @@ prompts <- c(
   "What is the population of London?"
 )
 results <- run_task_batch(prompts, agent = agent)
+
+# With temporal filtering for all tasks
+results <- run_task_batch(
+  prompts,
+  temporal = list(time_filter = "y"),
+  agent = agent
+)
 }
 
+}
+\seealso{
+\code{\link{run_task}}, \code{\link{configure_temporal}}
 }

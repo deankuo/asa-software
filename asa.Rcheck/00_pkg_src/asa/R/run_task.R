@@ -6,6 +6,15 @@
 #' @param prompt The task prompt or question for the agent to research
 #' @param output_format Expected output format. One of: "text" (raw response),
 #'   "json" (parse as JSON), or a character vector of field names to extract
+#' @param temporal Named list for temporal filtering of search results:
+#'   \itemize{
+#'     \item time_filter: DuckDuckGo time filter - "d" (day), "w" (week),
+#'       "m" (month), "y" (year)
+#'     \item after: ISO 8601 date (e.g., "2020-01-01") - hint for results
+#'       after this date (added to prompt context)
+#'     \item before: ISO 8601 date (e.g., "2024-01-01") - hint for results
+#'       before this date (added to prompt context)
+#'   }
 #' @param agent An asa_agent object from \code{\link{initialize_agent}}, or
 #'   NULL to use the currently initialized agent
 #' @param verbose Print progress messages (default: FALSE)
@@ -24,6 +33,10 @@
 #' This function provides a high-level interface for running research tasks.
 #' For simple text responses, use \code{output_format = "text"}. For structured
 #' outputs, use \code{output_format = "json"} or specify field names to extract.
+#'
+#' When temporal filtering is specified, the search tool's time filter is
+#' temporarily set for this task and restored afterward. Date hints (after/before)
+#' are appended to the prompt to guide the agent's search behavior.
 #'
 #' @examples
 #' \dontrun{
@@ -46,14 +59,33 @@
 #'   agent = agent
 #' )
 #' print(result$parsed)
+#'
+#' # With temporal filtering (past year only)
+#' result <- run_task(
+#'   prompt = "Find recent AI research breakthroughs",
+#'   temporal = list(time_filter = "y"),
+#'   agent = agent
+#' )
+#'
+#' # With date range hint
+#' result <- run_task(
+#'   prompt = "Find tech companies founded recently",
+#'   temporal = list(
+#'     time_filter = "y",
+#'     after = "2020-01-01",
+#'     before = "2024-01-01"
+#'   ),
+#'   agent = agent
+#' )
 #' }
 #'
 #' @seealso \code{\link{initialize_agent}}, \code{\link{run_agent}},
-#'   \code{\link{run_task_batch}}
+#'   \code{\link{run_task_batch}}, \code{\link{configure_temporal}}
 #'
 #' @export
 run_task <- function(prompt,
                      output_format = "text",
+                     temporal = NULL,
                      agent = NULL,
                      verbose = FALSE) {
 
@@ -65,10 +97,18 @@ run_task <- function(prompt,
     verbose = verbose
   )
 
+  # Validate temporal if provided
+  .validate_temporal(temporal)
+
+  # Augment prompt with temporal hints if dates specified
+  augmented_prompt <- .augment_prompt_temporal(prompt, temporal)
+
   start_time <- Sys.time()
 
-  # Run agent
-  response <- run_agent(prompt, agent = agent, verbose = verbose)
+  # Run agent with temporal filtering applied
+  response <- .with_temporal(temporal, function() {
+    run_agent(augmented_prompt, agent = agent, verbose = verbose)
+  })
 
   elapsed <- as.numeric(difftime(Sys.time(), start_time, units = "mins"))
 
@@ -159,6 +199,54 @@ build_prompt <- function(template, ...) {
 
   result
 }
+
+#' Augment Prompt with Temporal Context
+#'
+#' Adds temporal date hints to the prompt when after/before dates are specified.
+#' This helps guide the agent to search for time-relevant information.
+#'
+#' @param prompt Original prompt
+#' @param temporal Temporal filtering list (may be NULL)
+#' @return Augmented prompt string
+#' @keywords internal
+.augment_prompt_temporal <- function(prompt, temporal) {
+  if (is.null(temporal)) {
+    return(prompt)
+  }
+
+  # Only augment if date hints are provided
+  has_after <- !is.null(temporal$after)
+  has_before <- !is.null(temporal$before)
+
+  if (!has_after && !has_before) {
+    return(prompt)
+  }
+
+  # Build temporal context string
+  context_parts <- c()
+
+  if (has_after && has_before) {
+    context_parts <- c(context_parts, sprintf(
+      "Focus on information from between %s and %s.",
+      temporal$after, temporal$before
+    ))
+  } else if (has_after) {
+    context_parts <- c(context_parts, sprintf(
+      "Focus on information from after %s.",
+      temporal$after
+    ))
+  } else if (has_before) {
+    context_parts <- c(context_parts, sprintf(
+      "Focus on information from before %s.",
+      temporal$before
+    ))
+  }
+
+  # Append context to prompt
+  temporal_context <- paste(context_parts, collapse = " ")
+  paste0(prompt, "\n\n[Temporal context: ", temporal_context, "]")
+}
+
 
 #' Parse JSON Response
 #' @param response_text Response text from agent
@@ -289,6 +377,8 @@ build_prompt <- function(template, ...) {
 #' @param prompts Character vector of task prompts, or a data frame with a
 #'   'prompt' column
 #' @param output_format Expected output format (applies to all tasks)
+#' @param temporal Named list for temporal filtering (applies to all tasks).
+#'   See \code{\link{run_task}} for details.
 #' @param agent An asa_agent object
 #' @param parallel Use parallel processing
 #' @param workers Number of parallel workers
@@ -305,11 +395,21 @@ build_prompt <- function(template, ...) {
 #'   "What is the population of London?"
 #' )
 #' results <- run_task_batch(prompts, agent = agent)
+#'
+#' # With temporal filtering for all tasks
+#' results <- run_task_batch(
+#'   prompts,
+#'   temporal = list(time_filter = "y"),
+#'   agent = agent
+#' )
 #' }
+#'
+#' @seealso \code{\link{run_task}}, \code{\link{configure_temporal}}
 #'
 #' @export
 run_task_batch <- function(prompts,
                            output_format = "text",
+                           temporal = NULL,
                            agent = NULL,
                            parallel = FALSE,
                            workers = 4L,
@@ -324,6 +424,9 @@ run_task_batch <- function(prompts,
     workers = workers,
     progress = progress
   )
+
+  # Validate temporal if provided
+  .validate_temporal(temporal)
 
   # Handle data frame input
   is_df <- is.data.frame(prompts)
@@ -340,6 +443,7 @@ run_task_batch <- function(prompts,
     run_task(
       prompt = prompt_vec[i],
       output_format = output_format,
+      temporal = temporal,
       agent = agent,
       verbose = FALSE
     )
