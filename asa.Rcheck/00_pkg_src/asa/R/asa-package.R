@@ -13,7 +13,6 @@
 #' \itemize{
 #'   \item \code{\link{build_backend}}: Set up the Python conda environment
 #'   \item \code{\link{initialize_agent}}: Initialize the search agent
-#'   \item \code{\link{run_agent}}: Run the agent with a custom prompt
 #'   \item \code{\link{run_task}}: Run a structured task with the agent
 #'   \item \code{\link{run_task_batch}}: Run multiple tasks in batch
 #' }

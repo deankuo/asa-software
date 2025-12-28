@@ -112,7 +112,7 @@ test_that("asa_enumerate validates temporal$strictness", {
 
 test_that(".create_research_config includes temporal parameters", {
   config <- asa:::.create_research_config(
-    max_workers = 2,
+    workers = 2,
     max_rounds = 5,
     budget = list(queries = 25),
     stop_policy = list(),
@@ -135,7 +135,7 @@ test_that(".create_research_config includes temporal parameters", {
 
 test_that(".create_research_config handles NULL temporal", {
   config <- asa:::.create_research_config(
-    max_workers = 2,
+    workers = 2,
     max_rounds = 5,
     budget = list(),
     stop_policy = list(),
@@ -151,7 +151,7 @@ test_that(".create_research_config handles NULL temporal", {
 test_that(".create_research_config handles partial temporal", {
   # Only time_filter
   config1 <- asa:::.create_research_config(
-    max_workers = 2, max_rounds = 5,
+    workers = 2, max_rounds = 5,
     budget = list(), stop_policy = list(), sources = list(),
     temporal = list(time_filter = "m")
   )
@@ -160,7 +160,7 @@ test_that(".create_research_config handles partial temporal", {
 
   # Only after date
   config2 <- asa:::.create_research_config(
-    max_workers = 2, max_rounds = 5,
+    workers = 2, max_rounds = 5,
     budget = list(), stop_policy = list(), sources = list(),
     temporal = list(after = "2020-01-01")
   )
@@ -170,7 +170,7 @@ test_that(".create_research_config handles partial temporal", {
 
 test_that(".create_research_config defaults strictness to best_effort", {
   config <- asa:::.create_research_config(
-    max_workers = 2, max_rounds = 5,
+    workers = 2, max_rounds = 5,
     budget = list(), stop_policy = list(), sources = list(),
     temporal = list(after = "2020-01-01")  # No strictness specified
   )
@@ -180,7 +180,7 @@ test_that(".create_research_config defaults strictness to best_effort", {
 
 test_that(".create_research_config defaults use_wayback to FALSE", {
   config <- asa:::.create_research_config(
-    max_workers = 2, max_rounds = 5,
+    workers = 2, max_rounds = 5,
     budget = list(), stop_policy = list(), sources = list(),
     temporal = list(after = "2020-01-01")  # No use_wayback specified
   )

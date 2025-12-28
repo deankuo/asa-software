@@ -122,6 +122,50 @@ safe_json_parse <- function(x) {
   )
 }
 
+#' Import Python Module into asa_env
+#'
+#' Generic helper for importing Python modules from inst/python.
+#' Handles caching, path resolution, and error handling.
+#'
+#' @param module_name Name of the Python module (without .py)
+#' @param env_name Name in asa_env (defaults to module_name)
+#' @param required If TRUE, error on failure; if FALSE, return NULL
+#'
+#' @return The imported Python module (invisibly), or NULL on failure if not required
+#'
+#' @keywords internal
+.import_python_module <- function(module_name, env_name = module_name, required = TRUE) {
+  # Return cached module if available
+  if (!is.null(asa_env[[env_name]])) {
+    return(invisible(asa_env[[env_name]]))
+  }
+
+  # Get Python path
+  python_path <- .get_python_path()
+  if (python_path == "" || !dir.exists(python_path)) {
+    if (required) {
+      stop(sprintf("Python path not found for module '%s'. Package may not be installed correctly.",
+                   module_name), call. = FALSE)
+    }
+    return(NULL)
+  }
+
+  # Attempt import
+  asa_env[[env_name]] <- tryCatch(
+    reticulate::import_from_path(module_name, path = python_path),
+    error = function(e) {
+      if (required) {
+        stop(sprintf("Could not import Python module '%s': %s", module_name, e$message),
+             call. = FALSE)
+      }
+      NULL
+    }
+  )
+
+  invisible(asa_env[[env_name]])
+}
+
+
 #' Format Time Duration
 #'
 #' Formats a numeric duration (in minutes) as a human-readable string.

@@ -1,3 +1,385 @@
+# ============================================================================
+# CONFIGURATION S3 CLASSES
+# ============================================================================
+
+#' Create ASA Configuration Object
+#'
+#' Creates a configuration object that encapsulates all settings for ASA tasks.
+#' This provides a unified way to configure backend, model, search, temporal,
+#' and resource settings in a single object.
+#'
+#' @param backend LLM backend: "openai", "groq", "xai", "exo", "openrouter"
+#' @param model Model identifier (e.g., "gpt-4.1-mini")
+#' @param conda_env Conda environment name (default: "asa_env")
+#' @param proxy SOCKS5 proxy URL or NULL to disable
+#' @param workers Number of parallel workers for batch operations
+#' @param timeout Request timeout in seconds
+#' @param rate_limit Requests per second
+#' @param memory_folding Enable DeepAgent-style memory folding
+#' @param memory_threshold Messages before folding triggers
+#' @param memory_keep_recent Messages to preserve after folding
+#' @param temporal Temporal filtering options (use \code{temporal_options()})
+#' @param search Search configuration (use \code{search_options()})
+#'
+#' @return An object of class \code{asa_config}
+#'
+#' @details
+#' The configuration object can be passed to \code{run_task()},
+#' \code{run_task_batch()}, \code{asa_enumerate()}, and other functions
+#' to provide consistent settings across operations.
+#'
+#' @examples
+#' \dontrun{
+#' # Create configuration
+#' config <- asa_config(
+#'   backend = "openai",
+#'   model = "gpt-4.1-mini",
+#'   workers = 4,
+#'   temporal = temporal_options(time_filter = "y")
+#' )
+#'
+#' # Use with run_task
+#' result <- run_task(prompt, config = config)
+#' }
+#'
+#' @seealso \code{\link{temporal_options}}, \code{\link{search_options}}
+#'
+#' @export
+asa_config <- function(backend = NULL,
+                       model = NULL,
+                       conda_env = NULL,
+                       proxy = NULL,
+                       workers = NULL,
+                       timeout = NULL,
+                       rate_limit = NULL,
+                       memory_folding = NULL,
+                       memory_threshold = NULL,
+                       memory_keep_recent = NULL,
+                       temporal = NULL,
+                       search = NULL) {
+
+  # Use defaults from constants.R if not specified
+  backend <- backend %||% .get_default_backend()
+  model <- model %||% .get_default_model()
+  conda_env <- conda_env %||% .get_default_conda_env()
+  workers <- workers %||% .get_default_workers()
+  timeout <- timeout %||% ASA_DEFAULT_TIMEOUT
+  rate_limit <- rate_limit %||% ASA_DEFAULT_RATE_LIMIT
+  memory_folding <- memory_folding %||% ASA_DEFAULT_MEMORY_FOLDING
+  memory_threshold <- memory_threshold %||% ASA_DEFAULT_MEMORY_THRESHOLD
+  memory_keep_recent <- memory_keep_recent %||% ASA_DEFAULT_MEMORY_KEEP_RECENT
+
+  # Validate backend
+  if (!backend %in% ASA_SUPPORTED_BACKENDS) {
+    stop(sprintf("`backend` must be one of: %s",
+                 paste(ASA_SUPPORTED_BACKENDS, collapse = ", ")),
+         call. = FALSE)
+  }
+
+  # Validate temporal if provided
+  if (!is.null(temporal) && !inherits(temporal, "asa_temporal")) {
+    if (is.list(temporal)) {
+      # Convert plain list to asa_temporal
+      temporal <- do.call(temporal_options, temporal)
+    } else {
+      stop("`temporal` must be created with temporal_options() or be a list",
+           call. = FALSE)
+    }
+  }
+
+  structure(
+    list(
+      backend = backend,
+      model = model,
+      conda_env = conda_env,
+      proxy = proxy,
+      workers = as.integer(workers),
+      timeout = as.integer(timeout),
+      rate_limit = rate_limit,
+      memory_folding = memory_folding,
+      memory_threshold = as.integer(memory_threshold),
+      memory_keep_recent = as.integer(memory_keep_recent),
+      temporal = temporal,
+      search = search
+    ),
+    class = "asa_config"
+  )
+}
+
+#' Print Method for asa_config Objects
+#'
+#' @param x An asa_config object
+#' @param ... Additional arguments (ignored)
+#'
+#' @return Invisibly returns the object
+#'
+#' @method print asa_config
+#' @export
+print.asa_config <- function(x, ...) {
+  cat("ASA Configuration\n")
+  cat("=================\n")
+  cat("Backend:         ", x$backend, "\n", sep = "")
+  cat("Model:           ", x$model, "\n", sep = "")
+  cat("Conda Env:       ", x$conda_env, "\n", sep = "")
+  cat("Proxy:           ", x$proxy %||% "None", "\n", sep = "")
+  cat("Workers:         ", x$workers, "\n", sep = "")
+  cat("Timeout:         ", x$timeout, "s\n", sep = "")
+  cat("Rate Limit:      ", x$rate_limit, " req/s\n", sep = "")
+  cat("Memory Folding:  ", if (x$memory_folding) "Enabled" else "Disabled", "\n", sep = "")
+  if (x$memory_folding) {
+    cat("  Threshold:     ", x$memory_threshold, " messages\n", sep = "")
+    cat("  Keep Recent:   ", x$memory_keep_recent, " messages\n", sep = "")
+  }
+  if (!is.null(x$temporal)) {
+    cat("\nTemporal Filtering:\n")
+    print(x$temporal)
+  }
+  invisible(x)
+}
+
+
+#' Create Temporal Filtering Options
+#'
+#' Creates a temporal filtering configuration for constraining search results
+#' by date. Supports DuckDuckGo time filters, date ranges, and strict
+#' verification modes.
+#'
+#' @param time_filter DuckDuckGo time filter: "d" (day), "w" (week),
+#'   "m" (month), "y" (year), or NULL for no filter
+#' @param after ISO 8601 date string (e.g., "2020-01-01") - results after this date
+#' @param before ISO 8601 date string (e.g., "2024-01-01") - results before this date
+#' @param strictness Verification level: "best_effort" (default) or "strict"
+#' @param use_wayback Use Wayback Machine for strict pre-date guarantees
+#'
+#' @return An object of class \code{asa_temporal}
+#'
+#' @details
+#' Temporal filtering can operate at different levels:
+#' \itemize{
+#'   \item \strong{time_filter}: DuckDuckGo native filter (fast, approximate)
+#'   \item \strong{after/before}: Date hints appended to prompts
+#'   \item \strong{strict}: Post-hoc verification of result dates
+#'   \item \strong{use_wayback}: Uses Internet Archive for guaranteed historical data
+#' }
+#'
+#' @examples
+#' \dontrun{
+#' # Past year only
+#' temporal <- temporal_options(time_filter = "y")
+#'
+#' # Specific date range
+#' temporal <- temporal_options(
+#'   after = "2020-01-01",
+#'   before = "2024-01-01"
+#' )
+#'
+#' # Strict historical verification
+#' temporal <- temporal_options(
+#'   before = "2015-01-01",
+#'   strictness = "strict",
+#'   use_wayback = TRUE
+#' )
+#' }
+#'
+#' @seealso \code{\link{asa_config}}, \code{\link{run_task}}
+#'
+#' @export
+temporal_options <- function(time_filter = NULL,
+                             after = NULL,
+                             before = NULL,
+                             strictness = "best_effort",
+                             use_wayback = FALSE) {
+
+  # Validate time_filter
+  if (!is.null(time_filter)) {
+    if (!time_filter %in% ASA_TIME_FILTERS) {
+      stop(sprintf("`time_filter` must be one of: %s",
+                   paste0('"', ASA_TIME_FILTERS, '"', collapse = ", ")),
+           call. = FALSE)
+    }
+  }
+
+  # Validate and parse dates
+  if (!is.null(after)) {
+    after_date <- tryCatch(
+      as.Date(after),
+      error = function(e) {
+        stop("`after` must be a valid ISO 8601 date (YYYY-MM-DD)", call. = FALSE)
+      }
+    )
+  }
+
+  if (!is.null(before)) {
+    before_date <- tryCatch(
+      as.Date(before),
+      error = function(e) {
+        stop("`before` must be a valid ISO 8601 date (YYYY-MM-DD)", call. = FALSE)
+      }
+    )
+  }
+
+  # Validate date ordering
+  if (!is.null(after) && !is.null(before)) {
+    if (as.Date(after) >= as.Date(before)) {
+      stop("`after` must be earlier than `before`", call. = FALSE)
+    }
+  }
+
+  # Validate strictness
+  if (!strictness %in% ASA_TEMPORAL_STRICTNESS) {
+    stop(sprintf("`strictness` must be one of: %s",
+                 paste0('"', ASA_TEMPORAL_STRICTNESS, '"', collapse = ", ")),
+         call. = FALSE)
+  }
+
+  structure(
+    list(
+      time_filter = time_filter,
+      after = after,
+      before = before,
+      strictness = strictness,
+      use_wayback = use_wayback
+    ),
+    class = "asa_temporal"
+  )
+}
+
+#' Print Method for asa_temporal Objects
+#'
+#' @param x An asa_temporal object
+#' @param ... Additional arguments (ignored)
+#'
+#' @return Invisibly returns the object
+#'
+#' @method print asa_temporal
+#' @export
+print.asa_temporal <- function(x, ...) {
+  parts <- c()
+  if (!is.null(x$time_filter)) {
+    filter_desc <- switch(x$time_filter,
+                          "d" = "past day",
+                          "w" = "past week",
+                          "m" = "past month",
+                          "y" = "past year")
+    parts <- c(parts, sprintf("Time Filter: %s (%s)", x$time_filter, filter_desc))
+  }
+  if (!is.null(x$after)) {
+    parts <- c(parts, sprintf("After: %s", x$after))
+  }
+  if (!is.null(x$before)) {
+    parts <- c(parts, sprintf("Before: %s", x$before))
+  }
+  parts <- c(parts, sprintf("Strictness: %s", x$strictness))
+  if (x$use_wayback) {
+    parts <- c(parts, "Wayback: Enabled")
+  }
+  cat("  ", paste(parts, collapse = ", "), "\n", sep = "")
+  invisible(x)
+}
+
+
+#' Create Search Options
+#'
+#' Creates search configuration for controlling DuckDuckGo search behavior,
+#' including rate limiting, retry policies, and result limits. These options
+#' are used by the 4-tier search fallback system.
+#'
+#' @param max_results Maximum number of search results to return per query.
+#'   Higher values provide more context but increase latency. Default: 10.
+#' @param timeout Timeout in seconds for individual search requests.
+#'   Applies to each tier attempt separately. Default: 15.
+#' @param max_retries Maximum number of retry attempts when a search tier fails.
+#'   After exhausting retries, the system falls back to the next tier. Default: 3.
+#' @param retry_delay Initial delay in seconds before the first retry.
+#'   Subsequent retries use exponential backoff. Default: 2.
+#' @param backoff_multiplier Multiplier for exponential backoff between retries.
+#'   E.g., with retry_delay=2 and multiplier=1.5, delays are 2s, 3s, 4.5s. Default: 1.5.
+#' @param inter_search_delay Minimum delay in seconds between consecutive searches.
+#'   Helps avoid rate limiting from search providers. Default: 0.5.
+#'
+#' @return An object of class \code{asa_search}
+#'
+#' @details
+#' The search system uses a 4-tier fallback architecture:
+#' \enumerate{
+#'   \item \strong{PRIMP}: HTTP/2 with browser TLS fingerprint
+#'   \item \strong{Selenium}: Headless browser for JS-rendered content
+#'   \item \strong{DDGS}: Standard ddgs Python library
+#'   \item \strong{Requests}: Raw POST to DuckDuckGo HTML endpoint
+#' }
+#'
+#' The retry/backoff settings apply within each tier. If all retries
+#' are exhausted, the system automatically falls back to the next tier.
+#'
+#' @examples
+#' \dontrun{
+#' # Default settings
+#' search <- search_options()
+#'
+#' # More aggressive settings for faster searches
+#' search <- search_options(
+#'   max_results = 5,
+#'   timeout = 10,
+#'   max_retries = 2
+#' )
+#'
+#' # Conservative settings for rate-limited environments
+#' search <- search_options(
+#'   inter_search_delay = 2.0,
+#'   max_retries = 5,
+#'   backoff_multiplier = 2.0
+#' )
+#'
+#' # Use with asa_config
+#' config <- asa_config(
+#'   backend = "openai",
+#'   search = search_options(max_results = 15)
+#' )
+#' }
+#'
+#' @seealso \code{\link{asa_config}}, \code{\link{configure_search}}
+#'
+#' @export
+search_options <- function(max_results = NULL,
+                           timeout = NULL,
+                           max_retries = NULL,
+                           retry_delay = NULL,
+                           backoff_multiplier = NULL,
+                           inter_search_delay = NULL) {
+
+  structure(
+    list(
+      max_results = max_results %||% ASA_DEFAULT_MAX_RESULTS,
+      timeout = timeout %||% 15.0,
+      max_retries = max_retries %||% ASA_DEFAULT_MAX_RETRIES,
+      retry_delay = retry_delay %||% 2.0,
+      backoff_multiplier = backoff_multiplier %||% 1.5,
+      inter_search_delay = inter_search_delay %||% ASA_DEFAULT_INTER_SEARCH_DELAY
+    ),
+    class = "asa_search"
+  )
+}
+
+#' Print Method for asa_search Objects
+#'
+#' @param x An asa_search object
+#' @param ... Additional arguments (ignored)
+#'
+#' @method print asa_search
+#' @export
+print.asa_search <- function(x, ...) {
+  cat("Search Options: max_results=", x$max_results,
+      ", timeout=", x$timeout, "s",
+      ", retries=", x$max_retries,
+      ", delay=", x$inter_search_delay, "s\n", sep = "")
+  invisible(x)
+}
+
+
+# ============================================================================
+# AGENT S3 CLASSES
+# ============================================================================
+
 #' Constructor for asa_agent Objects
 #'
 #' Creates an S3 object representing an initialized ASA search agent.

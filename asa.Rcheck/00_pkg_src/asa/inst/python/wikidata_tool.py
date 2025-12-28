@@ -12,6 +12,9 @@ import requests
 from langchain_core.tools import BaseTool
 from pydantic import Field
 
+from state_utils import parse_date_filters
+from http_utils import make_request, DEFAULT_USER_AGENT
+
 logger = logging.getLogger(__name__)
 
 # ────────────────────────────────────────────────────────────────────────
@@ -288,43 +291,22 @@ def execute_sparql_query(
     config = config or WikidataConfig()
     timeout = timeout or config.timeout
 
-    headers = {
-        "Accept": "application/sparql-results+json",
-        "User-Agent": DEFAULT_USER_AGENT,
-    }
+    logger.info("Executing Wikidata SPARQL query")
 
-    last_error = None
-    for attempt in range(config.retry_count):
-        try:
-            logger.info(f"Executing Wikidata SPARQL query (attempt {attempt + 1}/{config.retry_count})")
+    response = make_request(
+        url=WIKIDATA_SPARQL_ENDPOINT,
+        method="GET",
+        params={"query": query, "format": "json"},
+        headers={"Accept": "application/sparql-results+json"},
+        timeout=timeout,
+        max_retries=config.retry_count,
+        retry_delay=config.retry_delay,
+    )
 
-            response = requests.get(
-                WIKIDATA_SPARQL_ENDPOINT,
-                params={"query": query, "format": "json"},
-                headers=headers,
-                timeout=timeout
-            )
-            response.raise_for_status()
-
-            results = response.json()
-            parsed = _parse_sparql_results(results)
-            logger.info(f"Wikidata query returned {len(parsed)} results")
-            return parsed
-
-        except requests.exceptions.Timeout as e:
-            logger.warning(f"Wikidata query timeout (attempt {attempt + 1}): {e}")
-            last_error = e
-            if attempt < config.retry_count - 1:
-                time.sleep(config.retry_delay * (attempt + 1))
-
-        except requests.exceptions.RequestException as e:
-            logger.warning(f"Wikidata query failed (attempt {attempt + 1}): {e}")
-            last_error = e
-            if attempt < config.retry_count - 1:
-                time.sleep(config.retry_delay * (attempt + 1))
-
-    logger.error(f"Wikidata query failed after {config.retry_count} attempts")
-    raise last_error
+    results = response.json()
+    parsed = _parse_sparql_results(results)
+    logger.info(f"Wikidata query returned {len(parsed)} results")
+    return parsed
 
 
 def get_known_entity_types() -> List[str]:
@@ -450,29 +432,14 @@ class WikidataSearchTool(BaseTool):
     def _parse_temporal_from_query(self, query: str) -> tuple:
         """Extract temporal parameters from query string.
 
-        Looks for patterns like "after:2020-01-01" and "before:2024-01-01"
+        Uses shared parse_date_filters utility.
 
         Returns:
             Tuple of (cleaned_query, date_after, date_before)
         """
-        import re
-
-        date_after = self.date_after
-        date_before = self.date_before
-
-        # Pattern for after:YYYY-MM-DD
-        after_match = re.search(r'\bafter:(\d{4}-\d{2}-\d{2})\b', query)
-        if after_match:
-            date_after = after_match.group(1)
-            query = query.replace(after_match.group(0), "").strip()
-
-        # Pattern for before:YYYY-MM-DD
-        before_match = re.search(r'\bbefore:(\d{4}-\d{2}-\d{2})\b', query)
-        if before_match:
-            date_before = before_match.group(1)
-            query = query.replace(before_match.group(0), "").strip()
-
-        return query, date_after, date_before
+        cleaned, date_after, date_before = parse_date_filters(query)
+        # Use instance defaults if not found in query
+        return cleaned, date_after or self.date_after, date_before or self.date_before
 
     def _run(self, query: str) -> str:
         """Execute Wikidata search and return formatted results."""

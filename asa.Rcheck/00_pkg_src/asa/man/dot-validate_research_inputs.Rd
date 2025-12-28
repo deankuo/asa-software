@@ -8,7 +8,7 @@
   query,
   schema,
   output,
-  max_workers,
+  workers,
   max_rounds,
   budget,
   stop_policy,

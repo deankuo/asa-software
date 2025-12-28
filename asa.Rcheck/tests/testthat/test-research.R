@@ -22,20 +22,20 @@ test_that("asa_enumerate validates query parameter", {
   )
 })
 
-test_that("asa_enumerate validates max_workers parameter", {
+test_that("asa_enumerate validates workers parameter", {
   expect_error(
-    asa_enumerate(query = "test", max_workers = 0),
-    regexp = "max_workers"
+    asa_enumerate(query = "test", workers = 0),
+    regexp = "workers"
   )
 
   expect_error(
-    asa_enumerate(query = "test", max_workers = 20),
-    regexp = "max_workers"
+    asa_enumerate(query = "test", workers = 20),
+    regexp = "workers"
   )
 
   expect_error(
-    asa_enumerate(query = "test", max_workers = "four"),
-    regexp = "max_workers"
+    asa_enumerate(query = "test", workers = "four"),
+    regexp = "workers"
   )
 })
 
@@ -125,7 +125,7 @@ test_that(".normalize_schema handles NULL/auto", {
 
 test_that(".create_research_config creates proper structure", {
   config <- asa:::.create_research_config(
-    max_workers = 4,
+    workers = 4,
     max_rounds = 8,
     budget = list(queries = 50, tokens = 200000, time_sec = 300),
     stop_policy = list(target_items = 100, plateau_rounds = 2),
@@ -133,7 +133,7 @@ test_that(".create_research_config creates proper structure", {
   )
 
   expect_type(config, "list")
-  expect_equal(config$max_workers, 4L)
+  expect_equal(config$max_workers, 4L)  # Python side still uses max_workers
   expect_equal(config$max_rounds, 8L)
   expect_equal(config$budget_queries, 50L)
   expect_equal(config$target_items, 100L)
@@ -142,7 +142,7 @@ test_that(".create_research_config creates proper structure", {
 
 test_that(".create_research_config handles NULL target_items", {
   config <- asa:::.create_research_config(
-    max_workers = 2,
+    workers = 2,
     max_rounds = 5,
     budget = list(queries = 25),
     stop_policy = list(target_items = NULL),
@@ -154,7 +154,7 @@ test_that(".create_research_config handles NULL target_items", {
 
 test_that(".create_research_config uses defaults for missing values", {
   config <- asa:::.create_research_config(
-    max_workers = 2,
+    workers = 2,
     max_rounds = 5,
     budget = list(),  # Empty budget
     stop_policy = list(),  # Empty stop_policy
@@ -358,7 +358,7 @@ test_that("asa_enumerate integration test with OpenAI", {
   result <- asa_enumerate(
     query = "Find the 3 largest countries by area",
     schema = c(name = "character", area = "character"),
-    max_workers = 1,
+    workers = 1,
     max_rounds = 2,
     budget = list(queries = 5, tokens = 10000, time_sec = 60),
     stop_policy = list(target_items = 3, plateau_rounds = 1),

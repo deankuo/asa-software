@@ -20,6 +20,8 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
+from state_utils import add_to_list, merge_dicts, parse_llm_json
+
 logger = logging.getLogger(__name__)
 
 
@@ -52,26 +54,6 @@ class ResearchConfig:
 # ────────────────────────────────────────────────────────────────────────
 # State Definitions
 # ────────────────────────────────────────────────────────────────────────
-def _add_to_list(existing: List, new: List) -> List:
-    """Reducer for appending lists."""
-    if existing is None:
-        existing = []
-    if new is None:
-        new = []
-    return existing + new
-
-
-def _merge_dicts(existing: Dict, new: Dict) -> Dict:
-    """Reducer for merging dictionaries."""
-    if existing is None:
-        existing = {}
-    if new is None:
-        new = {}
-    result = existing.copy()
-    result.update(new)
-    return result
-
-
 class ResultRow(TypedDict):
     """A single result row with provenance."""
     row_id: str
@@ -95,15 +77,15 @@ class ResearchState(TypedDict):
     wikidata_type: Optional[str]
 
     # Results
-    results: Annotated[List[ResultRow], _add_to_list]
-    seen_hashes: Annotated[Dict[str, bool], _merge_dicts]
+    results: Annotated[List[ResultRow], add_to_list]
+    seen_hashes: Annotated[Dict[str, bool], merge_dicts]
 
     # Metrics & Control
     round_number: int
     queries_used: int
     status: str  # "planning", "searching", "complete", "failed"
     stop_reason: Optional[str]
-    errors: Annotated[List[Dict], _add_to_list]
+    errors: Annotated[List[Dict], add_to_list]
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -175,16 +157,7 @@ def create_planner_node(llm):
 
         try:
             response = llm.invoke(messages)
-            content = response.content.strip()
-
-            # Clean up response
-            if content.startswith("```"):
-                content = content.split("```")[1]
-                if content.startswith("json"):
-                    content = content[4:]
-            content = content.strip()
-
-            plan = json.loads(content)
+            plan = parse_llm_json(response.content)
             logger.info(f"Plan: entity={plan.get('entity_type')}, wikidata={plan.get('wikidata_type')}")
 
             return {

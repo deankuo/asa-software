@@ -1,44 +1,22 @@
-#' Run the ASA Agent with a Custom Prompt
+#' Run the ASA Agent (Internal)
 #'
-#' Invokes the search agent with an arbitrary prompt, returning the full
-#' agent trace and response. This is the low-level function for running
-#' the agent; for structured task execution, use \code{\link{run_task}}.
+#' Internal function that invokes the search agent with a prompt.
+#' Users should use \code{\link{run_task}} instead.
 #'
 #' @param prompt The prompt to send to the agent
-#' @param agent An asa_agent object from \code{\link{initialize_agent}}, or
-#'   NULL to use/create the default agent
-#' @param recursion_limit Maximum number of agent steps (default: 100 for
-#'   memory folding, 20 otherwise)
-#' @param verbose Print status messages (default: FALSE)
+#' @param agent An asa_agent object
+#' @param temporal Named list for temporal filtering
+#' @param recursion_limit Maximum number of agent steps
+#' @param verbose Print status messages
 #'
-#' @return An object of class \code{asa_response} containing:
-#' \itemize{
-#'   \item message: The final response text
-#'   \item status_code: 200 for success, 100 for error
-#'   \item raw_response: The full Python response object
-#'   \item trace: Full text trace of agent execution
-#'   \item elapsed_time: Execution time in minutes
-#'   \item fold_count: Number of memory folds (if memory folding enabled)
-#' }
+#' @return An object of class \code{asa_response}
 #'
-#' @examples
-#' \dontrun{
-#' # Run with a custom prompt
-#' agent <- initialize_agent()
-#' result <- run_agent(
-#'   prompt = "Who was the 44th president of the United States?",
-#'   agent = agent
-#' )
-#' print(result$message)
-#' }
-#'
-#' @seealso \code{\link{initialize_agent}}, \code{\link{run_task}}
-#'
-#' @export
-run_agent <- function(prompt,
-                      agent = NULL,
-                      recursion_limit = NULL,
-                      verbose = FALSE) {
+#' @keywords internal
+.run_agent <- function(prompt,
+                       agent = NULL,
+                       temporal = NULL,
+                       recursion_limit = NULL,
+                       verbose = FALSE) {
 
   # Validate inputs
   .validate_run_agent(
@@ -47,6 +25,9 @@ run_agent <- function(prompt,
     recursion_limit = recursion_limit,
     verbose = verbose
   )
+
+  # Validate temporal if provided
+  .validate_temporal(temporal)
 
   # Get or initialize agent
   if (is.null(agent)) {
@@ -57,27 +38,36 @@ run_agent <- function(prompt,
     agent <- get_agent()
   }
 
+  # Augment prompt with temporal hints if dates specified
+  augmented_prompt <- .augment_prompt_temporal(prompt, temporal)
+
   # Get config
   config <- agent$config
   use_memory_folding <- config$use_memory_folding %||% TRUE
 
   # Set recursion limit based on agent type
   if (is.null(recursion_limit)) {
-    recursion_limit <- if (use_memory_folding) 100L else 20L
+    recursion_limit <- if (use_memory_folding) {
+      ASA_RECURSION_LIMIT_FOLDING
+    } else {
+      ASA_RECURSION_LIMIT_STANDARD
+    }
   }
 
   if (verbose) message("Running agent...")
   t0 <- Sys.time()
 
-  # Build initial state and invoke agent
-  raw_response <- tryCatch({
-    if (use_memory_folding) {
-      .invoke_memory_folding_agent(agent$python_agent, prompt, recursion_limit)
-    } else {
-      .invoke_standard_agent(agent$python_agent, prompt, recursion_limit)
-    }
-  }, error = function(e) {
-    structure(list(error = e$message), class = "asa_error")
+  # Build initial state and invoke agent with temporal filtering
+  raw_response <- .with_temporal(temporal, function() {
+    tryCatch({
+      if (use_memory_folding) {
+        .invoke_memory_folding_agent(agent$python_agent, augmented_prompt, recursion_limit)
+      } else {
+        .invoke_standard_agent(agent$python_agent, augmented_prompt, recursion_limit)
+      }
+    }, error = function(e) {
+      structure(list(error = e$message), class = "asa_error")
+    })
   })
 
   elapsed <- as.numeric(difftime(Sys.time(), t0, units = "mins"))
@@ -87,7 +77,7 @@ run_agent <- function(prompt,
   if (inherits(raw_response, "asa_error")) {
     return(asa_response(
       message = NA_character_,
-      status_code = 100L,
+      status_code = ASA_STATUS_ERROR,
       raw_response = raw_response,
       trace = raw_response$error,
       elapsed_time = elapsed,
@@ -117,7 +107,7 @@ run_agent <- function(prompt,
   # Return response object
   asa_response(
     message = response_text,
-    status_code = if (is.na(response_text)) 100L else 200L,
+    status_code = if (is.na(response_text)) ASA_STATUS_ERROR else ASA_STATUS_SUCCESS,
     raw_response = raw_response,
     trace = trace,
     elapsed_time = elapsed,
@@ -125,6 +115,10 @@ run_agent <- function(prompt,
     prompt = prompt
   )
 }
+
+# NOTE: run_agent() has been removed from public API.
+# Use run_task(..., output_format = "raw") instead for full trace access.
+# The internal .run_agent() function above is used by run_task() internally.
 
 #' Invoke Memory Folding Agent
 #' @keywords internal
@@ -205,66 +199,15 @@ run_agent <- function(prompt,
 #' @keywords internal
 .handle_response_issues <- function(trace, verbose) {
   if (grepl("Ratelimit", trace, ignore.case = TRUE)) {
-    if (verbose) warning("Rate limit triggered, waiting 15 seconds...")
-    Sys.sleep(15L)
+    if (verbose) warning("Rate limit triggered, waiting ", ASA_RATE_LIMIT_WAIT, " seconds...")
+    Sys.sleep(ASA_RATE_LIMIT_WAIT)
   }
   if (grepl("Timeout", trace, ignore.case = TRUE)) {
-    if (verbose) warning("Timeout triggered, waiting 15 seconds...")
-    Sys.sleep(15L)
+    if (verbose) warning("Timeout triggered, waiting ", ASA_RATE_LIMIT_WAIT, " seconds...")
+    Sys.sleep(ASA_RATE_LIMIT_WAIT)
   }
   invisible(NULL)
 }
 
-#' Run Agent in Batch Mode
-#'
-#' Runs the agent on multiple prompts, optionally in parallel.
-#'
-#' @param prompts Character vector of prompts
-#' @param agent An asa_agent object
-#' @param parallel Use parallel processing (requires future.apply package)
-#' @param workers Number of parallel workers (default: 4)
-#' @param progress Show progress bar (default: TRUE)
-#'
-#' @return A list of asa_response objects
-#'
-#' @examples
-#' \dontrun{
-#' prompts <- c(
-#'   "What is the population of Tokyo?",
-#'   "What is the population of New York?"
-#' )
-#' results <- run_agent_batch(prompts, agent)
-#' }
-#'
-#' @export
-run_agent_batch <- function(prompts,
-                            agent = NULL,
-                            parallel = FALSE,
-                            workers = 4L,
-                            progress = TRUE) {
-
-  if (parallel) {
-    if (!requireNamespace("future", quietly = TRUE) ||
-        !requireNamespace("future.apply", quietly = TRUE)) {
-      stop("Packages 'future' and 'future.apply' required for parallel processing.",
-           call. = FALSE)
-    }
-    future::plan(future::multisession(workers = workers))
-    on.exit(future::plan(future::sequential), add = TRUE)
-
-    results <- future.apply::future_lapply(
-      prompts,
-      function(p) run_agent(p, agent = agent, verbose = FALSE),
-      future.seed = TRUE
-    )
-  } else {
-    n <- length(prompts)
-    results <- vector("list", n)
-    for (i in seq_len(n)) {
-      if (progress) message(sprintf("[%d/%d] Processing...", i, n))
-      results[[i]] <- run_agent(prompts[[i]], agent = agent, verbose = FALSE)
-    }
-  }
-
-  results
-}
+# NOTE: run_agent_batch() has been removed from public API.
+# Use run_task_batch(..., output_format = "raw") instead for full trace access.

@@ -306,21 +306,8 @@ asa_enumerate <- function(query,
 #' Import Research Python Modules
 #' @keywords internal
 .import_research_modules <- function() {
-  # Import research graph module
-  python_path <- .get_python_path()
-  if (python_path != "" && dir.exists(python_path)) {
-    asa_env$research_graph <- reticulate::import_from_path(
-      "research_graph",
-      path = python_path
-    )
-    asa_env$wikidata_tool <- reticulate::import_from_path(
-      "wikidata_tool",
-      path = python_path
-    )
-  } else {
-    stop("Python research modules not found. Package may not be installed correctly.",
-         call. = FALSE)
-  }
+  .import_python_module("research_graph")
+  .import_python_module("wikidata_tool")
   invisible(NULL)
 }
 
@@ -366,39 +353,15 @@ asa_enumerate <- function(query,
   )
 
   # Add temporal filtering parameters if provided
-
   if (!is.null(temporal)) {
-    # Validate and normalize temporal parameters
-    if (!is.null(temporal$time_filter)) {
-      valid_filters <- c("d", "w", "m", "y")
-      if (!temporal$time_filter %in% valid_filters) {
-        stop("`temporal$time_filter` must be one of: 'd', 'w', 'm', 'y'", call. = FALSE)
-      }
-      config$time_filter <- temporal$time_filter
-    }
+    # Use centralized validation from validate.R
+    .validate_temporal(temporal)
 
-    if (!is.null(temporal$after)) {
-      # Validate ISO 8601 date format
-      tryCatch(
-        as.Date(temporal$after),
-        error = function(e) stop("`temporal$after` must be a valid ISO 8601 date (YYYY-MM-DD)", call. = FALSE)
-      )
-      config$date_after <- temporal$after
-    }
-
-    if (!is.null(temporal$before)) {
-      tryCatch(
-        as.Date(temporal$before),
-        error = function(e) stop("`temporal$before` must be a valid ISO 8601 date (YYYY-MM-DD)", call. = FALSE)
-      )
-      config$date_before <- temporal$before
-    }
-
+    # Extract validated parameters
+    config$time_filter <- temporal$time_filter
+    config$date_after <- temporal$after
+    config$date_before <- temporal$before
     config$temporal_strictness <- temporal$strictness %||% "best_effort"
-    if (!config$temporal_strictness %in% c("best_effort", "strict")) {
-      stop("`temporal$strictness` must be 'best_effort' or 'strict'", call. = FALSE)
-    }
-
     config$use_wayback <- isTRUE(temporal$use_wayback)
   }
 
@@ -672,8 +635,3 @@ asa_enumerate <- function(query,
 
   invisible(TRUE)
 }
-
-
-# Null coalescing operator (internal use only)
-# @noRd
-`%||%` <- function(x, y) if (is.null(x)) y else x

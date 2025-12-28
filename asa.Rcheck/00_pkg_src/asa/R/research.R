@@ -10,8 +10,10 @@
 #'   Names are column names, values are R types ("character", "numeric", "logical").
 #'   Use NULL or "auto" for LLM-proposed schema.
 #' @param output Output format: "data.frame" (default), "csv", or "json".
-#' @param max_workers Maximum number of parallel search workers (default: 4).
-#' @param max_rounds Maximum research iterations (default: 8).
+#' @param workers Number of parallel search workers. Defaults to value from
+#'   \code{ASA_DEFAULT_WORKERS} (typically 4).
+#' @param max_rounds Maximum research iterations. Defaults to value from
+#'   \code{ASA_DEFAULT_MAX_ROUNDS} (typically 8).
 #' @param budget Named list with resource limits:
 #'   \itemize{
 #'     \item queries: Maximum search queries (default: 50)
@@ -150,8 +152,8 @@
 asa_enumerate <- function(query,
                          schema = NULL,
                          output = c("data.frame", "csv", "json"),
-                         max_workers = 4L,
-                         max_rounds = 8L,
+                         workers = NULL,
+                         max_rounds = NULL,
                          budget = list(queries = 50L, tokens = 200000L, time_sec = 300L),
                          stop_policy = list(target_items = NULL, plateau_rounds = 2L,
                                            novelty_min = 0.05, novelty_window = 20L),
@@ -164,10 +166,17 @@ asa_enumerate <- function(query,
                          checkpoint_dir = tempdir(),
                          resume_from = NULL,
                          agent = NULL,
-                         backend = "openai",
-                         model = "gpt-4.1-mini",
-                         conda_env = "asa_env",
+                         backend = NULL,
+                         model = NULL,
+                         conda_env = NULL,
                          verbose = TRUE) {
+
+  # Apply defaults from constants
+  workers <- workers %||% .get_default_workers()
+  max_rounds <- max_rounds %||% ASA_DEFAULT_MAX_ROUNDS
+  backend <- backend %||% .get_default_backend()
+  model <- model %||% .get_default_model()
+  conda_env <- conda_env %||% .get_default_conda_env()
 
   # Match output format
   output <- match.arg(output)
@@ -177,7 +186,7 @@ asa_enumerate <- function(query,
     query = query,
     schema = schema,
     output = output,
-    max_workers = max_workers,
+    workers = workers,
     max_rounds = max_rounds,
     budget = budget,
     stop_policy = stop_policy,
@@ -214,7 +223,7 @@ asa_enumerate <- function(query,
 
   # Create research config
   config_dict <- .create_research_config(
-    max_workers = max_workers,
+    workers = workers,
     max_rounds = max_rounds,
     budget = budget,
     stop_policy = stop_policy,
@@ -297,21 +306,8 @@ asa_enumerate <- function(query,
 #' Import Research Python Modules
 #' @keywords internal
 .import_research_modules <- function() {
-  # Import research graph module
-  python_path <- .get_python_path()
-  if (python_path != "" && dir.exists(python_path)) {
-    asa_env$research_graph <- reticulate::import_from_path(
-      "research_graph",
-      path = python_path
-    )
-    asa_env$wikidata_tool <- reticulate::import_from_path(
-      "wikidata_tool",
-      path = python_path
-    )
-  } else {
-    stop("Python research modules not found. Package may not be installed correctly.",
-         call. = FALSE)
-  }
+  .import_python_module("research_graph")
+  .import_python_module("wikidata_tool")
   invisible(NULL)
 }
 
@@ -340,9 +336,9 @@ asa_enumerate <- function(query,
 
 #' Create Research Configuration
 #' @keywords internal
-.create_research_config <- function(max_workers, max_rounds, budget, stop_policy, sources, temporal = NULL) {
+.create_research_config <- function(workers, max_rounds, budget, stop_policy, sources, temporal = NULL) {
   config <- list(
-    max_workers = as.integer(max_workers),
+    max_workers = as.integer(workers),  # Python side still expects max_workers
     max_rounds = as.integer(max_rounds),
     budget_queries = as.integer(budget$queries %||% 50L),
     budget_tokens = as.integer(budget$tokens %||% 200000L),
@@ -357,39 +353,15 @@ asa_enumerate <- function(query,
   )
 
   # Add temporal filtering parameters if provided
-
   if (!is.null(temporal)) {
-    # Validate and normalize temporal parameters
-    if (!is.null(temporal$time_filter)) {
-      valid_filters <- c("d", "w", "m", "y")
-      if (!temporal$time_filter %in% valid_filters) {
-        stop("`temporal$time_filter` must be one of: 'd', 'w', 'm', 'y'", call. = FALSE)
-      }
-      config$time_filter <- temporal$time_filter
-    }
+    # Use centralized validation from validate.R
+    .validate_temporal(temporal)
 
-    if (!is.null(temporal$after)) {
-      # Validate ISO 8601 date format
-      tryCatch(
-        as.Date(temporal$after),
-        error = function(e) stop("`temporal$after` must be a valid ISO 8601 date (YYYY-MM-DD)", call. = FALSE)
-      )
-      config$date_after <- temporal$after
-    }
-
-    if (!is.null(temporal$before)) {
-      tryCatch(
-        as.Date(temporal$before),
-        error = function(e) stop("`temporal$before` must be a valid ISO 8601 date (YYYY-MM-DD)", call. = FALSE)
-      )
-      config$date_before <- temporal$before
-    }
-
+    # Extract validated parameters
+    config$time_filter <- temporal$time_filter
+    config$date_after <- temporal$after
+    config$date_before <- temporal$before
     config$temporal_strictness <- temporal$strictness %||% "best_effort"
-    if (!config$temporal_strictness %in% c("best_effort", "strict")) {
-      stop("`temporal$strictness` must be 'best_effort' or 'strict'", call. = FALSE)
-    }
-
     config$use_wayback <- isTRUE(temporal$use_wayback)
   }
 
@@ -619,7 +591,7 @@ asa_enumerate <- function(query,
 
 #' Validate Research Inputs
 #' @keywords internal
-.validate_research_inputs <- function(query, schema, output, max_workers, max_rounds,
+.validate_research_inputs <- function(query, schema, output, workers, max_rounds,
                                       budget, stop_policy, sources,
                                       checkpoint_dir, resume_from) {
   # Query validation
@@ -628,8 +600,8 @@ asa_enumerate <- function(query,
   }
 
   # Numeric parameters
-  if (!is.null(max_workers) && (!is.numeric(max_workers) || max_workers < 1 || max_workers > 10)) {
-    stop("`max_workers` must be a number between 1 and 10", call. = FALSE)
+  if (!is.null(workers) && (!is.numeric(workers) || workers < 1 || workers > 10)) {
+    stop("`workers` must be a number between 1 and 10", call. = FALSE)
   }
 
   if (!is.null(max_rounds) && (!is.numeric(max_rounds) || max_rounds < 1 || max_rounds > 100)) {
@@ -663,8 +635,3 @@ asa_enumerate <- function(query,
 
   invisible(TRUE)
 }
-
-
-# Null coalescing operator (internal use only)
-# @noRd
-`%||%` <- function(x, y) if (is.null(x)) y else x

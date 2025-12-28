@@ -9,6 +9,7 @@
 import contextlib
 import logging
 import os
+import threading
 import traceback
 import time
 from dataclasses import dataclass, field
@@ -65,9 +66,11 @@ class SearchConfig:
     inter_search_delay: float = 0.5
 
 
-# Default configuration instance
+# Default configuration instance (thread-safe via copy-on-read pattern)
 _default_config = SearchConfig()
 _last_search_time: float = 0.0  # Track last search timestamp for inter-search delay
+_search_lock = threading.Lock()  # Lock for thread-safe access to _last_search_time
+_config_lock = threading.Lock()  # Lock for thread-safe config modifications
 
 
 def configure_search(
@@ -83,25 +86,27 @@ def configure_search(
     """Configure global search defaults. Call from R via reticulate.
 
     Only non-None values will update the defaults. Returns the updated config.
+    Thread-safe: uses lock to prevent race conditions during configuration.
     """
     global _default_config
-    if max_results is not None:
-        _default_config.max_results = max_results
-    if timeout is not None:
-        _default_config.timeout = timeout
-    if max_retries is not None:
-        _default_config.max_retries = max_retries
-    if retry_delay is not None:
-        _default_config.retry_delay = retry_delay
-    if backoff_multiplier is not None:
-        _default_config.backoff_multiplier = backoff_multiplier
-    if captcha_backoff_base is not None:
-        _default_config.captcha_backoff_base = captcha_backoff_base
-    if page_load_wait is not None:
-        _default_config.page_load_wait = page_load_wait
-    if inter_search_delay is not None:
-        _default_config.inter_search_delay = inter_search_delay
-    return _default_config
+    with _config_lock:
+        if max_results is not None:
+            _default_config.max_results = max_results
+        if timeout is not None:
+            _default_config.timeout = timeout
+        if max_retries is not None:
+            _default_config.max_retries = max_retries
+        if retry_delay is not None:
+            _default_config.retry_delay = retry_delay
+        if backoff_multiplier is not None:
+            _default_config.backoff_multiplier = backoff_multiplier
+        if captcha_backoff_base is not None:
+            _default_config.captcha_backoff_base = captcha_backoff_base
+        if page_load_wait is not None:
+            _default_config.page_load_wait = page_load_wait
+        if inter_search_delay is not None:
+            _default_config.inter_search_delay = inter_search_delay
+        return _default_config
 
 
 def configure_logging(level: str = "WARNING") -> None:
@@ -418,18 +423,20 @@ class PatchedDuckDuckGoSearchAPIWrapper(DuckDuckGoSearchAPIWrapper):
     def _search_text(self, query: str, max_results: int) -> List[Dict[str, str]]:
         """
         Unified dispatcher for text search with multi‑level fallback.
+        Thread-safe: uses lock for inter-search delay coordination.
         """
         global _last_search_time
         cfg = _default_config
 
-        # Apply inter-search delay to avoid rate limiting
-        if cfg.inter_search_delay > 0:
-            elapsed = time.time() - _last_search_time
-            if elapsed < cfg.inter_search_delay:
-                wait_time = cfg.inter_search_delay - elapsed
-                logger.debug("Inter-search delay: waiting %.2fs", wait_time)
-                time.sleep(wait_time)
-        _last_search_time = time.time()
+        # Apply inter-search delay to avoid rate limiting (thread-safe)
+        with _search_lock:
+            if cfg.inter_search_delay > 0:
+                elapsed = time.time() - _last_search_time
+                if elapsed < cfg.inter_search_delay:
+                    wait_time = cfg.inter_search_delay - elapsed
+                    logger.debug("Inter-search delay: waiting %.2fs", wait_time)
+                    time.sleep(wait_time)
+            _last_search_time = time.time()
 
         # tier 0 - primp
         # ────────────────────────────────────────────────────────────────────────
@@ -739,6 +746,7 @@ def create_memory_folding_agent(
     model,
     tools: list,
     *,
+    checkpointer=None,
     message_threshold: int = 6,
     keep_recent: int = 2,
     summarizer_model = None,
@@ -754,6 +762,7 @@ def create_memory_folding_agent(
     Args:
         model: The LLM to use for the agent (e.g., ChatOpenAI, ChatGroq)
         tools: List of LangChain tools (e.g., search, wikipedia)
+        checkpointer: Optional LangGraph checkpointer for persistence (e.g., MemorySaver())
         message_threshold: Trigger folding when messages exceed this count
         keep_recent: Number of recent messages to preserve after folding
         summarizer_model: Optional separate model for summarization (defaults to main model)
@@ -985,8 +994,8 @@ def create_memory_folding_agent(
     # After summarizing, we END (the response was already given by agent)
     workflow.add_edge("summarize", END)
 
-    # Compile and return
-    return workflow.compile()
+    # Compile with optional checkpointer and return
+    return workflow.compile(checkpointer=checkpointer)
 
 
 def create_memory_folding_agent_with_checkpointer(
@@ -998,7 +1007,8 @@ def create_memory_folding_agent_with_checkpointer(
     """
     Create a memory folding agent with a checkpointer for persistence.
 
-    This is a convenience wrapper that adds a checkpointer to the compiled graph.
+    DEPRECATED: Use create_memory_folding_agent(checkpointer=...) instead.
+    This function is kept for backward compatibility.
 
     Args:
         model: The LLM to use
@@ -1009,120 +1019,9 @@ def create_memory_folding_agent_with_checkpointer(
     Returns:
         Compiled graph with checkpointer
     """
-    from langgraph.graph import StateGraph, END
-    from langchain_core.messages import RemoveMessage, SystemMessage, HumanMessage, AIMessage
-    from langgraph.prebuilt import ToolNode
-
-    message_threshold = kwargs.get('message_threshold', 6)
-    keep_recent = kwargs.get('keep_recent', 2)
-    summarizer_model = kwargs.get('summarizer_model', model)
-    debug = kwargs.get('debug', False)
-
-    model_with_tools = model.bind_tools(tools)
-    tool_node = ToolNode(tools)
-
-    def _get_system_prompt(summary: str) -> str:
-        base_prompt = (
-            "You are a helpful research assistant with access to search tools. "
-            "Use tools when you need current information or facts you're unsure about."
-        )
-        if summary:
-            return (
-                f"{base_prompt}\n\n"
-                f"=== LONG-TERM MEMORY ===\n{summary}\n=== END LONG-TERM MEMORY ===\n\n"
-                f"Consult your long-term memory above for context before acting."
-            )
-        return base_prompt
-
-    def agent_node(state: MemoryFoldingAgentState) -> dict:
-        messages = state.get("messages", [])
-        summary = state.get("summary", "")
-        system_msg = SystemMessage(content=_get_system_prompt(summary))
-        full_messages = [system_msg] + list(messages)
-        if debug:
-            logger.info(f"Agent node: {len(messages)} messages, summary={bool(summary)}")
-        response = model_with_tools.invoke(full_messages)
-        return {"messages": [response]}
-
-    def summarize_conversation(state: MemoryFoldingAgentState) -> dict:
-        messages = state.get("messages", [])
-        current_summary = state.get("summary", "")
-        fold_count = state.get("fold_count", 0)
-
-        if len(messages) <= keep_recent:
-            return {}
-
-        # Find safe fold boundary - fold only complete conversation rounds
-        safe_fold_idx = 0
-        i = 0
-        while i < len(messages) - keep_recent:
-            msg = messages[i]
-            msg_type = type(msg).__name__
-            if msg_type == 'AIMessage':
-                if not getattr(msg, 'tool_calls', None):
-                    safe_fold_idx = i + 1
-            elif msg_type == 'HumanMessage':
-                safe_fold_idx = i + 1
-            i += 1
-
-        if safe_fold_idx == 0:
-            if debug:
-                logger.info("No safe fold boundary found, skipping fold")
-            return {}
-
-        messages_to_fold = messages[:safe_fold_idx]
-        if not messages_to_fold:
-            return {}
-
-        if debug:
-            logger.info(f"Folding {len(messages_to_fold)} messages into summary")
-
-        fold_text_parts = []
-        for msg in messages_to_fold:
-            msg_type = type(msg).__name__
-            content = getattr(msg, 'content', str(msg))
-            tool_calls = getattr(msg, 'tool_calls', None)
-            if tool_calls:
-                tool_info = ", ".join([f"{tc.get('name', 'tool')}" for tc in tool_calls])
-                fold_text_parts.append(f"[{msg_type}] (tools: {tool_info}) {content[:200]}")
-            elif msg_type == 'ToolMessage':
-                fold_text_parts.append(f"[{msg_type}] {content[:300]}...")
-            else:
-                fold_text_parts.append(f"[{msg_type}] {content}")
-
-        fold_text = "\n".join(fold_text_parts)
-        summarize_prompt = (
-            f"Summarize this conversation for long-term memory.\n\n"
-            f"Current summary:\n{current_summary or '(empty)'}\n\n"
-            f"New messages:\n{fold_text}\n\n"
-            f"Create a concise summary preserving key facts and findings. Under 500 words."
-        )
-        summary_response = summarizer_model.invoke([HumanMessage(content=summarize_prompt)])
-        new_summary = summary_response.content if hasattr(summary_response, 'content') else str(summary_response)
-        remove_messages = [RemoveMessage(id=msg.id) for msg in messages_to_fold if getattr(msg, 'id', None)]
-        return {"summary": new_summary, "messages": remove_messages, "fold_count": fold_count + 1}
-
-    def should_continue(state: MemoryFoldingAgentState) -> str:
-        messages = state.get("messages", [])
-        if not messages:
-            return "end"
-        last_message = messages[-1]
-        # Only fold when agent is done (no pending tool calls)
-        if getattr(last_message, 'tool_calls', None):
-            return "tools"
-        if len(messages) > message_threshold:
-            if debug:
-                logger.info(f"Memory threshold exceeded: {len(messages)} > {message_threshold}")
-            return "summarize"
-        return "end"
-
-    workflow = StateGraph(MemoryFoldingAgentState)
-    workflow.add_node("agent", agent_node)
-    workflow.add_node("tools", tool_node)
-    workflow.add_node("summarize", summarize_conversation)
-    workflow.set_entry_point("agent")
-    workflow.add_conditional_edges("agent", should_continue, {"tools": "tools", "summarize": "summarize", "end": END})
-    workflow.add_edge("tools", "agent")  # Tools always return to agent
-    workflow.add_edge("summarize", END)  # After summarizing, END (response already given)
-
-    return workflow.compile(checkpointer=checkpointer)
+    return create_memory_folding_agent(
+        model=model,
+        tools=tools,
+        checkpointer=checkpointer,
+        **kwargs
+    )

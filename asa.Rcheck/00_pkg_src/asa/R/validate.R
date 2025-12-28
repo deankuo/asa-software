@@ -393,16 +393,16 @@
 .validate_run_task <- function(prompt, output_format, agent, verbose) {
   .validate_string(prompt, "prompt")
 
-  # output_format: "text", "json", or character vector of field names
+  # output_format: "text", "json", "raw", or character vector of field names
   if (is.character(output_format)) {
     if (length(output_format) == 1) {
-      .validate_choice(output_format, "output_format", c("text", "json"))
+      .validate_choice(output_format, "output_format", c("text", "json", "raw"))
     }
     # length > 1 means field names, which is valid
   } else {
     .stop_validation(
       "output_format",
-      'be "text", "json", or a character vector of field names',
+      'be "text", "json", "raw", or a character vector of field names',
       actual = output_format,
       fix = 'Use output_format = "json" or output_format = c("field1", "field2")'
     )
@@ -449,12 +449,12 @@
   # output_format validation (same as run_task)
   if (is.character(output_format)) {
     if (length(output_format) == 1) {
-      .validate_choice(output_format, "output_format", c("text", "json"))
+      .validate_choice(output_format, "output_format", c("text", "json", "raw"))
     }
   } else {
     .stop_validation(
       "output_format",
-      'be "text", "json", or a character vector of field names',
+      'be "text", "json", "raw", or a character vector of field names',
       actual = output_format,
       fix = 'Use output_format = "json"'
     )
@@ -755,6 +755,39 @@
     }
   }
 
+  # Check for contradictions between time_filter and date range
+  time_filter <- temporal$time_filter
+  if (!is.null(time_filter) && !is.na(time_filter) && time_filter != "none") {
+    if (!is.null(temporal$after)) {
+      # Calculate implied start date from time_filter
+      today <- Sys.Date()
+      filter_start <- switch(time_filter,
+        "d" = today - 1,
+        "w" = today - 7,
+        "m" = today - 30,
+        "y" = today - 365,
+        today  # fallback
+      )
+      after_date <- as.Date(temporal$after)
+
+      if (after_date < filter_start) {
+        filter_desc <- switch(time_filter,
+          "d" = "past day",
+          "w" = "past week",
+          "m" = "past month",
+          "y" = "past year"
+        )
+        warning(
+          "Temporal conflict: time_filter='", time_filter, "' limits DuckDuckGo to ",
+          filter_desc, ", but after='", temporal$after, "' suggests broader range.\n",
+          "DuckDuckGo will only return results from the ", filter_desc,
+          ". Consider removing time_filter for the full date range.",
+          call. = FALSE
+        )
+      }
+    }
+  }
+
   # Validate strictness if present
   if (!is.null(temporal$strictness)) {
     valid_strictness <- c("best_effort", "strict")
@@ -781,4 +814,64 @@
   }
 
   invisible(temporal)
+}
+
+
+# ============================================================================
+# API KEY VALIDATORS
+# ============================================================================
+
+#' Validate API Key for Backend
+#'
+#' Checks that the required API key environment variable is set for the
+#' specified backend. Throws an informative error if missing.
+#'
+#' @param backend LLM backend name
+#' @return Invisibly returns TRUE if valid
+#' @keywords internal
+.validate_api_key <- function(backend) {
+  # Map backends to their API key environment variables
+  key_vars <- list(
+    openai = "OPENAI_API_KEY",
+    groq = "GROQ_API_KEY",
+    xai = "XAI_API_KEY",
+    openrouter = "OPENROUTER_API_KEY"
+  )
+
+  # Exo is local, no API key needed
+  if (backend == "exo") {
+    return(invisible(TRUE))
+  }
+
+  env_var <- key_vars[[backend]]
+  if (is.null(env_var)) {
+    stop("Unknown backend: ", backend, call. = FALSE)
+  }
+
+  api_key <- Sys.getenv(env_var, unset = "")
+
+  if (api_key == "" || is.na(api_key)) {
+    .stop_validation(
+      "api_key",
+      sprintf("be set in environment variable %s for backend '%s'", env_var, backend),
+      actual = "<not set>",
+      fix = sprintf(
+        "Set the API key via: Sys.setenv(%s = \"your-api-key\")\n         Or in your .Renviron file: %s=your-api-key",
+        env_var, env_var
+      )
+    )
+  }
+
+  # Warn if key looks suspicious (too short or placeholder)
+  if (nchar(api_key) < 10) {
+    warning(sprintf("%s appears to be too short. Is it a valid API key?", env_var),
+            call. = FALSE)
+  }
+
+  if (grepl("your[_-]?api[_-]?key|placeholder|test|example", api_key, ignore.case = TRUE)) {
+    warning(sprintf("%s appears to be a placeholder value. Is it a real API key?", env_var),
+            call. = FALSE)
+  }
+
+  invisible(TRUE)
 }

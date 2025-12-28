@@ -364,16 +364,7 @@ backend <- match.arg(backend)
 #'
 #' @noRd
 .import_audit_modules <- function() {
-  if (is.null(asa_env$audit_graph)) {
-    python_path <- .get_python_path()
-    asa_env$audit_graph <- tryCatch({
-      reticulate::import_from_path("audit_graph", path = python_path)
-    }, error = function(e) {
-      stop("Could not import audit_graph module. ",
-           "Ensure asa/inst/python/audit_graph.py exists.",
-           call. = FALSE)
-    })
-  }
+  .import_python_module("audit_graph")
 }
 
 #' Build Audit Prompt for Claude Code
@@ -591,9 +582,3 @@ If the data looks complete and consistent, say so with high scores.',
   })
 }
 
-#' Get Python Module Path
-#'
-#' @noRd
-.get_python_path <- function() {
-  system.file("python", package = "asa")
-}

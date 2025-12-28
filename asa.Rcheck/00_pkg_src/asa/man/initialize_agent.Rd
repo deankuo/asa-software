@@ -108,5 +108,5 @@ agent <- initialize_agent(
 
 }
 \seealso{
-\code{\link{run_agent}}, \code{\link{run_task}}
+\code{\link{run_task}}, \code{\link{run_task_batch}}
 }

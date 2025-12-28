@@ -55,6 +55,37 @@ base::assign(".ptime", proc.time(), pos = "CheckExEnv")
 base::assign(".dptime", (proc.time() - get(".ptime", pos = "CheckExEnv")), pos = "CheckExEnv")
 base::cat("asa_audit", base::get(".format_ptime", pos = 'CheckExEnv')(get(".dptime", pos = "CheckExEnv")), "\n", file=base::get(".ExTimings", pos = 'CheckExEnv'), append=TRUE, sep="\t")
 cleanEx()
+nameEx("asa_config")
+### * asa_config
+
+flush(stderr()); flush(stdout())
+
+base::assign(".ptime", proc.time(), pos = "CheckExEnv")
+### Name: asa_config
+### Title: Create ASA Configuration Object
+### Aliases: asa_config
+
+### ** Examples
+
+## Not run: 
+##D # Create configuration
+##D config <- asa_config(
+##D   backend = "openai",
+##D   model = "gpt-4.1-mini",
+##D   workers = 4,
+##D   temporal = temporal_options(time_filter = "y")
+##D )
+##D 
+##D # Use with run_task
+##D result <- run_task(prompt, config = config)
+## End(Not run)
+
+
+
+
+base::assign(".dptime", (proc.time() - get(".ptime", pos = "CheckExEnv")), pos = "CheckExEnv")
+base::cat("asa_config", base::get(".format_ptime", pos = 'CheckExEnv')(get(".dptime", pos = "CheckExEnv")), "\n", file=base::get(".ExTimings", pos = 'CheckExEnv'), append=TRUE, sep="\t")
+cleanEx()
 nameEx("asa_enumerate")
 ### * asa_enumerate
 
@@ -540,60 +571,6 @@ base::assign(".ptime", proc.time(), pos = "CheckExEnv")
 base::assign(".dptime", (proc.time() - get(".ptime", pos = "CheckExEnv")), pos = "CheckExEnv")
 base::cat("rotate_tor_circuit", base::get(".format_ptime", pos = 'CheckExEnv')(get(".dptime", pos = "CheckExEnv")), "\n", file=base::get(".ExTimings", pos = 'CheckExEnv'), append=TRUE, sep="\t")
 cleanEx()
-nameEx("run_agent")
-### * run_agent
-
-flush(stderr()); flush(stdout())
-
-base::assign(".ptime", proc.time(), pos = "CheckExEnv")
-### Name: run_agent
-### Title: Run the ASA Agent with a Custom Prompt
-### Aliases: run_agent
-
-### ** Examples
-
-## Not run: 
-##D # Run with a custom prompt
-##D agent <- initialize_agent()
-##D result <- run_agent(
-##D   prompt = "Who was the 44th president of the United States?",
-##D   agent = agent
-##D )
-##D print(result$message)
-## End(Not run)
-
-
-
-
-base::assign(".dptime", (proc.time() - get(".ptime", pos = "CheckExEnv")), pos = "CheckExEnv")
-base::cat("run_agent", base::get(".format_ptime", pos = 'CheckExEnv')(get(".dptime", pos = "CheckExEnv")), "\n", file=base::get(".ExTimings", pos = 'CheckExEnv'), append=TRUE, sep="\t")
-cleanEx()
-nameEx("run_agent_batch")
-### * run_agent_batch
-
-flush(stderr()); flush(stdout())
-
-base::assign(".ptime", proc.time(), pos = "CheckExEnv")
-### Name: run_agent_batch
-### Title: Run Agent in Batch Mode
-### Aliases: run_agent_batch
-
-### ** Examples
-
-## Not run: 
-##D prompts <- c(
-##D   "What is the population of Tokyo?",
-##D   "What is the population of New York?"
-##D )
-##D results <- run_agent_batch(prompts, agent)
-## End(Not run)
-
-
-
-
-base::assign(".dptime", (proc.time() - get(".ptime", pos = "CheckExEnv")), pos = "CheckExEnv")
-base::cat("run_agent_batch", base::get(".format_ptime", pos = 'CheckExEnv')(get(".dptime", pos = "CheckExEnv")), "\n", file=base::get(".ExTimings", pos = 'CheckExEnv'), append=TRUE, sep="\t")
-cleanEx()
 nameEx("run_task")
 ### * run_task
 
@@ -627,10 +604,18 @@ base::assign(".ptime", proc.time(), pos = "CheckExEnv")
 ##D )
 ##D print(result$parsed)
 ##D 
+##D # Raw output for debugging (includes full trace in asa_result)
+##D result <- run_task(
+##D   prompt = "Search for information",
+##D   output_format = "raw",
+##D   agent = agent
+##D )
+##D cat(result$trace)  # View full agent trace
+##D 
 ##D # With temporal filtering (past year only)
 ##D result <- run_task(
 ##D   prompt = "Find recent AI research breakthroughs",
-##D   temporal = list(time_filter = "y"),
+##D   temporal = temporal_options(time_filter = "y"),
 ##D   agent = agent
 ##D )
 ##D 
@@ -644,6 +629,14 @@ base::assign(".ptime", proc.time(), pos = "CheckExEnv")
 ##D   ),
 ##D   agent = agent
 ##D )
+##D 
+##D # Using asa_config for unified configuration
+##D config <- asa_config(
+##D   backend = "openai",
+##D   model = "gpt-4.1-mini",
+##D   temporal = temporal_options(time_filter = "y")
+##D )
+##D result <- run_task(prompt, config = config)
 ## End(Not run)
 
 
@@ -685,6 +678,85 @@ base::assign(".ptime", proc.time(), pos = "CheckExEnv")
 
 base::assign(".dptime", (proc.time() - get(".ptime", pos = "CheckExEnv")), pos = "CheckExEnv")
 base::cat("run_task_batch", base::get(".format_ptime", pos = 'CheckExEnv')(get(".dptime", pos = "CheckExEnv")), "\n", file=base::get(".ExTimings", pos = 'CheckExEnv'), append=TRUE, sep="\t")
+cleanEx()
+nameEx("search_options")
+### * search_options
+
+flush(stderr()); flush(stdout())
+
+base::assign(".ptime", proc.time(), pos = "CheckExEnv")
+### Name: search_options
+### Title: Create Search Options
+### Aliases: search_options
+
+### ** Examples
+
+## Not run: 
+##D # Default settings
+##D search <- search_options()
+##D 
+##D # More aggressive settings for faster searches
+##D search <- search_options(
+##D   max_results = 5,
+##D   timeout = 10,
+##D   max_retries = 2
+##D )
+##D 
+##D # Conservative settings for rate-limited environments
+##D search <- search_options(
+##D   inter_search_delay = 2.0,
+##D   max_retries = 5,
+##D   backoff_multiplier = 2.0
+##D )
+##D 
+##D # Use with asa_config
+##D config <- asa_config(
+##D   backend = "openai",
+##D   search = search_options(max_results = 15)
+##D )
+## End(Not run)
+
+
+
+
+base::assign(".dptime", (proc.time() - get(".ptime", pos = "CheckExEnv")), pos = "CheckExEnv")
+base::cat("search_options", base::get(".format_ptime", pos = 'CheckExEnv')(get(".dptime", pos = "CheckExEnv")), "\n", file=base::get(".ExTimings", pos = 'CheckExEnv'), append=TRUE, sep="\t")
+cleanEx()
+nameEx("temporal_options")
+### * temporal_options
+
+flush(stderr()); flush(stdout())
+
+base::assign(".ptime", proc.time(), pos = "CheckExEnv")
+### Name: temporal_options
+### Title: Create Temporal Filtering Options
+### Aliases: temporal_options
+
+### ** Examples
+
+## Not run: 
+##D # Past year only
+##D temporal <- temporal_options(time_filter = "y")
+##D 
+##D # Specific date range
+##D temporal <- temporal_options(
+##D   after = "2020-01-01",
+##D   before = "2024-01-01"
+##D )
+##D 
+##D # Strict historical verification
+##D temporal <- temporal_options(
+##D   before = "2015-01-01",
+##D   strictness = "strict",
+##D   use_wayback = TRUE
+##D )
+## End(Not run)
+
+
+
+
+base::assign(".dptime", (proc.time() - get(".ptime", pos = "CheckExEnv")), pos = "CheckExEnv")
+base::cat("temporal_options", base::get(".format_ptime", pos = 'CheckExEnv')(get(".dptime", pos = "CheckExEnv")), "\n", file=base::get(".ExTimings", pos = 'CheckExEnv'), append=TRUE, sep="\t")
 ### * <FOOTER>
 ###
 cleanEx()

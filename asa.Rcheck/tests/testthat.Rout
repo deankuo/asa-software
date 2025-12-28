@@ -25,14 +25,16 @@ Type 'q()' to quit R.
 > library(asa)
 > 
 > test_check("asa")
+DuckDuckGo time filter set to: y (past year)
+DuckDuckGo time filter set to: m (past month)
 
-  build_prompt: 0.1341 sec (baseline: 0.09, threshold: 0.36, ratio: 1.49x)
+  build_prompt: 0.1251 sec (baseline: 0.09, threshold: 0.36, ratio: 1.39x)
 
-  helper_funcs: 0.0745 sec (baseline: 0.07, threshold: 0.28, ratio: 1.06x)
+  helper_funcs: 0.0683 sec (baseline: 0.07, threshold: 0.28, ratio: 0.98x)
 
-  combined:     0.1154 sec (baseline: 0.09, threshold: 0.36, ratio: 1.27x)
+  combined:     0.1066 sec (baseline: 0.09, threshold: 0.36, ratio: 1.17x)
 
-  agent_search: 13.13 sec (baseline: 18, threshold: 70, ratio: 0.75x)
+  agent_search: 13.17 sec (baseline: 18, threshold: 70, ratio: 0.75x)
 
   Could not write speed report: cannot open the connection
   README.md updated: /Users/cjerzak/Documents/asa-software/README.md
@@ -48,20 +50,21 @@ Type 'q()' to quit R.
   Using auto schema detection...
   Using auto schema detection...
   Using auto schema detection...
-[ FAIL 0 | WARN 1 | SKIP 3 | PASS 454 ]
+[ FAIL 0 | WARN 2 | SKIP 4 | PASS 546 ]
 
-══ Skipped tests (3) ═══════════════════════════════════════════════════════════
+══ Skipped tests (4) ═══════════════════════════════════════════════════════════
+• Agent is initialized (1): 'test-run-task.R:231:3'
 • On CRAN (1): 'test-research.R:355:3'
 • Skipping Claude Code integration test in automated testing (1):
   'test-audit.R:306:3'
 • Skipping LangGraph integration test - requires initialized agent (1):
   'test-audit.R:320:3'
 
-[ FAIL 0 | WARN 1 | SKIP 3 | PASS 454 ]
+[ FAIL 0 | WARN 2 | SKIP 4 | PASS 546 ]
 > 
 > # test_check("asa") # - designed for R CMD check, not interactive use
 > # devtools::test("~/Documents/asa-software/asa/")#  - use this for interactive testing
 > 
 > proc.time()
    user  system elapsed 
- 17.544   5.393  85.098 
+ 17.032   4.751  76.169 

@@ -13,33 +13,14 @@ from typing import Any, Annotated, Dict, List, Optional, TypedDict
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.graph import END, StateGraph
 
+from state_utils import add_to_list, merge_dicts, parse_llm_json
+
 logger = logging.getLogger(__name__)
 
 
 # ────────────────────────────────────────────────────────────────────────
 # State Definitions
 # ────────────────────────────────────────────────────────────────────────
-
-def _add_to_list(existing: List, new: List) -> List:
-    """Reducer for appending lists."""
-    if existing is None:
-        existing = []
-    if new is None:
-        new = []
-    return existing + new
-
-
-def _merge_dicts(existing: Dict, new: Dict) -> Dict:
-    """Reducer for merging dictionaries."""
-    if existing is None:
-        existing = {}
-    if new is None:
-        new = {}
-    result = existing.copy()
-    result.update(new)
-    return result
-
-
 class AuditIssue(TypedDict):
     """A single audit issue."""
     severity: str  # "critical", "high", "medium", "low"
@@ -67,9 +48,9 @@ class AuditState(TypedDict):
     confidence_threshold: float
 
     # Results (accumulated)
-    issues: Annotated[List[AuditIssue], _add_to_list]
-    flagged_rows: Annotated[List[FlaggedRow], _add_to_list]
-    recommendations: Annotated[List[str], _add_to_list]
+    issues: Annotated[List[AuditIssue], add_to_list]
+    flagged_rows: Annotated[List[FlaggedRow], add_to_list]
+    recommendations: Annotated[List[str], add_to_list]
 
     # Scores
     completeness_score: float
@@ -78,7 +59,7 @@ class AuditState(TypedDict):
     # Control
     summary: str
     status: str  # "checking", "complete", "failed"
-    errors: Annotated[List[Dict], _add_to_list]
+    errors: Annotated[List[Dict], add_to_list]
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -142,7 +123,7 @@ Return JSON: {{"completeness_score": 0.95, "issues": ["issue1"], "recommendation
 
             try:
                 response = llm.invoke([HumanMessage(content=prompt)])
-                result = _parse_json_response(response.content)
+                result = parse_llm_json(response.content)
                 completeness = result.get("completeness_score", 0.9)
                 for issue in result.get("issues", []):
                     issues.append({
@@ -266,7 +247,7 @@ Return JSON: {{
 
         try:
             response = llm.invoke([HumanMessage(content=prompt)])
-            result = _parse_json_response(response.content)
+            result = parse_llm_json(response.content)
 
             for gap in result.get("gaps_found", []):
                 issues.append({
@@ -517,36 +498,3 @@ def run_audit(
             "flagged_rows": [],
             "status": "failed"
         }
-
-
-# ────────────────────────────────────────────────────────────────────────
-# Utilities
-# ────────────────────────────────────────────────────────────────────────
-
-def _parse_json_response(text: str) -> Dict:
-    """Extract JSON from LLM response."""
-    if not text:
-        return {}
-
-    # Try direct parse
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
-
-    # Try to find JSON block
-    json_patterns = [
-        r'```json\s*(.*?)\s*```',
-        r'```\s*(.*?)\s*```',
-        r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
-    ]
-
-    for pattern in json_patterns:
-        matches = re.findall(pattern, text, re.DOTALL)
-        for match in matches:
-            try:
-                return json.loads(match)
-            except json.JSONDecodeError:
-                continue
-
-    return {}

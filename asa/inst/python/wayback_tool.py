@@ -13,6 +13,9 @@ import requests
 from langchain_core.tools import BaseTool
 from pydantic import Field
 
+from state_utils import parse_date_filters
+from http_utils import make_request
+
 logger = logging.getLogger(__name__)
 
 # ────────────────────────────────────────────────────────────────────────
@@ -62,13 +65,14 @@ def check_availability(
         params["timestamp"] = timestamp
 
     try:
-        response = requests.get(
-            WAYBACK_AVAILABILITY_ENDPOINT,
+        response = make_request(
+            url=WAYBACK_AVAILABILITY_ENDPOINT,
             params=params,
             timeout=config.timeout,
-            headers={"User-Agent": DEFAULT_USER_AGENT}
+            max_retries=config.retry_count,
+            retry_delay=config.retry_delay,
+            user_agent=DEFAULT_USER_AGENT,
         )
-        response.raise_for_status()
 
         data = response.json()
         archived = data.get("archived_snapshots", {})
@@ -125,13 +129,14 @@ def search_cdx(
         params["to"] = to_date
 
     try:
-        response = requests.get(
-            WAYBACK_CDX_ENDPOINT,
+        response = make_request(
+            url=WAYBACK_CDX_ENDPOINT,
             params=params,
             timeout=config.timeout,
-            headers={"User-Agent": DEFAULT_USER_AGENT}
+            max_retries=config.retry_count,
+            retry_delay=config.retry_delay,
+            user_agent=DEFAULT_USER_AGENT,
         )
-        response.raise_for_status()
 
         data = response.json()
 
@@ -184,12 +189,13 @@ def get_snapshot_content(
     config = config or WaybackConfig()
 
     try:
-        response = requests.get(
-            wayback_url,
+        response = make_request(
+            url=wayback_url,
             timeout=config.timeout,
-            headers={"User-Agent": DEFAULT_USER_AGENT}
+            max_retries=config.retry_count,
+            retry_delay=config.retry_delay,
+            user_agent=DEFAULT_USER_AGENT,
         )
-        response.raise_for_status()
         return response.text
 
     except requests.RequestException as e:
@@ -308,12 +314,13 @@ class WaybackSearchTool(BaseTool):
     config: WaybackConfig = Field(default_factory=WaybackConfig)
 
     def _parse_query(self, query: str) -> Tuple[str, Optional[str], Optional[str]]:
-        """Parse query string for URL and date constraints."""
+        """Parse query string for URL and date constraints.
+
+        Uses shared parse_date_filters for date extraction.
+        """
         import re
 
         url = query
-        after_date = None
-        before_date = None
 
         # Extract url: prefix
         url_match = re.search(r'url:(\S+)', query)
@@ -321,19 +328,12 @@ class WaybackSearchTool(BaseTool):
             url = url_match.group(1)
             query = query.replace(url_match.group(0), "").strip()
 
-        # Extract date constraints
-        after_match = re.search(r'after:(\d{4}-\d{2}-\d{2})', query)
-        if after_match:
-            after_date = after_match.group(1)
+        # Use shared date filter parsing
+        cleaned, after_date, before_date = parse_date_filters(query)
 
-        before_match = re.search(r'before:(\d{4}-\d{2}-\d{2})', query)
-        if before_match:
-            before_date = before_match.group(1)
-
-        # If no url: prefix, the whole query might be the URL
+        # If no url: prefix, the cleaned query is the URL
         if not url_match:
-            # Remove date parts and use the rest as URL
-            url = re.sub(r'(after|before):\d{4}-\d{2}-\d{2}', '', query).strip()
+            url = cleaned
 
         return url, after_date, before_date
 
