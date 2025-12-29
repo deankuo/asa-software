@@ -498,7 +498,11 @@ def stream_research(
     config_dict: Dict[str, Any] = None,
     thread_id: str = None
 ):
-    """Stream research progress."""
+    """Stream research progress and return final state.
+
+    Yields progress events during execution, with the final 'complete' event
+    containing the full result (same format as run_research).
+    """
     if thread_id is None:
         thread_id = hashlib.md5(f"{query}_{time.time()}".encode()).hexdigest()[:16]
 
@@ -521,20 +525,63 @@ def stream_research(
     config = {"configurable": {"thread_id": thread_id}}
     start_time = time.time()
 
+    # Accumulate state updates (stream_mode="updates" gives partial updates per node)
+    accumulated_state = dict(initial_state)
+
     try:
         for event in graph.stream(initial_state, config, stream_mode="updates"):
             node_name = list(event.keys())[0] if event else "unknown"
             node_state = event.get(node_name, {})
 
+            # Merge node updates into accumulated state
+            for key, value in node_state.items():
+                accumulated_state[key] = value
+
             yield {
                 "event_type": "node_update",
                 "node": node_name,
                 "status": node_state.get("status", "running"),
-                "items_found": len(node_state.get("results", [])),
+                "items_found": len(accumulated_state.get("results", [])),
                 "elapsed": time.time() - start_time
             }
 
-        yield {"event_type": "complete", "elapsed": time.time() - start_time}
+        # Build final result in same format as run_research()
+        elapsed = time.time() - start_time
+        final_result = {
+            "results": accumulated_state.get("results", []),
+            "provenance": [],
+            "metrics": {
+                "round_number": accumulated_state.get("round_number", 0),
+                "queries_used": accumulated_state.get("queries_used", 0),
+                "time_elapsed": elapsed,
+                "items_found": len(accumulated_state.get("results", []))
+            },
+            "status": accumulated_state.get("status", "complete"),
+            "stop_reason": accumulated_state.get("stop_reason"),
+            "errors": accumulated_state.get("errors", []),
+            "plan": accumulated_state.get("plan", {})
+        }
+
+        yield {
+            "event_type": "complete",
+            "elapsed": elapsed,
+            "final_result": final_result
+        }
 
     except Exception as e:
-        yield {"event_type": "error", "error": str(e), "elapsed": time.time() - start_time}
+        elapsed = time.time() - start_time
+        error_result = {
+            "results": accumulated_state.get("results", []),
+            "provenance": [],
+            "metrics": {"time_elapsed": elapsed},
+            "status": "failed",
+            "stop_reason": f"execution_error: {str(e)}",
+            "errors": [{"stage": "execution", "error": str(e)}],
+            "plan": accumulated_state.get("plan", {})
+        }
+        yield {
+            "event_type": "error",
+            "error": str(e),
+            "elapsed": elapsed,
+            "final_result": error_result
+        }

@@ -431,15 +431,8 @@ asa_enumerate <- function(query,
 .run_research_with_progress <- function(graph, query, schema_dict, config_dict,
                                         checkpoint_file, verbose) {
   # Use streaming for progress updates
-  result <- list(
-    results = list(),
-    provenance = list(),
-    metrics = list(),
-    status = "running",
-    stop_reason = NULL,
-    errors = list(),
-    plan = list()
-  )
+  # The stream now returns final_result in the complete/error event
+  final_result <- NULL
 
   tryCatch({
     # Stream events
@@ -462,25 +455,42 @@ asa_enumerate <- function(query,
                          event$node, event$items_found, event$elapsed))
         }
       } else if (event_type == "complete") {
-        result$status <- "complete"
+        # Capture final result from streaming (avoids double execution)
+        final_result <- event$final_result
         if (verbose) message("  Research complete")
       } else if (event_type == "error") {
-        result$status <- "failed"
-        result$stop_reason <- event$error
+        # Capture error result with any partial data
+        final_result <- event$final_result
         if (verbose) message("  Error: ", event$error)
       }
     }
 
-    # Get final state (need to re-run for results since streaming doesn't return state)
-    # In production, would use checkpointer to get final state
-    final_result <- .run_research(graph, query, schema_dict, config_dict)
-    return(final_result)
+    # Return the captured result from streaming
+    if (!is.null(final_result)) {
+      return(final_result)
+    }
+
+    # Fallback: empty result if streaming yielded nothing
+    return(list(
+      results = list(),
+      provenance = list(),
+      metrics = list(),
+      status = "failed",
+      stop_reason = "no_result_from_stream",
+      errors = list(list(stage = "stream", error = "Stream completed without result")),
+      plan = list()
+    ))
 
   }, error = function(e) {
-    result$status <- "failed"
-    result$stop_reason <- conditionMessage(e)
-    result$errors <- list(list(stage = "execution", error = conditionMessage(e)))
-    result
+    list(
+      results = list(),
+      provenance = list(),
+      metrics = list(),
+      status = "failed",
+      stop_reason = conditionMessage(e),
+      errors = list(list(stage = "execution", error = conditionMessage(e))),
+      plan = list()
+    )
   })
 }
 

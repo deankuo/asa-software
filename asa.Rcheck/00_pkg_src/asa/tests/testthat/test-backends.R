@@ -9,7 +9,7 @@ backends <- list(
   list(backend = "xai", model = "grok-2-1212", env = "XAI_API_KEY"),
   list(backend = "openrouter", model = "google/gemini-2.0-flash-exp:free", env = "OPENROUTER_API_KEY"),
   list(backend = "openrouter", model = "meta-llama/llama-3.3-70b-instruct:free", env = "OPENROUTER_API_KEY"),
-  list(backend = "openrouter", model = "deepseek/deepseek-chat-v3-0324:free", env = "OPENROUTER_API_KEY")
+  list(backend = "openrouter", model = "deepseek/deepseek-r1:free", env = "OPENROUTER_API_KEY")
 )
 
 # Test agent initialization for each backend
