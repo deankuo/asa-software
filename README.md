@@ -54,6 +54,8 @@ print(result)
 | `configure_search()` | Configure search timing and retry behavior |
 | `extract_search_tiers()` | Get which search tier was used from traces |
 
+> **Note:** `run_agent()` has been removed. Use `run_task(..., output_format = "raw")` for full trace access.
+
 ## Structured Output
 
 Request JSON-formatted responses for programmatic use:
@@ -244,58 +246,24 @@ historical <- asa::asa_enumerate(
 
 ## Data Quality Auditing
 
-Validate enumeration results for completeness, consistency, and quality using `asa_audit()`. Supports two backends: **Claude Code CLI** for reasoning-heavy validation or **LangGraph** for programmatic checks.
+Validate enumeration results using `asa_audit()`. Supports **Claude Code CLI** (reasoning-heavy) or **LangGraph** (programmatic) backends.
 
 ```r
-# Audit enumeration results with Claude Code
-senators <- asa_enumerate(
-  query = "Find all current US senators",
-  schema = c(name = "character", state = "character", party = "character")
-)
-
+# Audit enumeration results
 audit <- asa_audit(senators, backend = "claude_code")
 print(audit)
-#> ASA Audit Result
-#> ================
-#> Completeness: 96%
-#> Consistency:  98%
-#>
-#> Issues Found: 2
-#>   [MEDIUM] Missing 2 expected states: AK, HI
-#>   [LOW] 1 row has inconsistent party format
-#>
-#> Recommendations:
-#>   - Search specifically for: Alaska senators, Hawaii senators
+#> Completeness: 96% | Consistency: 98%
+#> Issues: [MEDIUM] Missing states: AK, HI
+
+# With known universe for precise completeness check
+audit <- asa_audit(senators, known_universe = state.abb)
+
+# Interactive session or LangGraph backend
+asa_audit(senators, interactive = TRUE)
+asa_audit(senators, backend = "langgraph", agent = agent)
 ```
 
-**Key features:**
-- **Completeness check**: Identifies missing items vs. expected (known universe)
-- **Consistency check**: Validates data types, patterns, and value formats
-- **Gap analysis**: Detects systematic patterns (geographic, temporal, categorical gaps)
-- **Anomaly detection**: Finds duplicates, outliers, and suspicious entries
-- **Claude Code integration**: Leverages Claude's reasoning for complex validation
-- **Interactive mode**: Spawn a Claude Code session for hands-on auditing
-
-```r
-# Precise completeness check with known universe
-audit <- asa_audit(
-  senators,
-  known_universe = state.abb,  # All 50 US state abbreviations
-  checks = c("completeness", "gaps")
-)
-
-# Interactive Claude Code session
-asa_audit(senators, backend = "claude_code", interactive = TRUE)
-
-# Use LangGraph backend with existing agent
-audit <- asa_audit(senators, backend = "langgraph", agent = agent)
-
-# Access annotated data with audit flags
-head(audit$data)
-#>           name  state party _audit_flag      _audit_notes
-#> 1  John Smith     CA     D          ok              <NA>
-#> 2  Jane Doe       TX     R     warning  Possible duplicate
-```
+**Checks performed:** completeness (vs. known universe), consistency (types/patterns), gap analysis (systematic missing data), anomaly detection (duplicates/outliers).
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
@@ -303,7 +271,6 @@ head(audit$data)
 | `checks` | all | `"completeness"`, `"consistency"`, `"gaps"`, `"anomalies"` |
 | `known_universe` | `NULL` | Expected items for completeness check |
 | `interactive` | `FALSE` | Spawn interactive Claude Code session |
-| `confidence_threshold` | `0.8` | Flag items below this confidence |
 
 ## Configuration
 
@@ -336,18 +303,6 @@ agent <- asa::initialize_agent(
 | `rate_limit` | `0.2` | Max requests per second to avoid rate limits |
 | `verbose` | `TRUE` | Print initialization status messages |
 
-### Memory Folding
-
-Long conversations automatically compress older messages into summaries, following the DeepAgent paper. Configure with:
-
-```r
-agent <- asa::initialize_agent(
-  use_memory_folding = TRUE,
-  memory_threshold = 4,      # Messages before folding
-  memory_keep_recent = 2     # Recent messages to preserve
-)
-```
-
 ### Configuration Classes
 
 The package provides typed configuration classes for organized settings management:
@@ -377,49 +332,6 @@ config <- asa::asa_config(
 
 # Use with run_task
 result <- asa::run_task(prompt, config = config)
-```
-
-## Search Architecture
-
-The agent uses two search tools:
-
-- **Wikipedia**: Encyclopedic information lookup
-- **DuckDuckGo**: Web search with 4-tier fallback (PRIMP -> Selenium -> DDGS -> raw requests)
-
-## S3 Classes
-
-The package uses S3 classes for clean output handling:
-
-- `asa_agent`: Initialized agent object
-- `asa_result`: Structured task result with parsed output (all formats)
-- `asa_enumerate_result`: Enumeration results with provenance
-- `asa_audit_result`: Audit results with quality scores and annotations
-- `asa_config`: Unified configuration object
-- `asa_temporal`: Temporal filtering options
-- `asa_search`: Search configuration options
-
-```r
-# All classes have print and summary methods
-print(agent)
-summary(result)
-
-# Convert results to data frame
-df <- as.data.frame(result)
-
-# Enumeration results have additional accessors
-result <- asa_enumerate(query = "Find US states", ...)
-result$data        # Main data.frame
-result$status      # "complete", "partial", or "error"
-result$metrics     # Rounds, queries, timing info
-result$provenance  # Per-row source tracking (if requested)
-
-# Audit results have quality information
-audit <- asa_audit(result)
-audit$data                # Annotated data with _audit_flag column
-audit$completeness_score  # 0-1 completeness score
-audit$consistency_score   # 0-1 consistency score
-audit$issues              # List of identified issues
-audit$recommendations     # Suggested remediation queries
 ```
 
 ## Advanced Use
@@ -613,6 +525,31 @@ processed_df <- asa::process_outputs(
 - `ddgs`: Standard DDGS Python library
 - `requests`: Raw HTTP POST fallback
 
+## Troubleshooting
+
+**Rate limited or CAPTCHA blocks?**
+- Increase `inter_search_delay` via `configure_search(inter_search_delay = 2.0)`
+- Use Tor proxy for IP rotation: `rotate_tor_circuit()`
+
+**API key not recognized?**
+```r
+# Check if key is set
+Sys.getenv("OPENAI_API_KEY")  # Should not be empty
+
+# Set it for the session
+Sys.setenv(OPENAI_API_KEY = "sk-...")
+```
+
+**Python environment issues?**
+```r
+# Rebuild the conda environment
+asa::build_backend(conda_env = "asa_env", force = TRUE)
+```
+
+**Cost considerations:**
+- Web search (DuckDuckGo, Wikipedia): Free
+- LLM costs vary by backend: OpenAI ~$0.01-0.10/task, Groq ~$0.001/task
+
 ## Performance
 
 <!-- SPEED_REPORT_START -->
@@ -637,6 +574,31 @@ See [full report](asa/tests/testthat/SPEED_REPORT.md) for details.
 
 **Optional:**
 - Claude Code CLI (for `asa_audit()` with `backend = "claude_code"`)
+
+## Reference
+
+### Search Architecture
+
+The agent uses two search tools with multi-tier fallback:
+
+- **Wikipedia**: Encyclopedic information lookup
+- **DuckDuckGo**: Web search with 4-tier fallback (PRIMP → Selenium → DDGS → raw requests)
+
+Use `extract_search_tiers()` to identify which tier was used in a trace.
+
+### S3 Classes
+
+| Class | Description |
+|-------|-------------|
+| `asa_agent` | Initialized agent object |
+| `asa_result` | Task result with `$message`, `$parsed`, `$status` |
+| `asa_enumerate_result` | Enumeration results with `$data`, `$status`, `$metrics`, `$provenance` |
+| `asa_audit_result` | Audit results with `$completeness_score`, `$issues`, `$recommendations` |
+| `asa_config` | Unified configuration object |
+| `asa_temporal` | Temporal filtering options |
+| `asa_search` | Search configuration options |
+
+All classes have `print()` and `summary()` methods. Use `as.data.frame()` for conversion.
 
 ## License
 
