@@ -26,7 +26,7 @@ from langchain_community.tools.ddg_search.tool import DuckDuckGoSearchRun
 from langchain_community.utilities.duckduckgo_search import DuckDuckGoSearchAPIWrapper
 from pydantic import Field
 from selenium import webdriver
-from selenium.common.exceptions import WebDriverException
+from selenium.common.exceptions import TimeoutException, WebDriverException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
 from selenium.webdriver.support import expected_conditions as EC
@@ -1957,8 +1957,12 @@ def _browser_search(
 
     logger.debug("Starting browser search for: %s", query[:60])
 
+    result_link_selector = "a.result__a, a.result-link, a[data-testid='result-title-a']"
+    result_snippet_selector = "div.result__snippet, a.result__snippet"
+
     # Strategy: Always use proxy if configured (preserve anonymity by default)
     # Only fall back to direct IP if explicitly allowed via config
+    last_exc: Exception | None = None
     for attempt in range(max_retries):
         # CRITICAL FIX: Direct IP fallback is now opt-in to preserve anonymity
         use_proxy = bool(proxy)  # Always use proxy if configured
@@ -1968,6 +1972,7 @@ def _browser_search(
                           "your real IP will be exposed. Set allow_direct_fallback=False to disable.")
 
         driver = None  # Initialize to None for safe cleanup
+        proxy_label = proxy if (proxy and use_proxy) else "direct"
         try:
             driver = _new_driver(
                 proxy=proxy,
@@ -1983,30 +1988,29 @@ def _browser_search(
             # Use humanized timing for less predictable patterns
             humanized_page_wait = _humanize_delay(cfg.page_load_wait, cfg)
             time.sleep(humanized_page_wait)
-            page_source = driver.page_source.lower()
+            page_source = ""
+            try:
+                page_source = driver.page_source.lower()
+            except Exception:
+                page_source = ""
 
             # MEDIUM FIX: Use more specific CAPTCHA detection
             if _is_captcha_page(page_source, has_results=False):
                 logger.warning("Browser CAPTCHA detected on attempt %d/%d (proxy=%s, query=%s...)",
-                             attempt + 1, max_retries, proxy or "direct", query[:30])
+                             attempt + 1, max_retries, proxy_label, query[:30])
                 # Record this proxy hit for blocklist tracking
-                _record_captcha_hit(proxy)
-                _mark_exit_bad(proxy, reason="captcha_browser")
-                # Safe driver cleanup with specific exception handling
-                if driver is not None:
-                    try:
-                        driver.quit()
-                    except (WebDriverException, OSError) as e:
-                        logger.debug("Driver cleanup failed after CAPTCHA: %s", e)
-                    driver = None
+                if proxy and use_proxy:
+                    _record_captcha_hit(proxy)
+                    _mark_exit_bad(proxy, reason="captcha_browser")
                 if attempt < max_retries - 1:
                     # Rotate Tor circuit to get new exit node IP before retry (force=True to bypass rate limit)
-                    if proxy and "socks" in proxy.lower():
+                    if proxy and use_proxy and "socks" in proxy.lower():
                         if _rotate_tor_circuit(force=True, proxy=proxy):
                             logger.info("Tor circuit rotated (forced) - new exit node for browser retry")
                         else:
                             logger.warning("Tor rotation FAILED - check control port auth")
-                    _ensure_clean_exit(proxy)
+                    if proxy and use_proxy:
+                        _ensure_clean_exit(proxy)
                     base_wait = cfg.captcha_backoff_base * (attempt + 1)  # Exponential backoff
                     wait_time = _humanize_delay(base_wait, cfg)
                     logger.info("Waiting %.1fs before retry (humanized)...", wait_time)
@@ -2017,7 +2021,7 @@ def _browser_search(
 
             # Now wait for results (with shorter timeout since we already loaded)
             WebDriverWait(driver, timeout).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "a.result__a"))
+                EC.presence_of_element_located((By.CSS_SELECTOR, result_link_selector))
             )
 
             # Inject human behavior - the nervous pulse, the wandering eye
@@ -2025,8 +2029,10 @@ def _browser_search(
 
             soup = BeautifulSoup(driver.page_source, "html.parser")
 
-            result_links = soup.select("a.result__a")[:max_results]
-            result_snippets = soup.select("a.result__snippet")[:max_results]
+            result_links = soup.select(result_link_selector)[:max_results]
+            result_snippets = soup.select(result_snippet_selector)[:max_results]
+            if not result_links:
+                raise WebDriverException("DuckDuckGo results container loaded but no result links were found")
 
             # Simulate reading/scanning the results
             _simulate_reading(driver, len(result_links), cfg)
@@ -2054,9 +2060,137 @@ def _browser_search(
                     "_tier": "selenium",
                 })
 
-            _mark_exit_good(proxy)
+            if proxy and use_proxy:
+                _mark_exit_good(proxy)
             logger.info("Browser search SUCCESS: returning %d results", len(return_content))
             return return_content
+        except TimeoutException as exc:
+            last_exc = exc
+            current_url = ""
+            title = ""
+            page_text = ""
+            try:
+                current_url = driver.current_url if driver else ""
+            except Exception:
+                current_url = ""
+            try:
+                title = driver.title if driver else ""
+            except Exception:
+                title = ""
+            try:
+                page_text = driver.page_source.lower() if driver else ""
+            except Exception:
+                page_text = ""
+
+            if page_text and _is_captcha_page(page_text, has_results=False):
+                logger.warning("Browser CAPTCHA detected after timeout on attempt %d/%d (proxy=%s, query=%s...)",
+                               attempt + 1, max_retries, proxy_label, query[:30])
+                if proxy and use_proxy:
+                    _record_captcha_hit(proxy)
+                    _mark_exit_bad(proxy, reason="captcha_browser")
+                if attempt < max_retries - 1:
+                    if proxy and use_proxy and "socks" in proxy.lower():
+                        if _rotate_tor_circuit(force=True, proxy=proxy):
+                            logger.info("Tor circuit rotated (forced) - new exit node for browser retry")
+                        else:
+                            logger.warning("Tor rotation FAILED - check control port auth")
+                    if proxy and use_proxy:
+                        _ensure_clean_exit(proxy)
+                    base_wait = cfg.captcha_backoff_base * (attempt + 1)
+                    wait_time = _humanize_delay(base_wait, cfg)
+                    logger.info("Waiting %.1fs before retry (humanized)...", wait_time)
+                    time.sleep(wait_time)
+                    continue
+                raise WebDriverException("CAPTCHA detected after all retries") from exc
+
+            if current_url.startswith("about:") or current_url.startswith("chrome-error://"):
+                if proxy and use_proxy:
+                    _mark_exit_bad(proxy, reason="browser_neterror")
+                logger.warning("Browser load failed on attempt %d/%d (proxy=%s, url=%s, title=%s)",
+                               attempt + 1, max_retries, proxy_label, current_url or "<unknown>", title or "<none>")
+            else:
+                if proxy and use_proxy:
+                    _mark_exit_bad(proxy, reason="browser_timeout")
+                logger.warning("Browser timed out waiting for results on attempt %d/%d (proxy=%s, url=%s, title=%s)",
+                               attempt + 1, max_retries, proxy_label, current_url or "<unknown>", title or "<none>")
+
+            if attempt < max_retries - 1:
+                if proxy and use_proxy and "socks" in proxy.lower():
+                    _rotate_tor_circuit(force=True, proxy=proxy)
+                if proxy and use_proxy:
+                    _ensure_clean_exit(proxy)
+                base_wait = cfg.retry_delay * (cfg.backoff_multiplier ** attempt)
+                wait_time = _humanize_delay(base_wait, cfg)
+                time.sleep(wait_time)
+                continue
+
+            raise
+        except WebDriverException as exc:
+            last_exc = exc
+            current_url = ""
+            title = ""
+            page_text = ""
+            try:
+                current_url = driver.current_url if driver else ""
+            except Exception:
+                current_url = ""
+            try:
+                title = driver.title if driver else ""
+            except Exception:
+                title = ""
+            try:
+                page_text = driver.page_source.lower() if driver else ""
+            except Exception:
+                page_text = ""
+
+            if page_text and _is_captcha_page(page_text, has_results=False):
+                logger.warning("Browser CAPTCHA detected on attempt %d/%d (proxy=%s, query=%s...)",
+                               attempt + 1, max_retries, proxy_label, query[:30])
+                if proxy and use_proxy:
+                    _record_captcha_hit(proxy)
+                    _mark_exit_bad(proxy, reason="captcha_browser")
+                if attempt < max_retries - 1:
+                    if proxy and use_proxy and "socks" in proxy.lower():
+                        if _rotate_tor_circuit(force=True, proxy=proxy):
+                            logger.info("Tor circuit rotated (forced) - new exit node for browser retry")
+                        else:
+                            logger.warning("Tor rotation FAILED - check control port auth")
+                    if proxy and use_proxy:
+                        _ensure_clean_exit(proxy)
+                    base_wait = cfg.captcha_backoff_base * (attempt + 1)
+                    wait_time = _humanize_delay(base_wait, cfg)
+                    logger.info("Waiting %.1fs before retry (humanized)...", wait_time)
+                    time.sleep(wait_time)
+                    continue
+                raise WebDriverException("CAPTCHA detected after all retries") from exc
+
+            if proxy and use_proxy:
+                if current_url.startswith("about:") or current_url.startswith("chrome-error://"):
+                    _mark_exit_bad(proxy, reason="browser_neterror")
+                else:
+                    _mark_exit_bad(proxy, reason=f"browser_{type(exc).__name__}")
+
+            logger.warning(
+                "Browser search failed on attempt %d/%d (proxy=%s, error=%s, url=%s, title=%s)",
+                attempt + 1,
+                max_retries,
+                proxy_label,
+                type(exc).__name__,
+                current_url or "<unknown>",
+                title or "<none>",
+            )
+
+            if attempt < max_retries - 1:
+                if proxy and use_proxy and "socks" in proxy.lower():
+                    _rotate_tor_circuit(force=True, proxy=proxy)
+                if proxy and use_proxy:
+                    _ensure_clean_exit(proxy)
+                base_wait = cfg.retry_delay * (cfg.backoff_multiplier ** attempt)
+                wait_time = _humanize_delay(base_wait, cfg)
+                time.sleep(wait_time)
+                continue
+
+            raise
         finally:
             # Safe driver cleanup with null check and specific exception handling
             if driver is not None:
@@ -2070,6 +2204,8 @@ def _browser_search(
                                    type(e).__name__, e)
 
     # If we get here, all retries failed
+    if last_exc is not None:
+        raise WebDriverException("Browser search failed after all retries") from last_exc
     raise WebDriverException("Browser search failed after all retries")
 
 
@@ -2419,7 +2555,11 @@ class PatchedDuckDuckGoSearchAPIWrapper(DuckDuckGoSearchAPIWrapper):
                     bypass_proxy_for_driver=self.bypass_proxy_for_driver,
                 )
             except WebDriverException as exc:
-                logger.warning("Browser tier WebDriverException: %s", exc)
+                exc_name = type(exc).__name__
+                exc_msg = getattr(exc, "msg", None) or str(exc) or ""
+                first_line = exc_msg.strip().splitlines()[0] if exc_msg else ""
+                logger.warning("Browser tier failed (%s): %s", exc_name, first_line or "no details")
+                logger.debug("Browser tier exception: %s", exc_msg)
                 logger.debug("Browser tier traceback: %s", traceback.format_exc())
 
         logger.debug("Selenium tier complete, trying next tier")
