@@ -23,11 +23,14 @@
 #'   and configuration.
 #'
 #' @details
-#' The agent is created with two tools:
+#' The agent is created with these tools:
 #' \itemize{
 #'   \item Wikipedia: For looking up encyclopedic information
 #'   \item DuckDuckGo Search: For web searches with a 4-tier fallback system
 #'     (PRIMP -> Selenium -> DDGS library -> raw requests)
+#'   \item OpenWebpage: (Optional) Fetch and extract readable text from a public
+#'     webpage URL. This capability is disabled by default and must be enabled
+#'     per-call (e.g., via \code{run_task(..., allow_read_webpages = TRUE)}).
 #' }
 #'
 #' Memory folding (enabled by default) compresses older messages into a summary
@@ -280,6 +283,11 @@ initialize_agent <- function(backend = "openai",
       "custom_ddg_production",
       path = python_path
     )
+    # Optional tool: webpage reader (disabled by default via Python config)
+    asa_env$webpage_tool <- tryCatch(
+      reticulate::import_from_path("webpage_tool", path = python_path),
+      error = function(e) NULL
+    )
   } else {
     stop("Python module not found. Package may not be installed correctly.",
          call. = FALSE)
@@ -453,7 +461,21 @@ initialize_agent <- function(backend = "openai",
     max_concurrency = 1L
   )
 
-  list(wiki, search)
+  # Optional: open/read full webpages (tool is gated by allow_read_webpages)
+  webpage <- NULL
+  if (!is.null(asa_env$webpage_tool)) {
+    webpage <- tryCatch(
+      asa_env$webpage_tool$create_webpage_reader_tool(proxy = proxy),
+      error = function(e) NULL
+    )
+  }
+
+  tools <- list(wiki, search)
+  if (!is.null(webpage)) {
+    tools <- c(tools, list(webpage))
+  }
+
+  tools
 }
 
 #' Create the LangGraph Agent

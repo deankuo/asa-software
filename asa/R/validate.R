@@ -391,7 +391,11 @@
 
 #' Validate run_task() Parameters
 #' @keywords internal
-.validate_run_task <- function(prompt, output_format, agent, verbose, thread_id = NULL) {
+.validate_run_task <- function(prompt, output_format, agent, verbose, thread_id = NULL,
+                               allow_read_webpages = NULL,
+                               webpage_relevance_mode = NULL,
+                               webpage_embedding_provider = NULL,
+                               webpage_embedding_model = NULL) {
   .validate_string(prompt, "prompt")
 
   # output_format: "text", "json", "raw", or character vector of field names
@@ -419,6 +423,28 @@
   # thread_id: NULL or single string (opt-in stable sessions)
   if (!is.null(thread_id)) {
     .validate_string(thread_id, "thread_id")
+  }
+
+  # allow_read_webpages: NULL or TRUE/FALSE
+  if (!is.null(allow_read_webpages)) {
+    .validate_logical(allow_read_webpages, "allow_read_webpages")
+  }
+
+  # Webpage reader tuning (optional)
+  if (!is.null(webpage_relevance_mode)) {
+    .validate_choice(
+      webpage_relevance_mode, "webpage_relevance_mode",
+      c("auto", "lexical", "embeddings")
+    )
+  }
+  if (!is.null(webpage_embedding_provider)) {
+    .validate_choice(
+      webpage_embedding_provider, "webpage_embedding_provider",
+      c("auto", "openai", "sentence_transformers")
+    )
+  }
+  if (!is.null(webpage_embedding_model)) {
+    .validate_string(webpage_embedding_model, "webpage_embedding_model")
   }
 
   invisible(TRUE)

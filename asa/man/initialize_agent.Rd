@@ -54,11 +54,14 @@ search tools (Wikipedia, DuckDuckGo). The agent can use multiple LLM
 backends and supports DeepAgent-style memory folding.
 }
 \details{
-The agent is created with two tools:
+The agent is created with these tools:
 \itemize{
   \item Wikipedia: For looking up encyclopedic information
   \item DuckDuckGo Search: For web searches with a 4-tier fallback system
     (PRIMP -> Selenium -> DDGS library -> raw requests)
+  \item OpenWebpage: (Optional) Fetch and extract readable text from a public
+    webpage URL. This capability is disabled by default and must be enabled
+    per-call (e.g., via \code{run_task(..., allow_read_webpages = TRUE)}).
 }
 
 Memory folding (enabled by default) compresses older messages into a summary

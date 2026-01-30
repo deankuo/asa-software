@@ -4,7 +4,17 @@
 \alias{.validate_run_task}
 \title{Validate run_task() Parameters}
 \usage{
-.validate_run_task(prompt, output_format, agent, verbose, thread_id = NULL)
+.validate_run_task(
+  prompt,
+  output_format,
+  agent,
+  verbose,
+  thread_id = NULL,
+  allow_read_webpages = NULL,
+  webpage_relevance_mode = NULL,
+  webpage_embedding_provider = NULL,
+  webpage_embedding_model = NULL
+)
 }
 \description{
 Validate run_task() Parameters

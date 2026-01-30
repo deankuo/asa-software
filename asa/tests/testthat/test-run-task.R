@@ -170,6 +170,35 @@ test_that("run_task validation accepts all output_format options", {
   expect_silent(asa:::.validate_run_task("prompt", c("field1", "field2"), NULL, FALSE))
 })
 
+test_that("run_task validation accepts allow_read_webpages", {
+  expect_silent(
+    asa:::.validate_run_task("prompt", "text", NULL, FALSE, allow_read_webpages = TRUE)
+  )
+  expect_error(
+    asa:::.validate_run_task("prompt", "text", NULL, FALSE, allow_read_webpages = "yes"),
+    "allow_read_webpages"
+  )
+})
+
+test_that("run_task validation accepts webpage embedding options", {
+  expect_silent(
+    asa:::.validate_run_task(
+      "prompt", "text", NULL, FALSE,
+      webpage_relevance_mode = "auto",
+      webpage_embedding_provider = "auto",
+      webpage_embedding_model = "text-embedding-3-small"
+    )
+  )
+  expect_error(
+    asa:::.validate_run_task("prompt", "text", NULL, FALSE, webpage_relevance_mode = "bad"),
+    "webpage_relevance_mode"
+  )
+  expect_error(
+    asa:::.validate_run_task("prompt", "text", NULL, FALSE, webpage_embedding_provider = "bad"),
+    "webpage_embedding_provider"
+  )
+})
+
 test_that("run_task_batch validation accepts 'raw' output_format", {
   expect_silent(
     asa:::.validate_run_task_batch(

@@ -33,6 +33,18 @@
 #'     \item wikipedia: Use Wikipedia (default: TRUE)
 #'     \item wikidata: Use Wikidata SPARQL for authoritative enumerations (default: TRUE)
 #'   }
+#' @param allow_read_webpages If TRUE, the agent may open and read full webpages
+#'   (in addition to search snippets) when it helps extraction. Disabled by
+#'   default for safety and to avoid large context usage.
+#' @param webpage_relevance_mode Relevance selection for opened webpages.
+#'   One of: "auto" (default), "lexical", "embeddings". When "embeddings" or
+#'   "auto" with an available provider, the tool uses vector similarity to pick
+#'   the most relevant excerpts; otherwise it falls back to lexical overlap.
+#' @param webpage_embedding_provider Embedding provider to use for relevance.
+#'   One of: "auto" (default), "openai", "sentence_transformers".
+#' @param webpage_embedding_model Embedding model identifier. For OpenAI,
+#'   defaults to "text-embedding-3-small". For sentence-transformers, use a
+#'   local model name (e.g., "all-MiniLM-L6-v2").
 #' @param temporal Named list for temporal filtering:
 #'   \itemize{
 #'     \item after: ISO 8601 date string (e.g., "2020-01-01") - results after this date
@@ -159,6 +171,10 @@ asa_enumerate <- function(query,
                          stop_policy = list(target_items = NULL, plateau_rounds = 2L,
                                            novelty_min = 0.05, novelty_window = 20L),
                          sources = list(web = TRUE, wikipedia = TRUE, wikidata = TRUE),
+                         allow_read_webpages = FALSE,
+                         webpage_relevance_mode = NULL,
+                         webpage_embedding_provider = NULL,
+                         webpage_embedding_model = NULL,
                          temporal = NULL,
                          pagination = TRUE,
                          progress = TRUE,
@@ -192,6 +208,10 @@ asa_enumerate <- function(query,
     budget = budget,
     stop_policy = stop_policy,
     sources = sources,
+    allow_read_webpages = allow_read_webpages,
+    webpage_relevance_mode = webpage_relevance_mode,
+    webpage_embedding_provider = webpage_embedding_provider,
+    webpage_embedding_model = webpage_embedding_model,
     checkpoint_dir = checkpoint_dir,
     resume_from = resume_from
   )
@@ -211,6 +231,7 @@ asa_enumerate <- function(query,
     budget = budget,
     stop_policy = stop_policy,
     sources = sources,
+    allow_read_webpages = allow_read_webpages,
     temporal = temporal
   )
 
@@ -247,12 +268,22 @@ asa_enumerate <- function(query,
   if (verbose) message("Executing research...")
   start_time <- Sys.time()
 
-  if (progress) {
-    result <- .run_research_with_progress(graph, query, schema_dict, config_dict,
-                                          checkpoint_file, verbose)
-  } else {
-    result <- .run_research(graph, query, schema_dict, config_dict)
-  }
+  # Enable/disable webpage reading during this call (tool-level gating).
+  conda_env_used <- conda_env %||% .get_default_conda_env()
+  result <- .with_webpage_reader_config(
+    allow_read_webpages,
+    relevance_mode = webpage_relevance_mode,
+    embedding_provider = webpage_embedding_provider,
+    embedding_model = webpage_embedding_model,
+    conda_env = conda_env_used,
+    function() {
+    if (progress) {
+      .run_research_with_progress(graph, query, schema_dict, config_dict,
+                                  checkpoint_file, verbose)
+    } else {
+      .run_research(graph, query, schema_dict, config_dict)
+    }
+  })
 
   elapsed <- as.numeric(difftime(Sys.time(), start_time, units = "secs"))
 
@@ -386,7 +417,9 @@ asa_enumerate <- function(query,
 
 #' Create Research Configuration
 #' @keywords internal
-.create_research_config <- function(workers, max_rounds, budget, stop_policy, sources, temporal = NULL) {
+.create_research_config <- function(workers, max_rounds, budget, stop_policy, sources,
+                                    allow_read_webpages = FALSE,
+                                    temporal = NULL) {
   config <- list(
     max_workers = as.integer(workers),  # Python side still expects max_workers
     max_rounds = as.integer(max_rounds),
@@ -399,7 +432,8 @@ asa_enumerate <- function(query,
     novelty_window = as.integer(stop_policy$novelty_window %||% 20L),
     use_wikidata = isTRUE(sources$wikidata),
     use_web = isTRUE(sources$web),
-    use_wikipedia = isTRUE(sources$wikipedia)
+    use_wikipedia = isTRUE(sources$wikipedia),
+    allow_read_webpages = isTRUE(allow_read_webpages)
   )
 
   # Add temporal filtering parameters if provided
@@ -436,6 +470,7 @@ asa_enumerate <- function(query,
     use_wikidata = config_dict$use_wikidata,
     use_web = config_dict$use_web,
     use_wikipedia = config_dict$use_wikipedia,
+    allow_read_webpages = config_dict$allow_read_webpages %||% FALSE,
     # Temporal filtering parameters
     time_filter = config_dict$time_filter,
     date_after = config_dict$date_after,
@@ -656,6 +691,10 @@ asa_enumerate <- function(query,
 #' @keywords internal
 .validate_research_inputs <- function(query, schema, output, workers, max_rounds,
                                       budget, stop_policy, sources,
+                                      allow_read_webpages = FALSE,
+                                      webpage_relevance_mode = NULL,
+                                      webpage_embedding_provider = NULL,
+                                      webpage_embedding_model = NULL,
                                       checkpoint_dir, resume_from) {
   # Query validation
   if (!is.character(query) || length(query) != 1 || is.na(query) || query == "") {
@@ -684,6 +723,34 @@ asa_enumerate <- function(query,
   # Sources validation
   if (!is.list(sources)) {
     stop("`sources` must be a list with keys: web, wikipedia, wikidata", call. = FALSE)
+  }
+
+  # Optional capability flag
+  if (!is.logical(allow_read_webpages) || length(allow_read_webpages) != 1 || is.na(allow_read_webpages)) {
+    stop("`allow_read_webpages` must be TRUE or FALSE", call. = FALSE)
+  }
+
+  # Webpage reader options (optional)
+  if (!is.null(webpage_relevance_mode)) {
+    if (!is.character(webpage_relevance_mode) || length(webpage_relevance_mode) != 1) {
+      stop("`webpage_relevance_mode` must be a single string or NULL", call. = FALSE)
+    }
+    if (!webpage_relevance_mode %in% c("auto", "lexical", "embeddings")) {
+      stop("`webpage_relevance_mode` must be one of: auto, lexical, embeddings", call. = FALSE)
+    }
+  }
+  if (!is.null(webpage_embedding_provider)) {
+    if (!is.character(webpage_embedding_provider) || length(webpage_embedding_provider) != 1) {
+      stop("`webpage_embedding_provider` must be a single string or NULL", call. = FALSE)
+    }
+    if (!webpage_embedding_provider %in% c("auto", "openai", "sentence_transformers")) {
+      stop("`webpage_embedding_provider` must be one of: auto, openai, sentence_transformers", call. = FALSE)
+    }
+  }
+  if (!is.null(webpage_embedding_model)) {
+    if (!is.character(webpage_embedding_model) || length(webpage_embedding_model) != 1 || is.na(webpage_embedding_model) || webpage_embedding_model == "") {
+      stop("`webpage_embedding_model` must be a non-empty string or NULL", call. = FALSE)
+    }
   }
 
   # Checkpoint directory validation

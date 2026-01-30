@@ -33,6 +33,17 @@
 #'   When provided, the same thread ID is reused so folded summaries persist
 #'   across invocations. Defaults to NULL (new thread each call).
 #' @param verbose Print progress messages (default: FALSE)
+#' @param allow_read_webpages If TRUE, allows the agent to open and read full
+#'   webpages (HTML/text) via the OpenWebpage tool. Disabled by default.
+#' @param webpage_relevance_mode Relevance selection for opened webpages.
+#'   One of: "auto" (default), "lexical", "embeddings". When "embeddings" or
+#'   "auto" with an available provider, the tool uses vector similarity to pick
+#'   the most relevant excerpts; otherwise it falls back to lexical overlap.
+#' @param webpage_embedding_provider Embedding provider to use for relevance.
+#'   One of: "auto" (default), "openai", "sentence_transformers".
+#' @param webpage_embedding_model Embedding model identifier. For OpenAI,
+#'   defaults to "text-embedding-3-small". For sentence-transformers, use a
+#'   local model name (e.g., "all-MiniLM-L6-v2").
 #'
 #' @return An \code{asa_result} object with:
 #'   \itemize{
@@ -127,7 +138,11 @@ run_task <- function(prompt,
                      agent = NULL,
                      expected_fields = NULL,
                      thread_id = NULL,
-                     verbose = FALSE) {
+                     verbose = FALSE,
+                     allow_read_webpages = NULL,
+                     webpage_relevance_mode = NULL,
+                     webpage_embedding_provider = NULL,
+                     webpage_embedding_model = NULL) {
 
   config_search <- NULL
   config_conda_env <- NULL
@@ -142,6 +157,26 @@ run_task <- function(prompt,
     config_conda_env <- config$conda_env
   }
 
+  # Resolve allow_read_webpages from config$search if not provided directly.
+  allow_rw <- allow_read_webpages
+  if (is.null(allow_rw) && is.list(config_search) && !is.null(config_search$allow_read_webpages)) {
+    allow_rw <- config_search$allow_read_webpages
+  }
+
+  # Optional webpage reader tuning (defaults live on the Python side).
+  relevance_mode <- webpage_relevance_mode
+  if (is.null(relevance_mode) && is.list(config_search) && !is.null(config_search$webpage_relevance_mode)) {
+    relevance_mode <- config_search$webpage_relevance_mode
+  }
+  embedding_provider <- webpage_embedding_provider
+  if (is.null(embedding_provider) && is.list(config_search) && !is.null(config_search$webpage_embedding_provider)) {
+    embedding_provider <- config_search$webpage_embedding_provider
+  }
+  embedding_model <- webpage_embedding_model
+  if (is.null(embedding_model) && is.list(config_search) && !is.null(config_search$webpage_embedding_model)) {
+    embedding_model <- config_search$webpage_embedding_model
+  }
+
   # Convert asa_temporal to list for internal functions
   if (inherits(temporal, "asa_temporal")) {
     temporal <- as.list(temporal)
@@ -153,7 +188,11 @@ run_task <- function(prompt,
     output_format = output_format,
     agent = agent,
     verbose = verbose,
-    thread_id = thread_id
+    thread_id = thread_id,
+    allow_read_webpages = allow_read_webpages,
+    webpage_relevance_mode = webpage_relevance_mode,
+    webpage_embedding_provider = webpage_embedding_provider,
+    webpage_embedding_model = webpage_embedding_model
   )
 
   # Initialize agent from config if provided
@@ -201,6 +240,12 @@ run_task <- function(prompt,
 
   # Augment prompt with temporal hints if dates specified
   augmented_prompt <- .augment_prompt_temporal(prompt, temporal, verbose = verbose)
+  if (isTRUE(allow_rw)) {
+    augmented_prompt <- paste0(
+      augmented_prompt,
+      "\n\n[Tooling: Webpage reading is enabled. You may use the OpenWebpage tool to open and read full webpages when needed.]"
+    )
+  }
 
   start_time <- Sys.time()
 
@@ -210,14 +255,22 @@ run_task <- function(prompt,
   # Run agent with temporal filtering applied
   conda_env <- config_conda_env %||% .get_default_conda_env()
   response <- .with_search_config(config_search, conda_env = conda_env, function() {
-    .with_temporal(temporal, function() {
-      .run_agent(
-        augmented_prompt,
-        agent = agent,
-        thread_id = thread_id,
-        verbose = verbose
-      )
-    }, agent = agent)
+    .with_webpage_reader_config(
+      allow_rw,
+      relevance_mode = relevance_mode,
+      embedding_provider = embedding_provider,
+      embedding_model = embedding_model,
+      conda_env = conda_env,
+      function() {
+      .with_temporal(temporal, function() {
+        .run_agent(
+          augmented_prompt,
+          agent = agent,
+          thread_id = thread_id,
+          verbose = verbose
+        )
+      }, agent = agent)
+    })
   })
 
   elapsed <- as.numeric(difftime(Sys.time(), start_time, units = "mins"))
@@ -570,6 +623,14 @@ build_prompt <- function(template, ...) {
 #'   Default TRUE.
 #' @param abort_on_trip If TRUE, abort the batch when circuit breaker trips.
 #'   If FALSE (default), wait for cooldown and continue.
+#' @param allow_read_webpages If TRUE, allows the agent to open and read full
+#'   webpages (HTML/text) via the OpenWebpage tool. Disabled by default.
+#' @param webpage_relevance_mode Relevance selection for opened webpages.
+#'   One of: "auto", "lexical", "embeddings". See \code{\link{run_task}}.
+#' @param webpage_embedding_provider Embedding provider for relevance. See
+#'   \code{\link{run_task}}.
+#' @param webpage_embedding_model Embedding model identifier. See
+#'   \code{\link{run_task}}.
 #'
 #' @return A list of asa_result objects, or if prompts was a data frame,
 #'   the data frame with result columns added. If circuit breaker aborts,
@@ -609,7 +670,11 @@ run_task_batch <- function(prompts,
                            workers = 4L,
                            progress = TRUE,
                            circuit_breaker = TRUE,
-                           abort_on_trip = FALSE) {
+                           abort_on_trip = FALSE,
+                           allow_read_webpages = NULL,
+                           webpage_relevance_mode = NULL,
+                           webpage_embedding_provider = NULL,
+                           webpage_embedding_model = NULL) {
 
   # Validate inputs
   .validate_run_task_batch(
@@ -684,6 +749,10 @@ run_task_batch <- function(prompts,
       temporal = temporal,
       config = worker_config,
       agent = agent,
+      allow_read_webpages = allow_read_webpages,
+      webpage_relevance_mode = webpage_relevance_mode,
+      webpage_embedding_provider = webpage_embedding_provider,
+      webpage_embedding_model = webpage_embedding_model,
       verbose = FALSE
     )
 

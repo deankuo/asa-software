@@ -77,6 +77,24 @@ test_that("asa_enumerate validates sources parameter", {
   )
 })
 
+test_that("asa_enumerate validates allow_read_webpages parameter", {
+  expect_error(
+    asa_enumerate(query = "test", allow_read_webpages = "yes"),
+    regexp = "allow_read_webpages"
+  )
+})
+
+test_that("asa_enumerate validates webpage embedding options", {
+  expect_error(
+    asa_enumerate(query = "test", webpage_relevance_mode = "bad"),
+    regexp = "webpage_relevance_mode"
+  )
+  expect_error(
+    asa_enumerate(query = "test", webpage_embedding_provider = "bad"),
+    regexp = "webpage_embedding_provider"
+  )
+})
+
 test_that("asa_enumerate validates checkpoint_dir parameter", {
   expect_error(
     asa_enumerate(query = "test", checkpoint_dir = "/nonexistent/path/12345"),

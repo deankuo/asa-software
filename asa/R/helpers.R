@@ -818,6 +818,112 @@ configure_temporal <- function(time_filter = NULL) {
 }
 
 
+#' Apply Webpage Reader Configuration for a Single Operation
+#'
+#' Internal helper that enables/disables the Python webpage reader tool
+#' for the duration of a single operation, then restores the previous setting.
+#'
+#' @param allow_read_webpages TRUE/FALSE to enable/disable webpage reading
+#' @param conda_env Conda env used by Python tools
+#' @param fn Function to run with webpage reader config applied
+#' @return Result of fn()
+#' @keywords internal
+.with_webpage_reader_config <- function(allow_read_webpages,
+                                       relevance_mode = NULL,
+                                       embedding_provider = NULL,
+                                       embedding_model = NULL,
+                                       prefilter_k = NULL,
+                                       use_mmr = NULL,
+                                       mmr_lambda = NULL,
+                                       conda_env = "asa_env",
+                                       fn) {
+  # If nothing was specified, don't touch Python config.
+  if (is.null(allow_read_webpages) &&
+      is.null(relevance_mode) &&
+      is.null(embedding_provider) &&
+      is.null(embedding_model) &&
+      is.null(prefilter_k) &&
+      is.null(use_mmr) &&
+      is.null(mmr_lambda)) {
+    return(fn())
+  }
+
+  # Ensure conda env is active (module lives in that env).
+  reticulate::use_condaenv(conda_env, required = TRUE)
+
+  # Ensure module is available. initialize_agent() imports this already, but
+  # keep this resilient for call paths that bypass initialization order.
+  if (is.null(asa_env$webpage_tool)) {
+    .import_python_module("webpage_tool", env_name = "webpage_tool", required = FALSE)
+  }
+  if (is.null(asa_env$webpage_tool)) {
+    warning("Webpage reader module unavailable; continuing without webpage reading.", call. = FALSE)
+    return(fn())
+  }
+
+  previous <- tryCatch({
+    cfg <- asa_env$webpage_tool$configure_webpage_reader()
+    list(
+      allow_read_webpages = cfg$allow_read_webpages,
+      relevance_mode = cfg$relevance_mode,
+      embedding_provider = cfg$embedding_provider,
+      embedding_model = cfg$embedding_model,
+      prefilter_k = cfg$prefilter_k,
+      use_mmr = cfg$use_mmr,
+      mmr_lambda = cfg$mmr_lambda
+    )
+  }, error = function(e) NULL)
+
+  on.exit({
+    if (!is.null(previous) && !is.null(previous$allow_read_webpages)) {
+      tryCatch(
+        asa_env$webpage_tool$configure_webpage_reader(
+          allow_read_webpages = previous$allow_read_webpages,
+          relevance_mode = previous$relevance_mode,
+          embedding_provider = previous$embedding_provider,
+          embedding_model = previous$embedding_model,
+          prefilter_k = previous$prefilter_k,
+          use_mmr = previous$use_mmr,
+          mmr_lambda = previous$mmr_lambda
+        ),
+        error = function(e) NULL
+      )
+    }
+
+    # Clear any per-run cache after the operation.
+    if (isTRUE(allow_read_webpages)) {
+      tryCatch(
+        asa_env$webpage_tool$clear_webpage_reader_cache(),
+        error = function(e) NULL
+      )
+    }
+  }, add = TRUE)
+
+  # Clear cache at the start of this operation (per-run caching semantics).
+  if (isTRUE(allow_read_webpages)) {
+    tryCatch(
+      asa_env$webpage_tool$clear_webpage_reader_cache(),
+      error = function(e) NULL
+    )
+  }
+
+  tryCatch(
+    asa_env$webpage_tool$configure_webpage_reader(
+      allow_read_webpages = isTRUE(allow_read_webpages),
+      relevance_mode = relevance_mode,
+      embedding_provider = embedding_provider,
+      embedding_model = embedding_model,
+      prefilter_k = prefilter_k,
+      use_mmr = use_mmr,
+      mmr_lambda = mmr_lambda
+    ),
+    error = function(e) NULL
+  )
+
+  fn()
+}
+
+
 #' Configure Python Search Parameters
 #'
 #' Sets global configuration values for the Python search module.

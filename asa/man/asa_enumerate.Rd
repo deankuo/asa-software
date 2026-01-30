@@ -14,6 +14,10 @@ asa_enumerate(
   stop_policy = list(target_items = NULL, plateau_rounds = 2L, novelty_min = 0.05,
     novelty_window = 20L),
   sources = list(web = TRUE, wikipedia = TRUE, wikidata = TRUE),
+  allow_read_webpages = FALSE,
+  webpage_relevance_mode = NULL,
+  webpage_embedding_provider = NULL,
+  webpage_embedding_model = NULL,
   temporal = NULL,
   pagination = TRUE,
   progress = TRUE,
@@ -65,6 +69,22 @@ Use NULL or "auto" for LLM-proposed schema.}
   \item wikipedia: Use Wikipedia (default: TRUE)
   \item wikidata: Use Wikidata SPARQL for authoritative enumerations (default: TRUE)
 }}
+
+\item{allow_read_webpages}{If TRUE, the agent may open and read full webpages
+(in addition to search snippets) when it helps extraction. Disabled by
+default for safety and to avoid large context usage.}
+
+\item{webpage_relevance_mode}{Relevance selection for opened webpages.
+One of: "auto" (default), "lexical", "embeddings". When "embeddings" or
+"auto" with an available provider, the tool uses vector similarity to pick
+the most relevant excerpts; otherwise it falls back to lexical overlap.}
+
+\item{webpage_embedding_provider}{Embedding provider to use for relevance.
+One of: "auto" (default), "openai", "sentence_transformers".}
+
+\item{webpage_embedding_model}{Embedding model identifier. For OpenAI,
+defaults to "text-embedding-3-small". For sentence-transformers, use a
+local model name (e.g., "all-MiniLM-L6-v2").}
 
 \item{temporal}{Named list for temporal filtering:
 \itemize{

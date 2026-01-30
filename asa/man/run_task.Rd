@@ -12,7 +12,11 @@ run_task(
   agent = NULL,
   expected_fields = NULL,
   thread_id = NULL,
-  verbose = FALSE
+  verbose = FALSE,
+  allow_read_webpages = NULL,
+  webpage_relevance_mode = NULL,
+  webpage_embedding_provider = NULL,
+  webpage_embedding_model = NULL
 )
 }
 \arguments{
@@ -52,6 +56,21 @@ When provided, the same thread ID is reused so folded summaries persist
 across invocations. Defaults to NULL (new thread each call).}
 
 \item{verbose}{Print progress messages (default: FALSE)}
+
+\item{allow_read_webpages}{If TRUE, allows the agent to open and read full
+webpages (HTML/text) via the OpenWebpage tool. Disabled by default.}
+
+\item{webpage_relevance_mode}{Relevance selection for opened webpages.
+One of: "auto" (default), "lexical", "embeddings". When "embeddings" or
+"auto" with an available provider, the tool uses vector similarity to pick
+the most relevant excerpts; otherwise it falls back to lexical overlap.}
+
+\item{webpage_embedding_provider}{Embedding provider to use for relevance.
+One of: "auto" (default), "openai", "sentence_transformers".}
+
+\item{webpage_embedding_model}{Embedding model identifier. For OpenAI,
+defaults to "text-embedding-3-small". For sentence-transformers, use a
+local model name (e.g., "all-MiniLM-L6-v2").}
 }
 \value{
 An \code{asa_result} object with:

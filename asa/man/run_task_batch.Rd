@@ -13,7 +13,11 @@ run_task_batch(
   workers = 4L,
   progress = TRUE,
   circuit_breaker = TRUE,
-  abort_on_trip = FALSE
+  abort_on_trip = FALSE,
+  allow_read_webpages = NULL,
+  webpage_relevance_mode = NULL,
+  webpage_embedding_provider = NULL,
+  webpage_embedding_model = NULL
 )
 }
 \arguments{
@@ -39,6 +43,18 @@ Default TRUE.}
 
 \item{abort_on_trip}{If TRUE, abort the batch when circuit breaker trips.
 If FALSE (default), wait for cooldown and continue.}
+
+\item{allow_read_webpages}{If TRUE, allows the agent to open and read full
+webpages (HTML/text) via the OpenWebpage tool. Disabled by default.}
+
+\item{webpage_relevance_mode}{Relevance selection for opened webpages.
+One of: "auto", "lexical", "embeddings". See \code{\link{run_task}}.}
+
+\item{webpage_embedding_provider}{Embedding provider for relevance. See
+\code{\link{run_task}}.}
+
+\item{webpage_embedding_model}{Embedding model identifier. See
+\code{\link{run_task}}.}
 }
 \value{
 A list of asa_result objects, or if prompts was a data frame,

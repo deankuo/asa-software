@@ -13,6 +13,7 @@
   budget,
   stop_policy,
   sources,
+  allow_read_webpages = FALSE,
   checkpoint_dir,
   resume_from
 )

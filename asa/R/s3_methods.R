@@ -317,6 +317,13 @@ print.asa_temporal <- function(x, ...) {
 #'   E.g., with retry_delay=2 and multiplier=1.5, delays are 2s, 3s, 4.5s. Default: 1.5.
 #' @param inter_search_delay Minimum delay in seconds between consecutive searches.
 #'   Helps avoid rate limiting from search providers. Default: 1.5.
+#' @param allow_read_webpages If TRUE, allows the agent to open and read full
+#'   webpages (HTML/text) via the OpenWebpage tool. Disabled by default.
+#' @param webpage_relevance_mode Relevance selection for opened webpages.
+#'   One of: "auto", "lexical", "embeddings".
+#' @param webpage_embedding_provider Embedding provider for relevance. One of:
+#'   "auto", "openai", "sentence_transformers".
+#' @param webpage_embedding_model Embedding model identifier for relevance.
 #'
 #' @return An object of class \code{asa_search}
 #'
@@ -366,7 +373,11 @@ search_options <- function(max_results = NULL,
                            max_retries = NULL,
                            retry_delay = NULL,
                            backoff_multiplier = NULL,
-                           inter_search_delay = NULL) {
+                           inter_search_delay = NULL,
+                           allow_read_webpages = NULL,
+                           webpage_relevance_mode = NULL,
+                           webpage_embedding_provider = NULL,
+                           webpage_embedding_model = NULL) {
 
   structure(
     list(
@@ -375,7 +386,11 @@ search_options <- function(max_results = NULL,
       max_retries = max_retries %||% ASA_DEFAULT_MAX_RETRIES,
       retry_delay = retry_delay %||% 2.0,
       backoff_multiplier = backoff_multiplier %||% 1.5,
-      inter_search_delay = inter_search_delay %||% ASA_DEFAULT_INTER_SEARCH_DELAY
+      inter_search_delay = inter_search_delay %||% ASA_DEFAULT_INTER_SEARCH_DELAY,
+      allow_read_webpages = allow_read_webpages %||% FALSE,
+      webpage_relevance_mode = webpage_relevance_mode %||% "auto",
+      webpage_embedding_provider = webpage_embedding_provider %||% "auto",
+      webpage_embedding_model = webpage_embedding_model %||% "text-embedding-3-small"
     ),
     class = "asa_search"
   )
@@ -392,7 +407,8 @@ print.asa_search <- function(x, ...) {
   cat("Search Options: max_results=", x$max_results,
       ", timeout=", x$timeout, "s",
       ", retries=", x$max_retries,
-      ", delay=", x$inter_search_delay, "s\n", sep = "")
+      ", delay=", x$inter_search_delay, "s",
+      ", allow_read_webpages=", x$allow_read_webpages, "\n", sep = "")
   invisible(x)
 }
 

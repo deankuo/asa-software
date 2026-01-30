@@ -10,6 +10,7 @@
   budget,
   stop_policy,
   sources,
+  allow_read_webpages = FALSE,
   temporal = NULL
 )
 }

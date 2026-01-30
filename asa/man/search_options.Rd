@@ -10,7 +10,11 @@ search_options(
   max_retries = NULL,
   retry_delay = NULL,
   backoff_multiplier = NULL,
-  inter_search_delay = NULL
+  inter_search_delay = NULL,
+  allow_read_webpages = NULL,
+  webpage_relevance_mode = NULL,
+  webpage_embedding_provider = NULL,
+  webpage_embedding_model = NULL
 )
 }
 \arguments{
@@ -31,6 +35,17 @@ E.g., with retry_delay=2 and multiplier=1.5, delays are 2s, 3s, 4.5s. Default: 1
 
 \item{inter_search_delay}{Minimum delay in seconds between consecutive searches.
 Helps avoid rate limiting from search providers. Default: 1.5.}
+
+\item{allow_read_webpages}{If TRUE, allows the agent to open and read full
+webpages (HTML/text) via the OpenWebpage tool. Disabled by default.}
+
+\item{webpage_relevance_mode}{Relevance selection for opened webpages.
+One of: "auto", "lexical", "embeddings".}
+
+\item{webpage_embedding_provider}{Embedding provider for relevance. One of:
+"auto", "openai", "sentence_transformers".}
+
+\item{webpage_embedding_model}{Embedding model identifier for relevance.}
 }
 \value{
 An object of class \code{asa_search}

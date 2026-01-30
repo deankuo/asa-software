@@ -52,6 +52,8 @@ class ResearchConfig:
     use_wikidata: bool = True
     use_web: bool = True
     use_wikipedia: bool = True
+    # Optional capability: allow reading full webpages (disabled by default)
+    allow_read_webpages: bool = False
     # Temporal filtering parameters
     time_filter: Optional[str] = None      # DDG time filter: "d", "w", "m", "y"
     date_after: Optional[str] = None       # ISO 8601: "2020-01-01"
@@ -298,6 +300,11 @@ def create_searcher_node(llm, tools, wikidata_tool=None, research_config: Resear
         date_before = config.get("date_before") or (research_config.date_before if research_config else None)
         temporal_strictness = config.get("temporal_strictness") or (research_config.temporal_strictness if research_config else "best_effort")
         use_wayback = bool(config.get("use_wayback") if config.get("use_wayback") is not None else (research_config.use_wayback if research_config else False))
+        allow_read_webpages = bool(
+            config.get("allow_read_webpages")
+            if config.get("allow_read_webpages") is not None
+            else (research_config.allow_read_webpages if research_config else False)
+        )
         target_items = config.get("target_items")
         if target_items is None and research_config:
             target_items = research_config.target_items
@@ -369,6 +376,10 @@ def create_searcher_node(llm, tools, wikidata_tool=None, research_config: Resear
                 search_tools = []
                 original_times = []
                 for tool in tools:
+                    # Hide optional webpage-reading tool unless explicitly enabled.
+                    tool_name = getattr(tool, "name", "") or ""
+                    if (not allow_read_webpages) and tool_name == "OpenWebpage":
+                        continue
                     # Check if it's a DDG search tool and apply time filter
                     if hasattr(tool, 'api_wrapper') and time_filter:
                         try:
@@ -383,15 +394,24 @@ def create_searcher_node(llm, tools, wikidata_tool=None, research_config: Resear
                 model_with_tools = llm.bind_tools(search_tools)
                 tool_node = ToolNode(search_tools)
 
+                webpage_hint = ""
+                if allow_read_webpages:
+                    webpage_hint = (
+                        "\nYou may open and read a few of the most relevant result URLs "
+                        "using the OpenWebpage tool to extract accurate details. "
+                        "When calling OpenWebpage, include a focused 'query' describing what you need.\n"
+                    )
+
                 search_prompt = f"""Search for: {query}
-{query_hint}{temporal_hint}
+{query_hint}{temporal_hint}{webpage_hint}
 Extract entities with these fields: {list(schema.keys())}
 Use the Search tool to find information."""
 
                 messages = [HumanMessage(content=search_prompt)]
                 tool_outputs = []
 
-                for _ in range(3):  # Max 3 tool calls
+                max_tool_calls = 5 if allow_read_webpages else 3
+                for _ in range(max_tool_calls):
                     response = model_with_tools.invoke(messages)
                     tokens_used += _token_usage_from_message(response)
                     messages.append(response)
@@ -409,14 +429,15 @@ Use the Search tool to find information."""
                 # Extract structured entities from tool output
                 if tool_outputs and schema:
                     extraction_prompt = (
-                        "You are extracting structured entities from web search results.\n"
+                        "You are extracting structured entities from tool outputs (search results and any opened webpages).\n"
                         f"Query: {query}\n"
                         f"Temporal constraints: after={date_after or 'N/A'}, before={date_before or 'N/A'} (strictness={temporal_strictness}).\n"
                         "If strictness is 'strict', ONLY include entities supported by sources that clearly satisfy the date constraints; otherwise omit.\n"
                         f"Required fields: {list(schema.keys())}\n"
-                        "Return ONLY a JSON array where each item has exactly those keys.\n"
+                        "Return ONLY a JSON array. Each item MUST contain those required fields.\n"
+                        "You MAY also include an optional 'source_url' field when you can associate an entity with a specific URL.\n"
                         "Use null for missing values. No markdown, no extra text.\n\n"
-                        "Search results:\n"
+                        "Tool outputs:\n"
                         + "\n\n".join(tool_outputs)
                     )
 
