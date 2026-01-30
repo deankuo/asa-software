@@ -20,7 +20,7 @@ import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Type
 from urllib.parse import urlparse, urlunparse
 
 import requests
@@ -693,7 +693,7 @@ class OpenWebpageTool(BaseTool):
         "Provide an optional 'query' to get only the most relevant excerpts. "
         "This tool is disabled unless allow_read_webpages is enabled."
     )
-    args_schema = OpenWebpageInput
+    args_schema: Type[BaseModel] = OpenWebpageInput
 
     def __init__(self, proxy: Optional[str] = None, **kwargs: Any):
         super().__init__(**kwargs)
