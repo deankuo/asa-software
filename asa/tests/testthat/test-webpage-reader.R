@@ -146,8 +146,6 @@ test_that(".with_webpage_reader_config toggles Python allow_read_webpages", {
 
 test_that("OpenWebpage can read collaborators page (live network)", {
   skip_on_cran()
-  skip_if(Sys.getenv("ASA_TEST_LIVE_WEBPAGE_READER") != "1",
-          "Set ASA_TEST_LIVE_WEBPAGE_READER=1 to run this live-network test")
 
   python_path <- .skip_if_no_python_webpage_reader()
   .skip_if_missing_python_modules_webpage_reader(
