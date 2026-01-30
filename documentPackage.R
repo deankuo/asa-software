@@ -1,5 +1,5 @@
 #!/usr/bin/env Rscript
-
+# Script: documentPackage.R
 args <- commandArgs(trailingOnly = TRUE)
 
 opts <- list(
@@ -10,6 +10,8 @@ opts <- list(
   run_check = TRUE,
   install = FALSE
 )
+
+install.packages( "~/Documents/asa-software/asa",repos = NULL, type = "source",force = F);
 
 for (arg in args) {
   if (grepl("^--package=", arg)) {
