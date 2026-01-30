@@ -19,6 +19,21 @@
 \arguments{
 \item{allow_read_webpages}{TRUE/FALSE to enable/disable webpage reading}
 
+\item{relevance_mode}{Relevance selection for opened webpages:
+"auto", "lexical", or "embeddings". "auto" uses embeddings when available,
+otherwise falls back to lexical overlap.}
+
+\item{embedding_provider}{Embedding provider for relevance ("auto",
+"openai", or "sentence_transformers").}
+
+\item{embedding_model}{Embedding model identifier for relevance.}
+
+\item{prefilter_k}{Optional lexical prefilter size before embedding.}
+
+\item{use_mmr}{Whether to apply maximal marginal relevance for diverse excerpts.}
+
+\item{mmr_lambda}{MMR tradeoff between relevance (1.0) and diversity (0.0).}
+
 \item{conda_env}{Conda env used by Python tools}
 
 \item{fn}{Function to run with webpage reader config applied}

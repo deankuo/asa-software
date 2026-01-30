@@ -334,6 +334,31 @@ config <- asa::asa_config(
 result <- asa::run_task(prompt, config = config)
 ```
 
+### Optional Webpage Reading
+
+When enabled, the agent can open full webpages (not just search snippets) and
+extract the most relevant excerpts. This is disabled by default and must be
+explicitly turned on per call or via `search_options()`. Relevance selection
+uses embeddings when available (local `sentence-transformers` or OpenAI
+embeddings via `OPENAI_API_KEY`), otherwise falls back to lexical overlap.
+Within a single run, repeated opens of the same URL are cached to avoid
+re-fetching.
+
+```r
+# Enable optional webpage reading with embedding-based relevance
+search <- asa::search_options(
+  allow_read_webpages = TRUE,
+  webpage_relevance_mode = "embeddings",
+  webpage_embedding_provider = "openai",
+  webpage_embedding_model = "text-embedding-3-small"
+)
+
+result <- asa::run_task(
+  "Find the exact wording of the mission statement and quote it.",
+  config = asa::asa_config(search = search)
+)
+```
+
 ## Advanced Use
 
 ### Memory Folding Configuration
@@ -601,13 +626,14 @@ asa::build_backend(conda_env = "asa_env", force = TRUE)
 ## Performance
 
 <!-- SPEED_REPORT_START -->
-**Last Run:** 2026-01-29 20:03:08 CST | **Status:** PASS
+**Last Run:** 2026-01-29 21:32:49 CST | **Status:** PASS
 
 | Benchmark | Current | Baseline | Ratio | Status |
 |-----------|---------|----------|-------|--------|
-| `build_prompt` | 0.089s | 0.09s | 0.99x | PASS |
-| `helper_funcs` | 0.053s | 0.07s | 0.76x | PASS |
-| `combined` | 0.084s | 0.09s | 0.92x | PASS |
+| `build_prompt` | 0.114s | 0.09s | 1.26x | PASS |
+| `helper_funcs` | 0.061s | 0.07s | 0.88x | PASS |
+| `combined` | 0.106s | 0.09s | 1.17x | PASS |
+| `agent_search` | 51.4s | 18s | 2.92x | PASS |
 
 Tests fail if time exceeds 4.00x baseline. 
 See [full report](asa/tests/testthat/SPEED_REPORT.md) for details.

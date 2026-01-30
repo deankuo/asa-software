@@ -824,6 +824,15 @@ configure_temporal <- function(time_filter = NULL) {
 #' for the duration of a single operation, then restores the previous setting.
 #'
 #' @param allow_read_webpages TRUE/FALSE to enable/disable webpage reading
+#' @param relevance_mode Relevance selection for opened webpages:
+#'   "auto", "lexical", or "embeddings". "auto" uses embeddings when available,
+#'   otherwise falls back to lexical overlap.
+#' @param embedding_provider Embedding provider for relevance ("auto",
+#'   "openai", or "sentence_transformers").
+#' @param embedding_model Embedding model identifier for relevance.
+#' @param prefilter_k Optional lexical prefilter size before embedding.
+#' @param use_mmr Whether to apply maximal marginal relevance for diverse excerpts.
+#' @param mmr_lambda MMR tradeoff between relevance (1.0) and diversity (0.0).
 #' @param conda_env Conda env used by Python tools
 #' @param fn Function to run with webpage reader config applied
 #' @return Result of fn()
