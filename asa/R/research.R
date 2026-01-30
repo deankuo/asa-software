@@ -276,7 +276,7 @@ asa_enumerate <- function(query,
     embedding_provider = webpage_embedding_provider,
     embedding_model = webpage_embedding_model,
     conda_env = conda_env_used,
-    function() {
+    fn = function() {
     if (progress) {
       .run_research_with_progress(graph, query, schema_dict, config_dict,
                                   checkpoint_file, verbose)

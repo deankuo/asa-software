@@ -14,6 +14,9 @@
   stop_policy,
   sources,
   allow_read_webpages = FALSE,
+  webpage_relevance_mode = NULL,
+  webpage_embedding_provider = NULL,
+  webpage_embedding_model = NULL,
   checkpoint_dir,
   resume_from
 )

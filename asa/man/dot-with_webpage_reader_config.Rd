@@ -4,7 +4,17 @@
 \alias{.with_webpage_reader_config}
 \title{Apply Webpage Reader Configuration for a Single Operation}
 \usage{
-.with_webpage_reader_config(allow_read_webpages, conda_env = "asa_env", fn)
+.with_webpage_reader_config(
+  allow_read_webpages,
+  relevance_mode = NULL,
+  embedding_provider = NULL,
+  embedding_model = NULL,
+  prefilter_k = NULL,
+  use_mmr = NULL,
+  mmr_lambda = NULL,
+  conda_env = "asa_env",
+  fn
+)
 }
 \arguments{
 \item{allow_read_webpages}{TRUE/FALSE to enable/disable webpage reading}

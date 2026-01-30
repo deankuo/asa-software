@@ -261,7 +261,7 @@ run_task <- function(prompt,
       embedding_provider = embedding_provider,
       embedding_model = embedding_model,
       conda_env = conda_env,
-      function() {
+      fn = function() {
       .with_temporal(temporal, function() {
         .run_agent(
           augmented_prompt,
