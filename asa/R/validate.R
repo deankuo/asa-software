@@ -397,6 +397,7 @@
 #' Validate run_task() Parameters
 #' @keywords internal
 .validate_run_task <- function(prompt, output_format, agent, verbose, thread_id = NULL,
+                               recursion_limit = NULL,
                                allow_read_webpages = NULL,
                                webpage_relevance_mode = NULL,
                                webpage_embedding_provider = NULL,
@@ -428,6 +429,11 @@
   # thread_id: NULL or single string (opt-in stable sessions)
   if (!is.null(thread_id)) {
     .validate_string(thread_id, "thread_id")
+  }
+
+  if (!is.null(recursion_limit)) {
+    .validate_positive(recursion_limit, "recursion_limit", integer_only = TRUE)
+    .validate_range(recursion_limit, "recursion_limit", min = 1, max = 500)
   }
 
   # allow_read_webpages: NULL or TRUE/FALSE

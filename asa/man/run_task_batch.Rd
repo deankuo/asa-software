@@ -18,7 +18,8 @@ run_task_batch(
   allow_read_webpages = NULL,
   webpage_relevance_mode = NULL,
   webpage_embedding_provider = NULL,
-  webpage_embedding_model = NULL
+  webpage_embedding_model = NULL,
+  recursion_limit = NULL
 )
 }
 \arguments{
@@ -62,6 +63,9 @@ One of: "auto", "lexical", "embeddings". See \code{\link{run_task}}.}
 
 \item{webpage_embedding_model}{Embedding model identifier. See
 \code{\link{run_task}}.}
+
+\item{recursion_limit}{Optional maximum number of agent steps applied to each
+task. See \code{\link{run_task}}.}
 }
 \value{
 A list of asa_result objects, or if prompts was a data frame,

@@ -10,6 +10,7 @@
   agent,
   verbose,
   thread_id = NULL,
+  recursion_limit = NULL,
   allow_read_webpages = NULL,
   webpage_relevance_mode = NULL,
   webpage_embedding_provider = NULL,

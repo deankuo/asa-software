@@ -32,6 +32,8 @@
 #' @param thread_id Optional stable identifier for memory folding sessions.
 #'   When provided, the same thread ID is reused so folded summaries persist
 #'   across invocations. Defaults to NULL (new thread each call).
+#' @param recursion_limit Optional maximum number of agent steps. When NULL
+#'   (default), a backend-appropriate default is used.
 #' @param verbose Print progress messages (default: FALSE)
 #' @param allow_read_webpages If TRUE, allows the agent to open and read full
 #'   webpages (HTML/text) via the OpenWebpage tool. Disabled by default.
@@ -142,7 +144,8 @@ run_task <- function(prompt,
                      allow_read_webpages = NULL,
                      webpage_relevance_mode = NULL,
                      webpage_embedding_provider = NULL,
-                     webpage_embedding_model = NULL) {
+                     webpage_embedding_model = NULL,
+                     recursion_limit = NULL) {
 
   config_search <- NULL
   config_conda_env <- NULL
@@ -192,7 +195,8 @@ run_task <- function(prompt,
     allow_read_webpages = allow_read_webpages,
     webpage_relevance_mode = webpage_relevance_mode,
     webpage_embedding_provider = webpage_embedding_provider,
-    webpage_embedding_model = webpage_embedding_model
+    webpage_embedding_model = webpage_embedding_model,
+    recursion_limit = recursion_limit
   )
 
   # Initialize agent from config if provided
@@ -253,6 +257,7 @@ run_task <- function(prompt,
         .run_agent(
           augmented_prompt,
           agent = agent,
+          recursion_limit = recursion_limit,
           thread_id = thread_id,
           verbose = verbose
         )
@@ -623,6 +628,8 @@ build_prompt <- function(template, ...) {
 #'   \code{\link{run_task}}.
 #' @param webpage_embedding_model Embedding model identifier. See
 #'   \code{\link{run_task}}.
+#' @param recursion_limit Optional maximum number of agent steps applied to each
+#'   task. See \code{\link{run_task}}.
 #'
 #' @return A list of asa_result objects, or if prompts was a data frame,
 #'   the data frame with result columns added. If circuit breaker aborts,
@@ -667,7 +674,8 @@ run_task_batch <- function(prompts,
                            allow_read_webpages = NULL,
                            webpage_relevance_mode = NULL,
                            webpage_embedding_provider = NULL,
-                           webpage_embedding_model = NULL) {
+                           webpage_embedding_model = NULL,
+                           recursion_limit = NULL) {
 
   # Validate config type early (before any work)
   if (!is.null(config) && !inherits(config, "asa_config")) {
@@ -775,6 +783,7 @@ run_task_batch <- function(prompts,
       webpage_relevance_mode = webpage_relevance_mode,
       webpage_embedding_provider = webpage_embedding_provider,
       webpage_embedding_model = webpage_embedding_model,
+      recursion_limit = recursion_limit,
       verbose = FALSE
     )
 

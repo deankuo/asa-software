@@ -16,7 +16,8 @@ run_task(
   allow_read_webpages = NULL,
   webpage_relevance_mode = NULL,
   webpage_embedding_provider = NULL,
-  webpage_embedding_model = NULL
+  webpage_embedding_model = NULL,
+  recursion_limit = NULL
 )
 }
 \arguments{
@@ -71,6 +72,9 @@ One of: "auto" (default), "openai", "sentence_transformers".}
 \item{webpage_embedding_model}{Embedding model identifier. For OpenAI,
 defaults to "text-embedding-3-small". For sentence-transformers, use a
 local model name (e.g., "all-MiniLM-L6-v2").}
+
+\item{recursion_limit}{Optional maximum number of agent steps. When NULL
+(default), a backend-appropriate default is used.}
 }
 \value{
 An \code{asa_result} object with:
