@@ -19,7 +19,7 @@ initialize_agent(
 )
 }
 \arguments{
-\item{backend}{LLM backend to use. One of: "openai", "groq", "xai", "exo", "openrouter"}
+\item{backend}{LLM backend to use. One of: "openai", "groq", "xai", "gemini", "exo", "openrouter"}
 
 \item{model}{Model identifier (e.g., "gpt-4.1-mini", "llama-3.3-70b-versatile")}
 
@@ -77,6 +77,7 @@ The following environment variables should be set based on your backend:
   \item OpenAI: \code{OPENAI_API_KEY}
   \item Groq: \code{GROQ_API_KEY}
   \item xAI: \code{XAI_API_KEY}
+  \item Gemini: \code{GOOGLE_API_KEY} (or \code{GEMINI_API_KEY})
   \item OpenRouter: \code{OPENROUTER_API_KEY}
 }
 }

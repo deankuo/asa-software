@@ -929,6 +929,7 @@
     openai = "OPENAI_API_KEY",
     groq = "GROQ_API_KEY",
     xai = "XAI_API_KEY",
+    gemini = c("GOOGLE_API_KEY", "GEMINI_API_KEY"),
     openrouter = "OPENROUTER_API_KEY"
   )
 
@@ -937,21 +938,49 @@
     return(invisible(TRUE))
   }
 
-  env_var <- key_vars[[backend]]
-  if (is.null(env_var)) {
+  env_vars <- key_vars[[backend]]
+  if (is.null(env_vars)) {
     stop("Unknown backend: ", backend, call. = FALSE)
   }
 
-  api_key <- Sys.getenv(env_var, unset = "")
+  # Gemini can also be used via Vertex AI with ADC credentials. If the user has
+  # explicitly enabled Vertex mode, allow missing API key (best-effort).
+  use_vertex <- identical(backend, "gemini") &&
+    tolower(Sys.getenv("GOOGLE_GENAI_USE_VERTEXAI", unset = "")) %in% c("true", "1", "yes", "t")
+
+  api_key <- ""
+  env_var <- NULL
+  for (v in env_vars) {
+    val <- Sys.getenv(v, unset = "")
+    if (nzchar(val)) {
+      api_key <- val
+      env_var <- v
+      break
+    }
+  }
 
   if (api_key == "" || is.na(api_key)) {
+    if (use_vertex) {
+      warning(
+        "Gemini backend: No GOOGLE_API_KEY/GEMINI_API_KEY found. ",
+        "Assuming Vertex AI credentials are configured (GOOGLE_GENAI_USE_VERTEXAI=true). ",
+        "If not, set GOOGLE_API_KEY or GEMINI_API_KEY.",
+        call. = FALSE
+      )
+      return(invisible(TRUE))
+    }
+
     .stop_validation(
       "api_key",
-      sprintf("be set in environment variable %s for backend '%s'", env_var, backend),
+      sprintf(
+        "be set in environment variable %s for backend '%s'",
+        paste(env_vars, collapse = " or "),
+        backend
+      ),
       actual = "<not set>",
       fix = sprintf(
         "Set the API key via: Sys.setenv(%s = \"your-api-key\")\n         Or in your .Renviron file: %s=your-api-key",
-        env_var, env_var
+        env_vars[[1]], env_vars[[1]]
       )
     )
   }

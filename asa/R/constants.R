@@ -19,6 +19,10 @@ ASA_DEFAULT_BACKEND <- "openai"
 #' @keywords internal
 ASA_DEFAULT_MODEL <- "gpt-4.1-mini"
 
+#' Default Gemini Model
+#' @keywords internal
+ASA_DEFAULT_GEMINI_MODEL <- "gemini-3-flash-preview"
+
 #' Default Conda Environment
 #' @keywords internal
 ASA_DEFAULT_CONDA_ENV <- "asa_env"
@@ -29,7 +33,7 @@ ASA_DEFAULT_PROXY <- "socks5h://127.0.0.1:9050"
 
 #' Supported Backends
 #' @keywords internal
-ASA_SUPPORTED_BACKENDS <- c("openai", "groq", "xai", "exo", "openrouter")
+ASA_SUPPORTED_BACKENDS <- c("openai", "groq", "xai", "gemini", "exo", "openrouter")
 
 # ============================================================================
 # API ENDPOINTS
@@ -50,6 +54,7 @@ ASA_API_KEY_ENV_VARS <- list(
   openai = "OPENAI_API_KEY",
   groq = "GROQ_API_KEY",
   xai = "XAI_API_KEY",
+  gemini = "GOOGLE_API_KEY",
   openrouter = "OPENROUTER_API_KEY",
   exo = NULL  # Local server, no API key needed
 )
@@ -314,6 +319,7 @@ ASA_DEFAULT_TEMPERATURES <- list(
   openai = 0.5,
   groq = 0.01,
   xai = 0.5,
+  gemini = 1.0,
   exo = 0.01,
   openrouter = 0.5
 )
@@ -386,6 +392,22 @@ ASA_TRUNCATE_LENGTH <- 80L
 #' @keywords internal
 .get_default_model <- function() {
   .asa_option("default_model", ASA_DEFAULT_MODEL)
+}
+
+#' Get Default Model for Backend
+#' @keywords internal
+.get_default_model_for_backend <- function(backend) {
+  # Respect an explicit user option first (backwards-compatible).
+  user_default <- getOption("asa.default_model", default = NULL)
+  if (!is.null(user_default)) {
+    return(user_default)
+  }
+
+  if (identical(backend, "gemini")) {
+    return(ASA_DEFAULT_GEMINI_MODEL)
+  }
+
+  ASA_DEFAULT_MODEL
 }
 
 #' Get Default Conda Environment

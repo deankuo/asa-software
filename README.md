@@ -281,6 +281,7 @@ asa_audit(senators, backend = "langgraph", agent = agent)
 | `openai` | `gpt-4.1-mini`, `gpt-4o` | `OPENAI_API_KEY` |
 | `groq` | `llama-3.3-70b-versatile` | `GROQ_API_KEY` |
 | `xai` | `grok-2-1212`, `grok-3` | `XAI_API_KEY` |
+| `gemini` | `gemini-3-flash-preview` | `GOOGLE_API_KEY` (or `GEMINI_API_KEY`) |
 | `openrouter` | `google/gemini-2.0-flash-exp:free`, `meta-llama/llama-3.3-70b-instruct:free` | `OPENROUTER_API_KEY` |
 | `exo` | Local models | (none) |
 

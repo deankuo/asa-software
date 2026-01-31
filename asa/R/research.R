@@ -66,7 +66,7 @@
 #' @param resume_from Path to checkpoint file to resume from (default: NULL).
 #' @param agent An initialized \code{asa_agent} object. If NULL, uses the current
 #'   agent or creates a new one with specified backend/model.
-#' @param backend LLM backend if creating new agent: "openai", "groq", "xai", "openrouter".
+#' @param backend LLM backend if creating new agent: "openai", "groq", "xai", "gemini", "exo", "openrouter".
 #' @param model Model identifier if creating new agent.
 #' @param conda_env Conda environment name. Defaults to the package option
 #'   \code{asa.default_conda_env} (or \code{"asa_env"} if unset).
@@ -225,7 +225,7 @@ asa_enumerate <- function(query,
   }
   max_rounds <- max_rounds %||% ASA_DEFAULT_MAX_ROUNDS
   backend <- backend %||% if (!is.null(config)) config$backend else .get_default_backend()
-  model <- model %||% if (!is.null(config)) config$model else .get_default_model()
+  model <- model %||% if (!is.null(config)) config$model else .get_default_model_for_backend(backend)
   conda_env <- conda_env %||% if (!is.null(config)) config$conda_env else .get_default_conda_env()
 
   # Match output format

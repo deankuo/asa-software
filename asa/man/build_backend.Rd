@@ -32,7 +32,7 @@ asa search agent, including LangChain, LangGraph, and search tools.
 This function creates a new conda environment and installs the following
 Python packages:
 \itemize{
-  \item langchain_groq, langchain_community, langchain_openai
+  \item langchain_groq, langchain_community, langchain_openai, langchain_google_genai
   \item langgraph
   \item ddgs (DuckDuckGo search)
   \item selenium, primp (browser automation)

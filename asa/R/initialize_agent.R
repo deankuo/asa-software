@@ -4,7 +4,7 @@
 #' search tools (Wikipedia, DuckDuckGo). The agent can use multiple LLM
 #' backends and supports DeepAgent-style memory folding.
 #'
-#' @param backend LLM backend to use. One of: "openai", "groq", "xai", "exo", "openrouter"
+#' @param backend LLM backend to use. One of: "openai", "groq", "xai", "gemini", "exo", "openrouter"
 #' @param model Model identifier (e.g., "gpt-4.1-mini", "llama-3.3-70b-versatile")
 #' @param conda_env Name of the conda environment with Python dependencies
 #' @param proxy Proxy URL for search tools.
@@ -45,6 +45,7 @@
 #'   \item OpenAI: \code{OPENAI_API_KEY}
 #'   \item Groq: \code{GROQ_API_KEY}
 #'   \item xAI: \code{XAI_API_KEY}
+#'   \item Gemini: \code{GOOGLE_API_KEY} (or \code{GEMINI_API_KEY})
 #'   \item OpenRouter: \code{OPENROUTER_API_KEY}
 #' }
 #'
@@ -99,7 +100,7 @@ initialize_agent <- function(backend = NULL,
 
   # Apply defaults (option-aware where available)
   backend <- backend %||% .get_default_backend()
-  model <- model %||% .get_default_model()
+  model <- model %||% .get_default_model_for_backend(backend)
   conda_env <- conda_env %||% .get_default_conda_env()
 
   # Validate backend
@@ -451,6 +452,23 @@ initialize_agent <- function(backend = NULL,
         "X-Title" = "asa"
       )
     )
+  } else if (backend == "gemini") {
+    chat_models <- reticulate::import("langchain_google_genai")
+    api_key <- Sys.getenv("GOOGLE_API_KEY", unset = "")
+    if (!nzchar(api_key)) {
+      api_key <- Sys.getenv("GEMINI_API_KEY", unset = "")
+    }
+
+    args <- list(
+      model = model,
+      temperature = 1.0,
+      rate_limiter = rate_limiter
+    )
+    if (nzchar(api_key)) {
+      args$api_key <- api_key
+    }
+
+    llm <- do.call(chat_models$ChatGoogleGenerativeAI, args)
   }
 
   llm

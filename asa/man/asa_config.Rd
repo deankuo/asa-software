@@ -21,7 +21,7 @@ asa_config(
 )
 }
 \arguments{
-\item{backend}{LLM backend: "openai", "groq", "xai", "exo", "openrouter"}
+\item{backend}{LLM backend: "openai", "groq", "xai", "gemini", "exo", "openrouter"}
 
 \item{model}{Model identifier (e.g., "gpt-4.1-mini")}
 

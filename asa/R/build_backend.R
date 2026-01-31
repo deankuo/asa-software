@@ -14,7 +14,7 @@
 
 #' Python packages:
 #' \itemize{
-#'   \item langchain_groq, langchain_community, langchain_openai
+#'   \item langchain_groq, langchain_community, langchain_openai, langchain_google_genai
 #'   \item langgraph
 #'   \item ddgs (DuckDuckGo search)
 #'   \item selenium, primp (browser automation)
@@ -106,6 +106,7 @@ build_backend <- function(conda_env = NULL,
     "langchain_groq",
     "langchain_community",
     "langchain_openai",
+    "langchain-google-genai",
     "langgraph",
     "langchain-tavily"
   ))
@@ -222,7 +223,9 @@ check_backend <- function(conda_env = NULL, strict = FALSE) {
     # Check packages
     required_packages <- c(
       "langchain_community",
+      "langchain_groq",
       "langchain_openai",
+      "langchain_google_genai",
       "langgraph",
       "ddgs",
       "selenium",
