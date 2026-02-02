@@ -2,7 +2,9 @@
 title: "Introduction to asa: AI Search Agent for Large-Scale Research Automation"
 author: "Connor Jerzak"
 date: "`r Sys.Date()`"
-output: rmarkdown::html_vignette
+output:
+  rmarkdown::html_vignette:
+    highlight: null
 vignette: >
   %\VignetteIndexEntry{Introduction to asa: AI Search Agent for Large-Scale Research Automation}
   %\VignetteEngine{knitr::rmarkdown}
