@@ -1709,6 +1709,23 @@ def configure_anti_detection(
     }
 
 
+def _strip_chromedriver_from_path(path_value: str) -> str:
+    if not path_value:
+        return path_value
+    sep = os.pathsep
+    entries = [p for p in path_value.split(sep) if p]
+    keep = []
+    exe_names = ("chromedriver", "chromedriver.exe")
+    for entry in entries:
+        try:
+            has_driver = any(os.path.exists(os.path.join(entry, exe)) for exe in exe_names)
+        except Exception:
+            has_driver = False
+        if not has_driver:
+            keep.append(entry)
+    return sep.join(keep)
+
+
 def _new_driver(
     *,
     proxy: str | None,
@@ -1926,6 +1943,7 @@ def _new_driver(
         # TIER 3: Standard Chrome with manual stealth (last resort)
         # ════════════════════════════════════════════════════════════════════
         from selenium.webdriver.chrome.options import Options as ChromeOptions
+        from selenium.webdriver.chrome.service import Service as ChromeService
         chrome_opts = ChromeOptions()
         if headless:
             chrome_opts.add_argument("--headless=new")
@@ -1946,7 +1964,21 @@ def _new_driver(
         if proxy and use_proxy_for_browser:
             chrome_opts.add_argument(f"--proxy-server={proxy}")
 
-        driver = webdriver.Chrome(options=chrome_opts)
+        driver_path = os.environ.get("ASA_CHROMEDRIVER_BIN") or os.environ.get("CHROMEDRIVER_BIN")
+        ignore_path = str(os.environ.get("ASA_IGNORE_PATH_CHROMEDRIVER", "")).lower() in ("1", "true", "yes")
+        restored_path = None
+        if ignore_path and not driver_path:
+            restored_path = os.environ.get("PATH", "")
+            os.environ["PATH"] = _strip_chromedriver_from_path(restored_path)
+            logger.info("Ignoring PATH chromedriver entries (ASA_IGNORE_PATH_CHROMEDRIVER=1)")
+        try:
+            if driver_path:
+                driver = webdriver.Chrome(service=ChromeService(executable_path=driver_path), options=chrome_opts)
+            else:
+                driver = webdriver.Chrome(options=chrome_opts)
+        finally:
+            if restored_path is not None:
+                os.environ["PATH"] = restored_path
         logger.info("Using standard Chrome WebDriver (manual stealth mode)")
 
         # Manual stealth via CDP

@@ -11,6 +11,11 @@
 #' @param check_browser If TRUE, performs a best-effort check for a system Chrome/Chromium
 #'   binary and `chromedriver`, warning when major versions are incompatible. Set to
 #'   FALSE to skip this check.
+#' @param fix_browser If TRUE and `check_browser = TRUE`, attempt to download a
+#'   matching chromedriver for the detected Chrome version and prepend it to `PATH`
+#'   for the current R session. The driver is stored under `chromedriver_dir`.
+#' @param chromedriver_dir Optional directory to store downloaded chromedriver
+#'   binaries. Defaults to `~/.asa/chromedriver` when `fix_browser = TRUE`.
 #'
 #' @details
 #' This function creates a new conda environment and installs the following
@@ -47,7 +52,9 @@ build_backend <- function(conda_env = NULL,
                           conda = "auto",
                           python_version = "3.11",
                           force = FALSE,
-                          check_browser = TRUE) {
+                          check_browser = TRUE,
+                          fix_browser = FALSE,
+                          chromedriver_dir = NULL) {
 
   conda_env <- conda_env %||% .get_default_conda_env()
 
@@ -103,7 +110,7 @@ build_backend <- function(conda_env = NULL,
   msg("Installing Python dependencies...")
 
   # Core packages
-  pip_install(c("uv"))
+  pip_install(c("uv", "setuptools"))
 
   # LangChain ecosystem
   pip_install(c(
@@ -169,7 +176,15 @@ build_backend <- function(conda_env = NULL,
 
   # Optional: check system browser/driver compatibility for Selenium tier.
   if (isTRUE(check_browser)) {
-    .check_browser_stack(verbose = TRUE)
+    browser_status <- .check_browser_stack(verbose = TRUE)
+    if (isTRUE(fix_browser) && isTRUE(browser_status$mismatch)) {
+      .install_matching_chromedriver(
+        chrome_version = browser_status$chrome_version,
+        chromedriver_dir = chromedriver_dir,
+        verbose = TRUE
+      )
+      .check_browser_stack(verbose = TRUE)
+    }
   }
 
   invisible(NULL)
@@ -295,7 +310,10 @@ build_backend <- function(conda_env = NULL,
           "Chrome/chromedriver major versions differ (Chrome ", chrome_major,
           " vs chromedriver ", chromedriver_major, "). Selenium browser tier may fail ",
           "with SessionNotCreatedException. Align the major versions by updating Chrome ",
-          "or installing the matching chromedriver."
+          "or installing the matching chromedriver. You can also run ",
+          "build_backend(check_browser=TRUE, fix_browser=TRUE) to auto-download a ",
+          "matching driver, or set ASA_IGNORE_PATH_CHROMEDRIVER=1 to let Selenium ",
+          "Manager fetch a driver instead of using PATH."
         ),
         call. = FALSE
       )
@@ -311,6 +329,173 @@ build_backend <- function(conda_env = NULL,
     chrome_major = chrome_major,
     chromedriver_major = chromedriver_major,
     mismatch = mismatch
+  ))
+}
+
+.extract_full_version <- function(version_str) {
+  if (!is.character(version_str) || length(version_str) != 1 || is.na(version_str) || !nzchar(version_str)) {
+    return(NA_character_)
+  }
+  m <- regexpr("[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+", version_str)
+  if (m[1] == -1) {
+    return(NA_character_)
+  }
+  regmatches(version_str, m)[[1]]
+}
+
+.chromedriver_platform <- function() {
+  sysname <- Sys.info()[["sysname"]] %||% ""
+  arch <- Sys.info()[["machine"]] %||% ""
+  if (identical(sysname, "Darwin")) {
+    if (grepl("arm|aarch64", arch, ignore.case = TRUE)) {
+      return("mac-arm64")
+    }
+    return("mac-x64")
+  }
+  if (identical(sysname, "Linux")) {
+    return("linux64")
+  }
+  if (identical(sysname, "Windows")) {
+    return("win64")
+  }
+  NULL
+}
+
+.install_matching_chromedriver <- function(chrome_version,
+                                           chromedriver_dir = NULL,
+                                           verbose = TRUE) {
+  msg <- function(...) if (isTRUE(verbose)) message(...)
+
+  if (!requireNamespace("jsonlite", quietly = TRUE)) {
+    msg("jsonlite is required to fetch Chrome for Testing metadata. Install it and retry.")
+    return(invisible(list(ok = FALSE, reason = "jsonlite_missing")))
+  }
+
+  chrome_full <- .extract_full_version(chrome_version)
+  if (is.na(chrome_full)) {
+    msg("Unable to parse Chrome version from: ", chrome_version)
+    return(invisible(list(ok = FALSE, reason = "chrome_version_unparsed")))
+  }
+
+  chrome_major <- .parse_major_version(chrome_full)
+  platform <- .chromedriver_platform()
+  if (is.null(platform)) {
+    msg("Unsupported platform for chromedriver auto-install.")
+    return(invisible(list(ok = FALSE, reason = "platform_unsupported")))
+  }
+
+  if (is.null(chromedriver_dir) || !nzchar(chromedriver_dir)) {
+    chromedriver_dir <- Sys.getenv("ASA_CHROMEDRIVER_DIR", unset = "")
+    if (!nzchar(chromedriver_dir)) {
+      chromedriver_dir <- file.path(path.expand("~"), ".asa", "chromedriver")
+    }
+  }
+
+  json_url <- "https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json"
+  payload <- tryCatch(
+    jsonlite::fromJSON(json_url, simplifyDataFrame = FALSE),
+    error = function(e) NULL
+  )
+  if (is.null(payload) || is.null(payload$versions)) {
+    msg("Failed to fetch Chrome for Testing metadata.")
+    return(invisible(list(ok = FALSE, reason = "metadata_fetch_failed")))
+  }
+
+  versions <- payload$versions
+  majors <- vapply(versions, function(v) .parse_major_version(v$version), integer(1))
+  candidates <- versions[majors == chrome_major]
+  if (length(candidates) == 0) {
+    msg("No Chrome for Testing build found for major ", chrome_major)
+    return(invisible(list(ok = FALSE, reason = "no_matching_major")))
+  }
+
+  exact <- candidates[vapply(candidates, function(v) identical(v$version, chrome_full), logical(1))]
+  if (length(exact) > 0) {
+    selected <- exact[[1]]
+  } else {
+    ver_mat <- do.call(rbind, lapply(candidates, function(v) {
+      parts <- as.integer(strsplit(v$version, "\\.")[[1]])
+      c(parts, rep(0L, 4L - length(parts)))
+    }))
+    ord <- order(ver_mat[, 1], ver_mat[, 2], ver_mat[, 3], ver_mat[, 4])
+    selected <- candidates[[tail(ord, 1)]]
+  }
+
+  downloads <- selected$downloads$chromedriver
+  if (is.null(downloads) || length(downloads) == 0) {
+    msg("No chromedriver downloads listed for version ", selected$version)
+    return(invisible(list(ok = FALSE, reason = "no_downloads")))
+  }
+
+  pick <- NULL
+  for (d in downloads) {
+    if (identical(d$platform, platform)) {
+      pick <- d
+      break
+    }
+  }
+  if (is.null(pick) || is.null(pick$url)) {
+    msg("No chromedriver download available for platform ", platform)
+    return(invisible(list(ok = FALSE, reason = "platform_missing")))
+  }
+
+  target_dir <- file.path(chromedriver_dir, selected$version, platform)
+  dir.create(target_dir, recursive = TRUE, showWarnings = FALSE)
+
+  zip_path <- file.path(target_dir, paste0("chromedriver-", platform, ".zip"))
+  msg("Downloading chromedriver ", selected$version, " (", platform, ")...")
+  ok <- tryCatch({
+    utils::download.file(pick$url, zip_path, mode = "wb", quiet = !verbose)
+    TRUE
+  }, error = function(e) {
+    msg("Download failed: ", e$message)
+    FALSE
+  })
+  if (!ok) {
+    return(invisible(list(ok = FALSE, reason = "download_failed")))
+  }
+
+  unzip_ok <- tryCatch({
+    utils::unzip(zip_path, exdir = target_dir)
+    TRUE
+  }, error = function(e) {
+    msg("Unzip failed: ", e$message)
+    FALSE
+  })
+  if (!unzip_ok) {
+    return(invisible(list(ok = FALSE, reason = "unzip_failed")))
+  }
+
+  sysname <- Sys.info()[["sysname"]] %||% ""
+  exe_name <- if (identical(sysname, "Windows")) "chromedriver.exe" else "chromedriver"
+  driver_path <- file.path(target_dir, paste0("chromedriver-", platform), exe_name)
+  if (!file.exists(driver_path)) {
+    hits <- list.files(target_dir, pattern = paste0(exe_name, "$"), recursive = TRUE, full.names = TRUE)
+    if (length(hits) > 0) {
+      driver_path <- hits[1]
+    }
+  }
+  if (!file.exists(driver_path)) {
+    msg("chromedriver binary not found after unzip.")
+    return(invisible(list(ok = FALSE, reason = "binary_missing")))
+  }
+
+  if (!identical(sysname, "Windows")) {
+    try(Sys.chmod(driver_path, mode = "0755"), silent = TRUE)
+  }
+
+  Sys.setenv(ASA_CHROMEDRIVER_BIN = driver_path)
+  Sys.setenv(PATH = paste(dirname(driver_path), Sys.getenv("PATH"), sep = .Platform$path.sep))
+
+  msg("Installed chromedriver to: ", driver_path)
+  msg("Prepending chromedriver directory to PATH for this session.")
+  msg("To persist, add the path to PATH or set ASA_CHROMEDRIVER_BIN in .Renviron.")
+
+  invisible(list(
+    ok = TRUE,
+    chromedriver_path = driver_path,
+    chromedriver_version = selected$version,
+    platform = platform
   ))
 }
 
