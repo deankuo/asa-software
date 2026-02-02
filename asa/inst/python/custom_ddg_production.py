@@ -9,6 +9,7 @@
 import contextlib
 import logging
 import os
+import shutil
 import sqlite3
 import tempfile
 import threading
@@ -396,6 +397,8 @@ def _simulate_human_behavior(driver, cfg: SearchConfig = None) -> None:
         cfg: SearchConfig for timing parameters
     """
     cfg = cfg or _default_config
+    if not getattr(cfg, "humanize_timing", True):
+        return
 
     try:
         from selenium.webdriver.common.action_chains import ActionChains
@@ -472,6 +475,8 @@ def _simulate_reading(driver, num_results: int, cfg: SearchConfig = None) -> Non
         cfg: SearchConfig for timing parameters
     """
     cfg = cfg or _default_config
+    if not getattr(cfg, "humanize_timing", True):
+        return
 
     try:
         # Time spent "reading" scales with results but has variance
@@ -1729,6 +1734,25 @@ def _new_driver(
     Returns:
         WebDriver instance (UC Chrome, Firefox, or standard Chrome)
     """
+    # Selenium Manager writes metadata/drivers into a cache directory.
+    # In locked-down environments (containers, sandboxes, some CI runners),
+    # the default cache location can be non-writable and driver creation fails
+    # with messages like:
+    #   "Metadata cannot be written in cache (.../.cache/selenium): Operation not permitted"
+    #
+    # If SE_CACHE_PATH isn't explicitly set, validate the default and fall back
+    # to a temp dir cache when needed.
+    if not os.environ.get("SE_CACHE_PATH"):
+        default_cache = os.path.join(os.path.expanduser("~"), ".cache", "selenium")
+        try:
+            os.makedirs(default_cache, exist_ok=True)
+            if not os.access(default_cache, os.W_OK):
+                raise OSError(f"Selenium cache not writable: {default_cache}")
+        except OSError:
+            tmp_cache = os.path.join(tempfile.gettempdir(), "asa_selenium_cache")
+            os.makedirs(tmp_cache, exist_ok=True)
+            os.environ["SE_CACHE_PATH"] = tmp_cache
+
     # Temporarily clear proxies so Selenium-Manager/UC can download drivers
     # MEDIUM FIX: Use lock to make env var mutations thread-safe
     saved_env: Dict[str, str] = {}
@@ -1832,56 +1856,71 @@ def _new_driver(
         # ════════════════════════════════════════════════════════════════════
         # TIER 2: Firefox with stealth options
         # ════════════════════════════════════════════════════════════════════
+        firefox_bin = None
         try:
-            firefox_opts = FirefoxOptions()
-            if headless:
-                firefox_opts.add_argument("--headless")
-            firefox_opts.add_argument("--disable-gpu")
-            firefox_opts.add_argument("--no-sandbox")
-            firefox_opts.add_argument(f"--width={random_viewport[0]}")
-            firefox_opts.add_argument(f"--height={random_viewport[1]}")
+            firefox_bin = shutil.which("firefox") or shutil.which("firefox-bin")
+            if not firefox_bin and os.path.exists("/Applications/Firefox.app/Contents/MacOS/firefox"):
+                firefox_bin = "/Applications/Firefox.app/Contents/MacOS/firefox"
+        except Exception:
+            firefox_bin = None
 
-            # Firefox stealth preferences
-            firefox_opts.set_preference("general.useragent.override", random_ua)
-            firefox_opts.set_preference("intl.accept_languages", random_lang)
-            firefox_opts.set_preference("dom.webdriver.enabled", False)
-            firefox_opts.set_preference("useAutomationExtension", False)
-            firefox_opts.set_preference("privacy.trackingprotection.enabled", False)
-            firefox_opts.set_preference("network.http.sendRefererHeader", 2)
-            firefox_opts.set_preference("general.platform.override", "Win32")
-
-            # Disable telemetry and crash reporting
-            firefox_opts.set_preference("toolkit.telemetry.enabled", False)
-            firefox_opts.set_preference("datareporting.healthreport.uploadEnabled", False)
-            firefox_opts.set_preference("browser.crashReports.unsubmittedCheck.autoSubmit2", False)
-
-            if proxy and use_proxy_for_browser:
-                firefox_opts.set_preference("network.proxy.type", 1)
-                if "socks" in (proxy or "").lower():
-                    import re
-                    match = re.match(r"socks\d*h?://([^:]+):(\d+)", proxy)
-                    if match:
-                        firefox_opts.set_preference("network.proxy.socks", match.group(1))
-                        firefox_opts.set_preference("network.proxy.socks_port", int(match.group(2)))
-                        firefox_opts.set_preference("network.proxy.socks_remote_dns", True)
-
-            driver = webdriver.Firefox(options=firefox_opts)
-            logger.info("Using Firefox WebDriver (stealth mode)")
-
-            # Additional stealth via JavaScript
+        if firefox_bin:
             try:
-                driver.execute_script("""
-                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                    Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
-                    Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
-                """)
-            except Exception as e:
-                logger.debug("Firefox stealth script injection failed: %s", e)
+                firefox_opts = FirefoxOptions()
+                if headless:
+                    firefox_opts.add_argument("--headless")
+                firefox_opts.add_argument("--disable-gpu")
+                firefox_opts.add_argument("--no-sandbox")
+                firefox_opts.add_argument(f"--width={random_viewport[0]}")
+                firefox_opts.add_argument(f"--height={random_viewport[1]}")
+                try:
+                    firefox_opts.binary_location = firefox_bin
+                except Exception:
+                    pass
 
-            return driver
+                # Firefox stealth preferences
+                firefox_opts.set_preference("general.useragent.override", random_ua)
+                firefox_opts.set_preference("intl.accept_languages", random_lang)
+                firefox_opts.set_preference("dom.webdriver.enabled", False)
+                firefox_opts.set_preference("useAutomationExtension", False)
+                firefox_opts.set_preference("privacy.trackingprotection.enabled", False)
+                firefox_opts.set_preference("network.http.sendRefererHeader", 2)
+                firefox_opts.set_preference("general.platform.override", "Win32")
 
-        except WebDriverException as firefox_err:
-            logger.debug("Firefox unavailable (%s), trying standard Chrome", firefox_err)
+                # Disable telemetry and crash reporting
+                firefox_opts.set_preference("toolkit.telemetry.enabled", False)
+                firefox_opts.set_preference("datareporting.healthreport.uploadEnabled", False)
+                firefox_opts.set_preference("browser.crashReports.unsubmittedCheck.autoSubmit2", False)
+
+                if proxy and use_proxy_for_browser:
+                    firefox_opts.set_preference("network.proxy.type", 1)
+                    if "socks" in (proxy or "").lower():
+                        import re
+                        match = re.match(r"socks\d*h?://([^:]+):(\d+)", proxy)
+                        if match:
+                            firefox_opts.set_preference("network.proxy.socks", match.group(1))
+                            firefox_opts.set_preference("network.proxy.socks_port", int(match.group(2)))
+                            firefox_opts.set_preference("network.proxy.socks_remote_dns", True)
+
+                driver = webdriver.Firefox(options=firefox_opts)
+                logger.info("Using Firefox WebDriver (stealth mode)")
+
+                # Additional stealth via JavaScript
+                try:
+                    driver.execute_script("""
+                        Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                        Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+                        Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+                    """)
+                except Exception as e:
+                    logger.debug("Firefox stealth script injection failed: %s", e)
+
+                return driver
+
+            except Exception as firefox_err:
+                logger.debug("Firefox unavailable (%s), trying standard Chrome", firefox_err)
+        else:
+            logger.debug("Firefox binary not found, skipping Firefox tier")
 
         # ════════════════════════════════════════════════════════════════════
         # TIER 3: Standard Chrome with manual stealth (last resort)
@@ -1948,6 +1987,7 @@ def _browser_search(
     bypass_proxy_for_driver: bool,
     timeout: float = None,
     max_retries: int = None,
+    url_override: str | None = None,
     config: SearchConfig = None,
 ) -> List[Dict[str, str]]:
     cfg = config or _default_config
@@ -1982,7 +2022,9 @@ def _browser_search(
                 use_proxy_for_browser=use_proxy,
             )
             # Use html.duckduckgo.com which is the lite/HTML version
-            driver.get(f"https://html.duckduckgo.com/html/?q={quote(query)}")
+            # url_override exists for deterministic testing (e.g., file:// fixtures)
+            start_url = url_override or f"https://html.duckduckgo.com/html/?q={quote(query)}"
+            driver.get(start_url)
 
             # Wait a moment for page to load, then check for CAPTCHA
             # Use humanized timing for less predictable patterns
