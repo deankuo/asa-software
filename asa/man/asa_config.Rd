@@ -9,6 +9,7 @@ asa_config(
   model = NULL,
   conda_env = NULL,
   proxy = NA,
+  use_browser = NULL,
   workers = NULL,
   timeout = NULL,
   rate_limit = NULL,
@@ -31,6 +32,8 @@ asa_config(
 \item{proxy}{Proxy URL (e.g., Tor SOCKS5). Use \code{NA} (default) to
 auto-detect from environment variables (\code{ASA_PROXY}, \code{HTTP_PROXY},
 \code{HTTPS_PROXY}); use \code{NULL} to disable proxying.}
+
+\item{use_browser}{Enable Selenium browser tier for DuckDuckGo search.}
 
 \item{workers}{Number of parallel workers for batch operations}
 

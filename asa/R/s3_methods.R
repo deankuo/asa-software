@@ -15,6 +15,7 @@
 #' @param proxy Proxy URL (e.g., Tor SOCKS5). Use \code{NA} (default) to
 #'   auto-detect from environment variables (\code{ASA_PROXY}, \code{HTTP_PROXY},
 #'   \code{HTTPS_PROXY}); use \code{NULL} to disable proxying.
+#' @param use_browser Enable Selenium browser tier for DuckDuckGo search.
 #' @param workers Number of parallel workers for batch operations
 #' @param timeout Request timeout in seconds
 #' @param rate_limit Requests per second
@@ -53,6 +54,7 @@ asa_config <- function(backend = NULL,
                        model = NULL,
                        conda_env = NULL,
                        proxy = NA,
+                       use_browser = NULL,
                        workers = NULL,
                        timeout = NULL,
                        rate_limit = NULL,
@@ -70,6 +72,7 @@ asa_config <- function(backend = NULL,
   workers <- workers %||% .get_default_workers()
   timeout <- timeout %||% ASA_DEFAULT_TIMEOUT
   rate_limit <- rate_limit %||% ASA_DEFAULT_RATE_LIMIT
+  use_browser <- use_browser %||% ASA_DEFAULT_USE_BROWSER
   memory_folding <- memory_folding %||% ASA_DEFAULT_MEMORY_FOLDING
   memory_threshold <- memory_threshold %||% ASA_DEFAULT_MEMORY_THRESHOLD
   memory_keep_recent <- memory_keep_recent %||% ASA_DEFAULT_MEMORY_KEEP_RECENT
@@ -84,6 +87,7 @@ asa_config <- function(backend = NULL,
 
   # Validate proxy (NA = auto, NULL = disabled)
   .validate_proxy_url(proxy, "proxy")
+  .validate_logical(use_browser, "use_browser")
 
   # Validate temporal if provided
   if (!is.null(temporal) && !inherits(temporal, "asa_temporal")) {
@@ -122,6 +126,7 @@ asa_config <- function(backend = NULL,
       model = model,
       conda_env = conda_env,
       proxy = proxy,
+      use_browser = use_browser,
       workers = as.integer(workers),
       timeout = as.integer(timeout),
       rate_limit = rate_limit,
@@ -152,6 +157,7 @@ print.asa_config <- function(x, ...) {
   cat("Model:           ", x$model, "\n", sep = "")
   cat("Conda Env:       ", x$conda_env, "\n", sep = "")
   cat("Proxy:           ", .format_proxy(x$proxy), "\n", sep = "")
+  cat("Use Browser:     ", if (isTRUE(x$use_browser)) "Enabled" else "Disabled", "\n", sep = "")
   cat("Workers:         ", x$workers, "\n", sep = "")
   cat("Timeout:         ", x$timeout, "s\n", sep = "")
   cat("Rate Limit:      ", x$rate_limit, " req/s\n", sep = "")

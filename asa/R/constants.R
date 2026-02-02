@@ -257,6 +257,10 @@ ASA_RECURSION_LIMIT_STANDARD <- 20L
 # SEARCH DEFAULTS
 # ============================================================================
 
+#' Default Use Browser (Selenium Tier Enabled)
+#' @keywords internal
+ASA_DEFAULT_USE_BROWSER <- TRUE
+
 #' Default Max Search Results
 #' @keywords internal
 ASA_DEFAULT_MAX_RESULTS <- 10L

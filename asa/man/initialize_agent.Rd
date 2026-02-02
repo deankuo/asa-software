@@ -9,6 +9,7 @@ initialize_agent(
   model = NULL,
   conda_env = NULL,
   proxy = NA,
+  use_browser = ASA_DEFAULT_USE_BROWSER,
   use_memory_folding = ASA_DEFAULT_MEMORY_FOLDING,
   memory_threshold = ASA_DEFAULT_MEMORY_THRESHOLD,
   memory_keep_recent = ASA_DEFAULT_MEMORY_KEEP_RECENT,
@@ -31,6 +32,9 @@ Use \code{NA} (default) to auto-detect from environment variables
 Use \code{NULL} to disable proxying.
 Use \code{ASA_DEFAULT_PROXY} (or \code{"socks5h://127.0.0.1:9050"}) to route
 searches through Tor.}
+
+\item{use_browser}{Enable Selenium browser tier for DuckDuckGo search
+(default: TRUE). Set to FALSE to avoid Chromedriver requirements.}
 
 \item{use_memory_folding}{Enable DeepAgent-style memory compression (default: TRUE)}
 

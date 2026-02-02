@@ -99,10 +99,14 @@
 
   agent_folding <- agent$config$use_memory_folding %||% agent$config$memory_folding
 
+  agent_use_browser <- agent$config$use_browser %||% ASA_DEFAULT_USE_BROWSER
+  config_use_browser <- config$use_browser %||% ASA_DEFAULT_USE_BROWSER
+
   same_backend <- identical(agent$backend, config$backend)
   same_model <- identical(agent$model, config$model)
   same_conda <- identical(agent$config$conda_env, config$conda_env)
   same_proxy <- identical(agent$config$proxy, desired_proxy)
+  same_browser <- identical(agent_use_browser, config_use_browser)
   same_folding <- identical(agent_folding, config$memory_folding)
   same_threshold <- identical(agent$config$memory_threshold, config$memory_threshold)
   same_keep <- identical(agent$config$memory_keep_recent, config$memory_keep_recent)
@@ -110,7 +114,7 @@
   same_timeout <- identical(agent$config$timeout, config$timeout)
   same_tor <- identical(agent$config$tor, config$tor)
 
-  isTRUE(same_backend && same_model && same_conda && same_proxy &&
+  isTRUE(same_backend && same_model && same_conda && same_proxy && same_browser &&
            same_folding && same_threshold && same_keep &&
            same_rate && same_timeout && same_tor)
 }

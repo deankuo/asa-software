@@ -366,13 +366,15 @@
 #' Validate initialize_agent() Parameters
 #' @keywords internal
 .validate_initialize_agent <- function(backend, model, conda_env, proxy,
-                                        use_memory_folding, memory_threshold,
-                                        memory_keep_recent, rate_limit, timeout,
-                                        verbose, tor = NULL) {
+                                        use_browser, use_memory_folding,
+                                        memory_threshold, memory_keep_recent,
+                                        rate_limit, timeout, verbose,
+                                        tor = NULL) {
   # backend is validated by match.arg() in the calling function
   .validate_string(model, "model")
   .validate_conda_env(conda_env, "conda_env")
   .validate_proxy_url(proxy, "proxy")  # NULL is allowed
+  .validate_logical(use_browser, "use_browser")
   .validate_logical(use_memory_folding, "use_memory_folding")
   .validate_positive(memory_threshold, "memory_threshold", integer_only = TRUE)
   .validate_positive(memory_keep_recent, "memory_keep_recent", integer_only = TRUE)

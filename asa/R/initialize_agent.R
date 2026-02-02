@@ -13,6 +13,8 @@
 #'   Use \code{NULL} to disable proxying.
 #'   Use \code{ASA_DEFAULT_PROXY} (or \code{"socks5h://127.0.0.1:9050"}) to route
 #'   searches through Tor.
+#' @param use_browser Enable Selenium browser tier for DuckDuckGo search
+#'   (default: TRUE). Set to FALSE to avoid Chromedriver requirements.
 #' @param use_memory_folding Enable DeepAgent-style memory compression (default: TRUE)
 #' @param memory_threshold Number of messages before folding triggers (default: 4)
 #' @param memory_keep_recent Number of recent messages to preserve after folding (default: 2)
@@ -90,6 +92,7 @@ initialize_agent <- function(backend = NULL,
                              model = NULL,
                              conda_env = NULL,
                              proxy = NA,
+                             use_browser = ASA_DEFAULT_USE_BROWSER,
                              use_memory_folding = ASA_DEFAULT_MEMORY_FOLDING,
                              memory_threshold = ASA_DEFAULT_MEMORY_THRESHOLD,
                              memory_keep_recent = ASA_DEFAULT_MEMORY_KEEP_RECENT,
@@ -146,6 +149,7 @@ initialize_agent <- function(backend = NULL,
     model = model,
     conda_env = conda_env,
     proxy = proxy,
+    use_browser = use_browser,
     use_memory_folding = use_memory_folding,
     memory_threshold = memory_threshold,
     memory_keep_recent = memory_keep_recent,
@@ -247,7 +251,7 @@ initialize_agent <- function(backend = NULL,
 
   # Create search tools
   if (verbose) message("  Creating search tools...")
-  tools <- .create_tools(proxy)
+  tools <- .create_tools(proxy, use_browser = use_browser)
 
   # Create agent
   if (verbose) message("  Creating agent (memory_folding=", use_memory_folding, ")...")
@@ -271,6 +275,7 @@ initialize_agent <- function(backend = NULL,
     proxy = proxy,
     proxy_mode = proxy_mode,
     proxy_source = proxy_source,
+    use_browser = use_browser,
     rate_limit = rate_limit,
     timeout = timeout,
     use_memory_folding = use_memory_folding,
@@ -476,8 +481,9 @@ initialize_agent <- function(backend = NULL,
 
 #' Create Search Tools
 #' @param proxy Proxy URL or NULL
+#' @param use_browser Enable Selenium browser tier for DuckDuckGo search
 #' @keywords internal
-.create_tools <- function(proxy) {
+.create_tools <- function(proxy, use_browser = ASA_DEFAULT_USE_BROWSER) {
   # Wikipedia tool
   wiki <- asa_env$community_tools$WikipediaQueryRun(
     api_wrapper = asa_env$community_utils$WikipediaAPIWrapper(
@@ -496,7 +502,7 @@ initialize_agent <- function(backend = NULL,
     description = "DuckDuckGo web search",
     api_wrapper = asa_env$custom_ddg$PatchedDuckDuckGoSearchAPIWrapper(
       proxy = proxy,
-      use_browser = TRUE,
+      use_browser = isTRUE(use_browser),
       max_results = 10L,
       safesearch = "moderate",
       time = "none"
