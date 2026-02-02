@@ -293,7 +293,8 @@ def create_searcher_node(llm, tools, wikidata_tool=None, research_config: Resear
         # we can still run search->dedupe and let dedupe mark completion on the last step.
         remaining = state.get("remaining_steps")
         try:
-            if remaining is not None and int(remaining) <= 0:
+            # Buffer by 1 step to avoid attempting to route to a node we can't execute.
+            if remaining is not None and int(remaining) <= 1:
                 return {"status": "complete", "stop_reason": "recursion_limit"}
         except Exception:
             pass
@@ -578,7 +579,8 @@ def create_deduper_node():
         force_stop = False
         remaining = state.get("remaining_steps")
         try:
-            force_stop = (remaining is not None and int(remaining) <= 0)
+            # Buffer by 1 step to avoid routing to stopper when we can't execute it.
+            force_stop = (remaining is not None and int(remaining) <= 1)
         except Exception:
             force_stop = False
 
@@ -671,7 +673,7 @@ def create_stopper_node(config: ResearchConfig):
 
         # Stop before LangGraph raises GraphRecursionError.
         try:
-            if remaining is not None and int(remaining) <= 0:
+            if remaining is not None and int(remaining) <= 1:
                 return {"status": "complete", "stop_reason": "recursion_limit"}
         except Exception:
             pass
@@ -689,6 +691,14 @@ def should_continue(state: ResearchState) -> str:
     status = state.get("status", "")
     if status in ["complete", "failed"]:
         return "end"
+    # Stop before LangGraph raises GraphRecursionError. Use a small buffer to be
+    # robust across LangGraph versions / semantics for RemainingSteps.
+    remaining = state.get("remaining_steps")
+    try:
+        if remaining is not None and int(remaining) <= 1:
+            return "end"
+    except Exception:
+        pass
     if status == "searching":
         return "search"
     return "end"

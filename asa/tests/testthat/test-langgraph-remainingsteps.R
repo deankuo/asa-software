@@ -110,8 +110,8 @@ test_that("research graph stops with stop_reason='recursion_limit' (RemainingSte
 
   final_state <- NULL
   expect_silent({
-    # recursion_limit=3 ensures we reach the deduper with remaining_steps==0,
-    # where the graph should mark completion and END (instead of raising GraphRecursionError).
+    # With a very small recursion_limit, the graph should stop gracefully using
+    # RemainingSteps (instead of raising GraphRecursionError).
     final_state <- graph$invoke(
       initial_state,
       config = list(recursion_limit = as.integer(3))
