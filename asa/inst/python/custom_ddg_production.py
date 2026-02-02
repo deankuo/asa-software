@@ -2822,6 +2822,7 @@ BrowserDuckDuckGoSearchRun = PatchedDuckDuckGoSearchRun
 
 from typing import Annotated, TypedDict, Sequence
 from operator import add as operator_add
+from langgraph.managed import RemainingSteps
 
 def _add_messages(left: list, right: list) -> list:
     """Reducer for messages that handles RemoveMessage objects."""
@@ -2852,10 +2853,12 @@ class MemoryFoldingAgentState(TypedDict):
         messages: Working memory - recent messages in the conversation
         summary: Long-term memory - compressed summary of older interactions
         fold_count: Number of times memory has been folded (for debugging)
+        remaining_steps: Managed value populated by LangGraph (steps left before recursion_limit)
     """
     messages: Annotated[list, _add_messages]
     summary: str
     fold_count: int
+    remaining_steps: RemainingSteps
 
 
 def create_memory_folding_agent(
@@ -2901,6 +2904,23 @@ def create_memory_folding_agent(
     from langgraph.prebuilt import ToolNode
     tool_node = ToolNode(tools)
 
+    # When we are close to the recursion limit, force a best-effort final answer
+    # instead of taking more tool/agent steps that could trigger GraphRecursionError.
+    # remaining_steps is how many node executions are left *after* the current node.
+    # When it's 1, we only have budget for a single node (finalize) before END.
+    FINALIZE_WHEN_REMAINING_STEPS_LTE = 1
+
+    def _remaining_steps(state: MemoryFoldingAgentState):
+        val = state.get("remaining_steps")
+        try:
+            return int(val) if val is not None else None
+        except Exception:
+            return None
+
+    def _should_force_finalize(state: MemoryFoldingAgentState) -> bool:
+        rem = _remaining_steps(state)
+        return rem is not None and rem <= FINALIZE_WHEN_REMAINING_STEPS_LTE
+
     def _get_system_prompt(summary: str) -> str:
         """Generate system prompt that includes folded memory context."""
         base_prompt = (
@@ -2917,22 +2937,60 @@ def create_memory_folding_agent(
             )
         return base_prompt
 
+    def _get_final_system_prompt(summary: str, remaining: int = None) -> str:
+        """System prompt used when we're about to hit the recursion limit."""
+        base_prompt = (
+            "You are a helpful research assistant.\n"
+            "You MUST NOT call any tools now.\n"
+            "You are at the end of the agent's step budget; provide the best possible final answer "
+            "based on the conversation and any tool outputs already present.\n"
+            "If information is missing, state assumptions and what you would do next."
+        )
+        if remaining is not None:
+            base_prompt = f"{base_prompt}\n(remaining_steps={remaining})"
+        if summary:
+            return (
+                f"{base_prompt}\n\n"
+                f"=== LONG-TERM MEMORY (Summary of previous interactions) ===\n"
+                f"{summary}\n"
+                f"=== END LONG-TERM MEMORY ===\n"
+            )
+        return base_prompt
+
     def agent_node(state: MemoryFoldingAgentState) -> dict:
         """The main agent reasoning node."""
         messages = state.get("messages", [])
         summary = state.get("summary", "")
 
-        # Prepend system message with summary context
-        system_msg = SystemMessage(content=_get_system_prompt(summary))
-        full_messages = [system_msg] + list(messages)
-
         if debug:
             logger.info(f"Agent node: {len(messages)} messages, summary={bool(summary)}")
 
-        # Invoke the model
-        response = model_with_tools.invoke(full_messages)
+        remaining = _remaining_steps(state)
+        # If there are no steps left after this node, we must not emit tool_calls
+        # (we wouldn't have budget to execute them).
+        if remaining is not None and remaining <= 0:
+            system_msg = SystemMessage(content=_get_final_system_prompt(summary, remaining=remaining))
+            full_messages = [system_msg] + list(messages)
+            response = model.invoke(full_messages)
+        else:
+            # Prepend system message with summary context
+            system_msg = SystemMessage(content=_get_system_prompt(summary))
+            full_messages = [system_msg] + list(messages)
+            response = model_with_tools.invoke(full_messages)
 
         return {"messages": [response]}
+
+    def finalize_answer(state: MemoryFoldingAgentState) -> dict:
+        """Best-effort final answer when we're near the recursion limit."""
+        messages = state.get("messages", [])
+        summary = state.get("summary", "")
+        remaining = _remaining_steps(state)
+
+        system_msg = SystemMessage(content=_get_final_system_prompt(summary, remaining=remaining))
+        full_messages = [system_msg] + list(messages)
+        response = model.invoke(full_messages)
+
+        return {"messages": [response], "stop_reason": "recursion_limit"}
 
     def summarize_conversation(state: MemoryFoldingAgentState) -> dict:
         """
@@ -3051,10 +3109,22 @@ def create_memory_folding_agent(
         if not messages:
             return "end"
 
+        remaining = _remaining_steps(state)
+        # If there are no steps left after this node, we can't safely run any other node.
+        if remaining is not None and remaining <= 0:
+            return "end"
+
         last_message = messages[-1]
+        last_type = type(last_message).__name__
 
         # Check if agent wants to use tools - if so, DON'T fold yet
         tool_calls = getattr(last_message, 'tool_calls', None)
+        if _should_force_finalize(state):
+            # If the last message indicates pending tool work, cut it off and finalize.
+            if tool_calls or last_type == "ToolMessage":
+                return "finalize"
+            # Otherwise we already have an answer; don't spend steps folding.
+            return "end"
         if tool_calls:
             return "tools"
 
@@ -3075,6 +3145,11 @@ def create_memory_folding_agent(
         - 'agent': Otherwise continue the normal loop
         """
         messages = state.get("messages", [])
+        remaining = _remaining_steps(state)
+        if remaining is not None and remaining <= 0:
+            return "end"
+        if _should_force_finalize(state):
+            return "finalize"
         if len(messages) > message_threshold:
             if debug:
                 logger.info(
@@ -3095,9 +3170,17 @@ def create_memory_folding_agent(
         if not messages:
             return "end"
 
+        remaining = _remaining_steps(state)
+        if remaining is not None and remaining <= 0:
+            return "end"
+
         last_message = messages[-1]
         last_type = type(last_message).__name__
         tool_calls = getattr(last_message, "tool_calls", None)
+        if _should_force_finalize(state):
+            if last_type == "ToolMessage" or tool_calls:
+                return "finalize"
+            return "end"
 
         # If the last message was a tool response or an AI turn requesting tools,
         # we need another agent step to continue the chain.
@@ -3114,6 +3197,7 @@ def create_memory_folding_agent(
     workflow.add_node("agent", agent_node)
     workflow.add_node("tools", tool_node)
     workflow.add_node("summarize", summarize_conversation)
+    workflow.add_node("finalize", finalize_answer)
 
     # Set entry point
     workflow.set_entry_point("agent")
@@ -3125,6 +3209,7 @@ def create_memory_folding_agent(
         {
             "tools": "tools",
             "summarize": "summarize",
+            "finalize": "finalize",
             "end": END
         }
     )
@@ -3136,6 +3221,8 @@ def create_memory_folding_agent(
         {
             "summarize": "summarize",
             "agent": "agent",
+            "finalize": "finalize",
+            "end": END,
         },
     )
 
@@ -3145,9 +3232,12 @@ def create_memory_folding_agent(
         after_summarize,
         {
             "agent": "agent",
+            "finalize": "finalize",
             "end": END,
         },
     )
+
+    workflow.add_edge("finalize", END)
 
     # Compile with optional checkpointer and return
     return workflow.compile(checkpointer=checkpointer)

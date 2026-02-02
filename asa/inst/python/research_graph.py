@@ -20,6 +20,7 @@ from langchain_core.messages import (
 )
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
+from langgraph.managed import RemainingSteps
 from langgraph.prebuilt import ToolNode
 
 from state_utils import add_to_list, merge_dicts, parse_llm_json
@@ -101,6 +102,7 @@ class ResearchState(TypedDict):
     status: str  # "planning", "searching", "complete", "failed"
     stop_reason: Optional[str]
     errors: Annotated[List[Dict], add_to_list]
+    remaining_steps: RemainingSteps
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -287,6 +289,15 @@ def create_searcher_node(llm, tools, wikidata_tool=None, research_config: Resear
 
     def searcher_node(state: ResearchState) -> Dict:
         """Execute search based on plan."""
+        # If this is the last allowed step, stop before doing any more work. Otherwise
+        # we can still run search->dedupe and let dedupe mark completion on the last step.
+        remaining = state.get("remaining_steps")
+        try:
+            if remaining is not None and int(remaining) <= 0:
+                return {"status": "complete", "stop_reason": "recursion_limit"}
+        except Exception:
+            pass
+
         wikidata_type = state.get("wikidata_type")
         query = state.get("query", "")
         schema = state.get("schema", {})
@@ -563,6 +574,14 @@ def create_deduper_node():
 
     def deduper_node(state: ResearchState) -> Dict:
         """Deduplicate results."""
+        # If this is the last allowed step, still dedupe, but mark complete so the graph can END.
+        force_stop = False
+        remaining = state.get("remaining_steps")
+        try:
+            force_stop = (remaining is not None and int(remaining) <= 0)
+        except Exception:
+            force_stop = False
+
         results = state.get("new_results")
         if results is None:
             results = state.get("results", [])
@@ -595,12 +614,16 @@ def create_deduper_node():
         total_unique = len(seen_hashes) + len(new_hashes)
         novelty_rate = len(new_hashes) / max(1, total_unique)
 
-        return {
+        out = {
             "results": unique_results,
             "seen_hashes": new_hashes,
             "novelty_history": [novelty_rate],
             "new_results": []
         }
+        if force_stop:
+            out["status"] = "complete"
+            out["stop_reason"] = "recursion_limit"
+        return out
 
     return deduper_node
 
@@ -613,6 +636,8 @@ def create_stopper_node(config: ResearchConfig):
 
     def stopper_node(state: ResearchState) -> Dict:
         """Evaluate if we should stop."""
+        remaining = state.get("remaining_steps")
+
         round_num = state.get("round_number", 0)
         queries = state.get("queries_used", 0)
         tokens = state.get("tokens_used", 0)
@@ -643,6 +668,13 @@ def create_stopper_node(config: ResearchConfig):
                 recent = novelty_history[-config.plateau_rounds:]
                 if all(rate < config.novelty_min for rate in recent):
                     return {"status": "complete", "stop_reason": "novelty_plateau"}
+
+        # Stop before LangGraph raises GraphRecursionError.
+        try:
+            if remaining is not None and int(remaining) <= 0:
+                return {"status": "complete", "stop_reason": "recursion_limit"}
+        except Exception:
+            pass
 
         return {"status": "searching"}
 
@@ -694,8 +726,16 @@ def create_research_graph(
         lambda s: "end" if s.get("status") == "failed" else "search",
         {"search": "searcher", "end": END}
     )
-    workflow.add_edge("searcher", "deduper")
-    workflow.add_edge("deduper", "stopper")
+    workflow.add_conditional_edges(
+        "searcher",
+        lambda s: "end" if s.get("status") in ["complete", "failed"] else "dedupe",
+        {"dedupe": "deduper", "end": END}
+    )
+    workflow.add_conditional_edges(
+        "deduper",
+        lambda s: "end" if s.get("status") in ["complete", "failed"] else "stopper",
+        {"stopper": "stopper", "end": END}
+    )
     workflow.add_conditional_edges(
         "stopper",
         should_continue,
