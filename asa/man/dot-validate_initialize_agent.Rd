@@ -9,6 +9,7 @@
   model,
   conda_env,
   proxy,
+  use_browser,
   use_memory_folding,
   memory_threshold,
   memory_keep_recent,

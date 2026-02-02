@@ -9,7 +9,9 @@ build_backend(
   conda = "auto",
   python_version = "3.11",
   force = FALSE,
-  check_browser = TRUE
+  check_browser = TRUE,
+  fix_browser = FALSE,
+  chromedriver_dir = NULL
 )
 }
 \arguments{
@@ -25,6 +27,13 @@ option \code{asa.default_conda_env} (or \code{"asa_env"} if unset).}
 \item{check_browser}{If TRUE, performs a best-effort check for a system Chrome/Chromium
 binary and `chromedriver`, warning when major versions are incompatible. Set to
 FALSE to skip this check.}
+
+\item{fix_browser}{If TRUE and `check_browser = TRUE`, attempt to download a
+matching chromedriver for the detected Chrome version and prepend it to `PATH`
+for the current R session. The driver is stored under `chromedriver_dir`.}
+
+\item{chromedriver_dir}{Optional directory to store downloaded chromedriver
+binaries. Defaults to `~/.asa/chromedriver` when `fix_browser = TRUE`.}
 }
 \value{
 Invisibly returns NULL; called for side effects.

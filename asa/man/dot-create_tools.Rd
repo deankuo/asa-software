@@ -4,10 +4,12 @@
 \alias{.create_tools}
 \title{Create Search Tools}
 \usage{
-.create_tools(proxy)
+.create_tools(proxy, use_browser = ASA_DEFAULT_USE_BROWSER)
 }
 \arguments{
 \item{proxy}{Proxy URL or NULL}
+
+\item{use_browser}{Enable Selenium browser tier for DuckDuckGo search}
 }
 \description{
 Create Search Tools
