@@ -165,7 +165,7 @@ test_that("standard agent reaches recursion_limit and preserves JSON output (Gem
     gemini_model <- Sys.getenv("ASA_GEMINI_MODEL", unset = "")
   }
   if (!nzchar(gemini_model)) {
-    gemini_model <- "gemini-1.5-flash"
+    gemini_model <- asa:::ASA_DEFAULT_GEMINI_MODEL
   }
 
   llm <- chat_models$ChatGoogleGenerativeAI(
