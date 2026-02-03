@@ -3133,11 +3133,8 @@ def create_memory_folding_agent(
         # Check if agent wants to use tools - if so, DON'T fold yet
         tool_calls = getattr(last_message, 'tool_calls', None)
         if _should_force_finalize(state):
-            # If the last message indicates pending tool work, cut it off and finalize.
-            if tool_calls or last_type == "ToolMessage":
-                return "finalize"
-            # Otherwise we already have an answer; don't spend steps folding.
-            return "end"
+            # Always route through finalize to ensure stop_reason is set
+            return "finalize"
         if tool_calls:
             return "tools"
 
@@ -3340,9 +3337,8 @@ def create_standard_agent(
         tool_calls = getattr(last_message, "tool_calls", None)
 
         if _should_force_finalize(state):
-            if tool_calls or last_type == "ToolMessage":
-                return "finalize"
-            return "end"
+            # Always route through finalize to ensure stop_reason is set
+            return "finalize"
 
         if tool_calls:
             return "tools"
