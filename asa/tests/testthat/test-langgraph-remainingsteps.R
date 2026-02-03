@@ -166,24 +166,28 @@ test_that("best-effort recursion_limit output populates required JSON fields (st
     debug = FALSE
   )
 
-  prompt <- paste0(
-    "Produce ONLY valid JSON with this exact schema:\n",
-    "{\n",
-    "  \"status\": \"complete\"|\"partial\",\n",
-    "  \"items\": [\n",
-    "    {\"name\": string, \"birth_year\": integer, \"field\": string, \"key_contribution\": string|null}\n",
-    "  ],\n",
-    "  \"missing\": [string],\n",
-    "  \"notes\": string\n",
-    "}\n"
+  expected_schema <- list(
+    status = "complete|partial",
+    items = list(list(
+      name = "string",
+      birth_year = "integer",
+      field = "string",
+      key_contribution = "string|null"
+    )),
+    missing = list("string"),
+    notes = "string"
   )
 
   final_state <- agent$invoke(
-    list(messages = list(list(role = "user", content = prompt))),
+    list(
+      messages = list(list(role = "user", content = "Return JSON only.")),
+      expected_schema = expected_schema
+    ),
     config = list(recursion_limit = as.integer(3))
   )
 
   expect_equal(final_state$stop_reason, "recursion_limit")
+  expect_equal(final_state$expected_schema_source, "explicit")
 
   response_text <- asa:::.extract_response_text(final_state, backend = "gemini")
   parsed <- jsonlite::fromJSON(response_text)
@@ -194,6 +198,118 @@ test_that("best-effort recursion_limit output populates required JSON fields (st
   if (is.data.frame(parsed$items)) {
     expect_true(all(c("name", "birth_year", "field", "key_contribution") %in% names(parsed$items)))
   }
+
+  # Observability: repair metadata recorded when keys were missing.
+  expect_true(is.list(final_state$json_repair))
+  expect_true(length(final_state$json_repair) >= 1)
+})
+
+test_that("JSON repair populates nested required keys (explicit schema)", {
+  python_path <- .skip_if_no_python_langgraph()
+  .skip_if_missing_python_modules_langgraph(c(
+    "langchain_core",
+    "langgraph",
+    "langgraph.prebuilt",
+    "pydantic",
+    "requests"
+  ))
+
+  custom_ddg <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+
+  reticulate::py_run_string(paste0(
+    "class _StubResponse:\n",
+    "    def __init__(self, content):\n",
+    "        self.content = content\n",
+    "        self.tool_calls = None\n",
+    "\n",
+    "class _StubLLM:\n",
+    "    def bind_tools(self, tools):\n",
+    "        return self\n",
+    "    def invoke(self, messages):\n",
+    "        # Missing: meta, and nested meta.counts.total; items[0].info.birth_year.\n",
+    "        return _StubResponse('{\"status\":\"partial\",\"items\":[{\"name\":\"Ada\"}]}')\n",
+    "\n",
+    "stub_llm = _StubLLM()\n"
+  ))
+
+  agent <- custom_ddg$create_standard_agent(
+    model = reticulate::py$stub_llm,
+    tools = list(),
+    checkpointer = NULL,
+    debug = FALSE
+  )
+
+  expected_schema <- list(
+    status = "complete|partial",
+    meta = list(
+      source = "string",
+      counts = list(total = "integer")
+    ),
+    items = list(list(
+      name = "string",
+      info = list(birth_year = "integer")
+    ))
+  )
+
+  final_state <- agent$invoke(
+    list(
+      messages = list(list(role = "user", content = "Return JSON only.")),
+      expected_schema = expected_schema
+    ),
+    config = list(recursion_limit = as.integer(3))
+  )
+
+  response_text <- asa:::.extract_response_text(final_state, backend = "gemini")
+  parsed <- jsonlite::fromJSON(response_text)
+
+  expect_true(is.list(parsed))
+  expect_true(all(c("status", "meta", "items") %in% names(parsed)))
+  expect_true(is.list(parsed$meta))
+  expect_true(all(c("source", "counts") %in% names(parsed$meta)))
+  expect_true(all(c("total") %in% names(parsed$meta$counts)))
+
+  # Items element can be parsed as data.frame by jsonlite.
+  if (is.data.frame(parsed$items)) {
+    expect_true("name" %in% names(parsed$items))
+    expect_true(any(c("info", "info.birth_year") %in% names(parsed$items)))
+    if ("info" %in% names(parsed$items)) {
+      if (is.data.frame(parsed$items$info)) {
+        expect_true("birth_year" %in% names(parsed$items$info))
+      } else {
+        expect_true(is.list(parsed$items$info[[1]]))
+        expect_true(all("birth_year" %in% names(parsed$items$info[[1]])))
+      }
+    } else {
+      expect_true("info.birth_year" %in% names(parsed$items))
+    }
+  } else if (is.list(parsed$items) && length(parsed$items) >= 1) {
+    expect_true(all(c("name", "info") %in% names(parsed$items[[1]])))
+    expect_true(all("birth_year" %in% names(parsed$items[[1]]$info)))
+  }
+})
+
+test_that("repair_json_output_to_schema is idempotent", {
+  python_path <- .skip_if_no_python_langgraph()
+  .skip_if_missing_python_modules_langgraph(c("pydantic"))
+
+  utils <- reticulate::import_from_path("state_utils", path = python_path)
+
+  schema <- list(
+    status = "complete|partial",
+    items = list(list(
+      name = "string",
+      birth_year = "integer"
+    )),
+    notes = "string"
+  )
+
+  out1 <- utils$repair_json_output_to_schema(
+    "{\"status\":\"partial\",\"items\":[{\"name\":\"Ada\"}]}",
+    schema,
+    fallback_on_failure = TRUE
+  )
+  out2 <- utils$repair_json_output_to_schema(out1, schema, fallback_on_failure = TRUE)
+  expect_equal(out2, out1)
 })
 
 test_that("standard agent reaches recursion_limit and preserves JSON output (Gemini, best-effort)", {

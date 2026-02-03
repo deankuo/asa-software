@@ -519,6 +519,65 @@ def _default_leaf_value(descriptor: Any, key: Optional[str] = None) -> Any:
     return None
 
 
+def list_missing_required_keys(data: Any, schema: Any, *, max_items: int = 1000) -> List[str]:
+    """List missing required keys (and required nesting) for a schema tree.
+
+    Returns dotted paths like "items[0].name". Caps output length via max_items.
+    """
+    missing: List[str] = []
+
+    def add(path: str) -> None:
+        if len(missing) >= max_items:
+            return
+        missing.append(path)
+
+    def walk(value: Any, sch: Any, prefix: str) -> None:
+        if len(missing) >= max_items:
+            return
+
+        if isinstance(sch, dict):
+            if not isinstance(value, dict):
+                add(prefix.rstrip(".") or "$")
+                return
+            for k, child in sch.items():
+                path = f"{prefix}{k}"
+                if k not in value:
+                    add(path)
+                    continue
+                v = value.get(k)
+                if isinstance(child, dict):
+                    if not isinstance(v, dict):
+                        add(path)
+                        continue
+                    walk(v, child, path + ".")
+                elif isinstance(child, list):
+                    if not isinstance(v, list):
+                        add(path)
+                        continue
+                    walk(v, child, path)
+                else:
+                    # Leaf: key exists -> ok
+                    continue
+            return
+
+        if isinstance(sch, list):
+            if not isinstance(value, list):
+                add(prefix or "$")
+                return
+            elem_schema = sch[0] if sch else None
+            if elem_schema is None:
+                return
+            for i, item in enumerate(value):
+                walk(item, elem_schema, f"{prefix}[{i}].")
+            return
+
+        # Leaf: nothing to validate at this level
+        return
+
+    walk(data, schema, "")
+    return missing
+
+
 def populate_required_fields(data: Any, schema: Any) -> Any:
     """Populate missing keys in parsed JSON according to a schema tree.
 
