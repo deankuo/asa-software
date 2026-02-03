@@ -158,13 +158,6 @@
   response_text <- tryCatch({
     messages <- raw_response$messages
     if (length(messages) > 0) {
-      last_message <- messages[[length(messages)]]
-
-      # Prefer text when available; fall back to content for LangChain messages.
-      text <- tryCatch(last_message$text, error = function(e) NULL)
-      if (is.null(text) || length(text) == 0) {
-        text <- tryCatch(last_message$content, error = function(e) NULL)
-      }
 
       extract_text_blocks <- function(value) {
         if (is.null(value) || length(value) == 0) {
@@ -203,14 +196,47 @@
         tryCatch(as.character(value), error = function(e) character(0))
       }
 
-      if (is.null(text) || length(text) == 0) {
+      # Helper to check if a message is an AIMessage
+      is_ai_message <- function(msg) {
+        msg_type <- tryCatch(as.character(msg$`__class__`$`__name__`), error = function(e) "")
+        msg_type == "AIMessage"
+      }
+
+      # Helper to extract content from a message
+      get_message_content <- function(msg) {
+        text <- tryCatch(msg$text, error = function(e) NULL)
+        if (is.null(text) || length(text) == 0) {
+          text <- tryCatch(msg$content, error = function(e) NULL)
+        }
+        text
+      }
+
+      # Try extracting from last message first
+      last_message <- messages[[length(messages)]]
+      text <- get_message_content(last_message)
+      text_parts <- extract_text_blocks(text)
+
+      # If last message has no content, search backwards for last AIMessage with content
+      if (length(text_parts) == 0) {
+        for (i in rev(seq_along(messages))) {
+          msg <- messages[[i]]
+          if (is_ai_message(msg)) {
+            text <- get_message_content(msg)
+            text_parts <- extract_text_blocks(text)
+            if (length(text_parts) > 0) break
+          }
+        }
+      }
+
+      # If still no content, return a meaningful message based on stop_reason
+      if (length(text_parts) == 0) {
+        stop_reason <- tryCatch(raw_response$stop_reason, error = function(e) NULL)
+        if (!is.null(stop_reason) && stop_reason == "recursion_limit") {
+          return("[Agent reached step limit before completing task. Increase recursion_limit or simplify the task.]")
+        }
         return(NA_character_)
       }
 
-      text_parts <- extract_text_blocks(text)
-      if (length(text_parts) == 0) {
-        return(NA_character_)
-      }
       text <- paste(text_parts, collapse = "\n")
       if (is.na(text) || !nzchar(text)) {
         return(NA_character_)

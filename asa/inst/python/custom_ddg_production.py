@@ -3119,9 +3119,9 @@ def create_memory_folding_agent(
             return "end"
 
         remaining = _remaining_steps(state)
-        # If there are no steps left after this node, we can't safely run any other node.
+        # If there are no steps left after this node, force finalization to produce valid output.
         if remaining is not None and remaining <= 0:
-            return "end"
+            return "finalize"
 
         last_message = messages[-1]
         last_type = type(last_message).__name__
@@ -3156,7 +3156,7 @@ def create_memory_folding_agent(
         messages = state.get("messages", [])
         remaining = _remaining_steps(state)
         if remaining is not None and remaining <= 0:
-            return "end"
+            return "finalize"
         if _should_force_finalize(state):
             return "finalize"
         if len(messages) > message_threshold:
@@ -3181,7 +3181,7 @@ def create_memory_folding_agent(
 
         remaining = _remaining_steps(state)
         if remaining is not None and remaining <= 0:
-            return "end"
+            return "finalize"
 
         last_message = messages[-1]
         last_type = type(last_message).__name__
@@ -3325,7 +3325,7 @@ def create_standard_agent(
 
         remaining = _remaining_steps(state)
         if remaining is not None and remaining <= 0:
-            return "end"
+            return "finalize"
 
         last_message = messages[-1]
         last_type = type(last_message).__name__
@@ -3343,7 +3343,7 @@ def create_standard_agent(
     def after_tools(state: StandardAgentState) -> str:
         remaining = _remaining_steps(state)
         if remaining is not None and remaining <= 0:
-            return "end"
+            return "finalize"
         if _should_force_finalize(state):
             return "finalize"
         return "agent"
