@@ -2899,6 +2899,7 @@ class MemoryFoldingAgentState(TypedDict):
     messages: Annotated[list, _add_messages]
     summary: str
     fold_count: int
+    stop_reason: Optional[str]
     remaining_steps: RemainingSteps
 
 
@@ -2987,7 +2988,10 @@ def create_memory_folding_agent(
                     full_messages = [system_msg] + list(messages)
                     response = model.invoke(full_messages)
 
-        return {"messages": [response]}
+        out = {"messages": [response]}
+        if remaining is not None and remaining <= FINALIZE_WHEN_REMAINING_STEPS_LTE:
+            out["stop_reason"] = "recursion_limit"
+        return out
 
     def finalize_answer(state: MemoryFoldingAgentState) -> dict:
         """Best-effort final answer when we're near the recursion limit."""
@@ -3255,6 +3259,7 @@ def create_memory_folding_agent(
 class StandardAgentState(TypedDict):
     """State schema for standard ReAct-style agent."""
     messages: Annotated[list, _add_messages]
+    stop_reason: Optional[str]
     remaining_steps: RemainingSteps
 
 
@@ -3308,7 +3313,10 @@ def create_standard_agent(
                     full_messages = [system_msg] + list(messages)
                     response = model.invoke(full_messages)
 
-        return {"messages": [response]}
+        out = {"messages": [response]}
+        if remaining is not None and remaining <= FINALIZE_WHEN_REMAINING_STEPS_LTE:
+            out["stop_reason"] = "recursion_limit"
+        return out
 
     def finalize_answer(state: StandardAgentState) -> dict:
         messages = state.get("messages", [])
