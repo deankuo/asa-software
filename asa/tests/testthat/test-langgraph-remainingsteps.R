@@ -1,15 +1,32 @@
 # Tests for RemainingSteps-based recursion_limit handling in LangGraph graphs.
 
 .get_python_path_langgraph <- function() {
-  python_path <- system.file("python", package = "asa")
-  if (python_path == "" || !dir.exists(python_path)) {
-    # Development path fallback
-    python_path <- file.path(getwd(), "inst/python")
-    if (!dir.exists(python_path)) {
-      python_path <- file.path(dirname(getwd()), "asa/inst/python")
+  candidates <- c(
+    # Most common dev/test entrypoints:
+    file.path(getwd(), "inst", "python"),
+    file.path(getwd(), "asa", "inst", "python"),
+    file.path(getwd(), "..", "inst", "python"),
+    file.path(getwd(), "..", "..", "inst", "python"),
+    # Installed package path:
+    system.file("python", package = "asa")
+  )
+
+  candidates <- unique(normalizePath(candidates, winslash = "/", mustWork = FALSE))
+  candidates <- candidates[nzchar(candidates)]
+
+  for (path in candidates) {
+    if (dir.exists(path) && file.exists(file.path(path, "custom_ddg_production.py"))) {
+      return(path)
     }
   }
-  python_path
+
+  for (path in candidates) {
+    if (dir.exists(path)) {
+      return(path)
+    }
+  }
+
+  ""
 }
 
 .skip_if_no_python_langgraph <- function() {
@@ -515,4 +532,33 @@ test_that("run_task passes expected_schema into LangGraph state (explicit schema
 
   expect_true(is.list(result$raw_response$json_repair))
   expect_true(length(result$raw_response$json_repair) >= 1)
+})
+
+test_that("message reducer assigns ids so memory folding can remove messages", {
+  python_path <- .skip_if_no_python_langgraph()
+  .skip_if_missing_python_modules_langgraph(c(
+    "langchain_core",
+    "pydantic"
+  ))
+
+  custom_ddg <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  msgs <- reticulate::import("langchain_core.messages", convert = TRUE)
+
+  human <- msgs$HumanMessage(content = "hi")
+  ai <- msgs$AIMessage(content = "ok")
+
+  out <- custom_ddg$`_add_messages`(list(human), list(ai))
+  expect_true(is.list(out))
+  expect_equal(length(out), 2L)
+
+  id1 <- out[[1]]$id
+  id2 <- out[[2]]$id
+  expect_true(is.character(id1) && length(id1) == 1 && nzchar(id1))
+  expect_true(is.character(id2) && length(id2) == 1 && nzchar(id2))
+
+  rm1 <- msgs$RemoveMessage(id = id1)
+  out2 <- custom_ddg$`_add_messages`(out, list(rm1))
+  expect_true(is.list(out2))
+  expect_equal(length(out2), 1L)
+  expect_equal(out2[[1]]$id, id2)
 })

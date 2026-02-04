@@ -18,6 +18,7 @@ import tempfile
 import threading
 import traceback
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import quote, urlencode
@@ -3110,15 +3111,54 @@ def _add_messages(left: list, right: list) -> list:
     try:
         from langchain_core.messages import RemoveMessage
 
-        # Start with a copy of left messages
+        def _get_id(m):
+            if isinstance(m, dict):
+                return m.get("id")
+            return getattr(m, "id", None)
+
+        def _ensure_id(m):
+            mid = _get_id(m)
+            if mid is not None and (not isinstance(mid, str) or mid.strip() != ""):
+                return m
+
+            new_id = uuid.uuid4().hex
+
+            if isinstance(m, dict):
+                m["id"] = new_id
+                return m
+
+            # Prefer mutation when possible to preserve object identity.
+            try:
+                setattr(m, "id", new_id)
+                return m
+            except Exception:
+                pass
+
+            # Fall back to creating a copied message with an id field.
+            try:
+                if hasattr(m, "model_copy"):
+                    return m.model_copy(update={"id": new_id})
+                if hasattr(m, "copy"):
+                    return m.copy(update={"id": new_id})
+            except Exception:
+                pass
+
+            return m
+
+        # Start with a copy of left messages and ensure they all have ids.
         result = list(left) if left else []
+        for i in range(len(result)):
+            result[i] = _ensure_id(result[i])
 
         for msg in (right or []):
             if isinstance(msg, RemoveMessage):
-                # Remove message by ID
-                result = [m for m in result if getattr(m, 'id', None) != msg.id]
+                # Remove message by ID (supports both message objects and dicts).
+                remove_id = getattr(msg, "id", None)
+                if remove_id is None:
+                    continue
+                result = [m for m in result if _get_id(m) != remove_id]
             else:
-                result.append(msg)
+                result.append(_ensure_id(msg))
         return result
     except Exception:
         # Fallback: simple concatenation

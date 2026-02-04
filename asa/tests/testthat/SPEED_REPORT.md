@@ -24,4 +24,3 @@ Baselines were established on Dec 19, 2024. Tests fail if current time exceeds
 | helper_funcs | 0.07s | 10 iterations x 100 calls x 5 functions |
 | combined | 0.09s | 10 iterations of mixed workload |
 | agent_search | 18s | 1 search task (API + network latency) |
-
