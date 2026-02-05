@@ -17,7 +17,9 @@
 #'   (default: TRUE). Set to FALSE to avoid Chromedriver requirements.
 #' @param use_memory_folding Enable DeepAgent-style memory compression (default: TRUE)
 #' @param memory_threshold Number of messages before folding triggers (default: 4)
-#' @param memory_keep_recent Number of recent messages to preserve after folding (default: 2)
+#' @param memory_keep_recent Number of recent exchanges to preserve after folding
+#'   (default: 2). An exchange is a user turn plus the assistant response,
+#'   including any tool calls and tool outputs.
 #' @param rate_limit Requests per second for rate limiting (default: 0.1)
 #' @param timeout Request timeout in seconds (default: 120)
 #' @param tor Tor registry options from \code{\link{tor_options}}. Disable shared
@@ -535,7 +537,7 @@ initialize_agent <- function(backend = NULL,
 #' @param tools List of tools
 #' @param use_memory_folding Whether to use memory folding
 #' @param memory_threshold Messages before folding
-#' @param memory_keep_recent Messages to keep
+#' @param memory_keep_recent Exchanges to keep
 #' @keywords internal
 .create_agent <- function(llm, tools, use_memory_folding,
                           memory_threshold, memory_keep_recent) {

@@ -179,20 +179,19 @@ test_that(".validate_consistency stops on false condition", {
 # Function-Level Validator Tests
 # ============================================================================
 
-test_that(".validate_initialize_agent catches memory consistency issues", {
-  expect_error(
+test_that(".validate_initialize_agent allows memory params regardless of relative sizes", {
+  expect_silent(
     .validate_initialize_agent(
       backend = "openai", model = "gpt-4", conda_env = "asa_env",
       proxy = NULL, use_browser = TRUE, use_memory_folding = TRUE,
-      memory_threshold = 2L, memory_keep_recent = 4L,  # threshold < keep_recent
+      memory_threshold = 2L, memory_keep_recent = 4L,
       rate_limit = 0.2, timeout = 120L, verbose = TRUE
-    ),
-    "memory_threshold.*must be greater than memory_keep_recent"
+    )
   )
 })
 
 test_that(".validate_initialize_agent allows valid memory params when folding disabled", {
-  # When folding is disabled, the threshold/keep_recent relationship doesn't matter
+  # Folding disabled should still accept memory params without cross-checks
   expect_silent(
     .validate_initialize_agent(
       backend = "openai", model = "gpt-4", conda_env = "asa_env",

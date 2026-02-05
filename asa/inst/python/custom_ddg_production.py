@@ -3207,7 +3207,7 @@ def create_memory_folding_agent(
         tools: List of LangChain tools (e.g., search, wikipedia)
         checkpointer: Optional LangGraph checkpointer for persistence (e.g., MemorySaver())
         message_threshold: Trigger folding when messages exceed this count
-        keep_recent: Number of recent messages to preserve after folding
+        keep_recent: Number of recent exchanges to preserve after folding
         summarizer_model: Optional separate model for summarization (defaults to main model)
         debug: Enable debug logging
 
@@ -3331,32 +3331,51 @@ def create_memory_folding_agent(
         current_summary = state.get("summary", "")
         fold_count = state.get("fold_count", 0)
 
-        def _compute_effective_keep_recent(messages, keep_recent):
-            # Guarantee the most recent tool round stays intact by preserving
-            # everything from the last AI tool-call message to the end.
-            last_tool_call_idx = None
-            for idx in range(len(messages) - 1, -1, -1):
-                msg = messages[idx]
-                if type(msg).__name__ == "AIMessage":
-                    tool_calls = getattr(msg, "tool_calls", None)
-                    if tool_calls:
-                        last_tool_call_idx = idx
+        def _compute_effective_keep_recent_messages(messages, keep_recent_exchanges):
+            # keep_recent_exchanges counts full user/assistant exchanges, where an exchange
+            # ends at the first AIMessage without tool_calls (or the last message if open).
+            if keep_recent_exchanges <= 0:
+                return 0
+
+            exchanges = []
+            n = len(messages)
+            i = 0
+            while i < n:
+                start = i
+                end = n - 1
+                j = i
+                while j < n:
+                    msg = messages[j]
+                    msg_type = type(msg).__name__
+                    if msg_type == "HumanMessage" and j != i:
+                        end = j - 1
                         break
+                    if msg_type == "AIMessage":
+                        tool_calls = getattr(msg, "tool_calls", None)
+                        if not tool_calls:
+                            end = j
+                            break
+                    j += 1
+                exchanges.append((start, end))
+                i = end + 1
 
-            if last_tool_call_idx is None:
-                return keep_recent
+            if len(exchanges) <= keep_recent_exchanges:
+                return n
 
-            needed_for_last_round = len(messages) - last_tool_call_idx
-            return max(keep_recent, needed_for_last_round)
+            boundary_idx = exchanges[-keep_recent_exchanges][0]
+            return n - boundary_idx
 
-        effective_keep_recent = _compute_effective_keep_recent(messages, keep_recent)
-        if debug and effective_keep_recent != keep_recent:
+        keep_recent_exchanges = keep_recent
+        effective_keep_recent_messages = _compute_effective_keep_recent_messages(
+            messages, keep_recent_exchanges
+        )
+        if debug:
             logger.info(
-                f"Adjusted keep_recent from {keep_recent} to {effective_keep_recent} "
-                "to preserve the most recent tool round"
+                f"Preserving {keep_recent_exchanges} exchanges => "
+                f"keeping last {effective_keep_recent_messages} messages"
             )
 
-        if len(messages) <= effective_keep_recent:
+        if len(messages) <= effective_keep_recent_messages:
             return {}  # Nothing to fold
 
         # IMPORTANT: Never fold away the initial HumanMessage. Some providers
@@ -3371,7 +3390,7 @@ def create_memory_folding_agent(
         # We fold only complete sequences (never split tool-call / tool-response pairs).
         safe_fold_idx = 0
         i = 0
-        while i < len(messages) - effective_keep_recent:
+        while i < len(messages) - effective_keep_recent_messages:
             msg = messages[i]
             msg_type = type(msg).__name__
 

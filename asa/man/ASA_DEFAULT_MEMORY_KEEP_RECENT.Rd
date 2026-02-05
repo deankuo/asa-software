@@ -3,7 +3,7 @@
 \docType{data}
 \name{ASA_DEFAULT_MEMORY_KEEP_RECENT}
 \alias{ASA_DEFAULT_MEMORY_KEEP_RECENT}
-\title{Default Messages to Keep After Folding}
+\title{Default Exchanges to Keep After Folding}
 \format{
 An object of class \code{integer} of length 1.
 }
@@ -11,6 +11,6 @@ An object of class \code{integer} of length 1.
 ASA_DEFAULT_MEMORY_KEEP_RECENT
 }
 \description{
-Default Messages to Keep After Folding
+Default Exchanges to Keep After Folding
 }
 \keyword{internal}

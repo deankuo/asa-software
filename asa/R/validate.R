@@ -383,15 +383,8 @@
   .validate_logical(verbose, "verbose")
   .validate_tor_options(tor, "tor")
 
-  # Logical consistency: threshold must be > keep_recent for folding to make sense
-  if (use_memory_folding) {
-    .validate_consistency(
-      memory_threshold > memory_keep_recent,
-      sprintf("memory_threshold (%d) must be greater than memory_keep_recent (%d) for memory folding to work correctly.",
-              memory_threshold, memory_keep_recent),
-      "Increase memory_threshold or decrease memory_keep_recent"
-    )
-  }
+  # memory_keep_recent counts exchanges, so there is no direct consistency check
+  # against message-based memory_threshold.
 
   invisible(TRUE)
 }

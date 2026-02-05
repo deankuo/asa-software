@@ -71,7 +71,7 @@ ASA_DEFAULT_MEMORY_FOLDING <- TRUE
 #' @keywords internal
 ASA_DEFAULT_MEMORY_THRESHOLD <- 4L
 
-#' Default Messages to Keep After Folding
+#' Default Exchanges to Keep After Folding
 #' @keywords internal
 ASA_DEFAULT_MEMORY_KEEP_RECENT <- 2L
 

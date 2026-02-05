@@ -21,7 +21,7 @@
 
 \item{memory_threshold}{Messages before folding}
 
-\item{memory_keep_recent}{Messages to keep}
+\item{memory_keep_recent}{Exchanges to keep}
 }
 \description{
 Create the LangGraph Agent

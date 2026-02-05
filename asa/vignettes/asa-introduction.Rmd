@@ -271,7 +271,7 @@ agent <- initialize_agent(
   model = "gpt-4.1-mini",
   use_memory_folding = TRUE,
   memory_threshold = 4,      # Fold after 4 messages
-  memory_keep_recent = 2     # Keep 2 most recent messages intact
+  memory_keep_recent = 2     # Keep 2 most recent exchanges intact
 )
 
 # Disable for short, independent queries

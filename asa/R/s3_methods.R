@@ -21,7 +21,8 @@
 #' @param rate_limit Requests per second
 #' @param memory_folding Enable DeepAgent-style memory folding
 #' @param memory_threshold Messages before folding triggers
-#' @param memory_keep_recent Messages to preserve after folding
+#' @param memory_keep_recent Exchanges to preserve after folding. An exchange is
+#'   a user turn plus the assistant response, including any tool calls and tool outputs.
 #' @param temporal Temporal filtering options (use \code{temporal_options()})
 #' @param search Search configuration (use \code{search_options()})
 #' @param tor Tor registry options (use \code{tor_options()})
@@ -164,7 +165,7 @@ print.asa_config <- function(x, ...) {
   cat("Memory Folding:  ", if (x$memory_folding) "Enabled" else "Disabled", "\n", sep = "")
   if (x$memory_folding) {
     cat("  Threshold:     ", x$memory_threshold, " messages\n", sep = "")
-    cat("  Keep Recent:   ", x$memory_keep_recent, " messages\n", sep = "")
+    cat("  Keep Recent:   ", x$memory_keep_recent, " exchanges\n", sep = "")
   }
   if (!is.null(x$temporal)) {
     cat("\nTemporal Filtering:\n")
@@ -548,7 +549,7 @@ print.asa_agent <- function(x, ...) {
   cat("Memory Folding: ", if (use_folding) "Enabled" else "Disabled", "\n", sep = "")
   if (use_folding) {
     cat("  Threshold:    ", x$config$memory_threshold %||% "N/A", " messages\n", sep = "")
-    cat("  Keep Recent:  ", x$config$memory_keep_recent %||% "N/A", " messages\n", sep = "")
+    cat("  Keep Recent:  ", x$config$memory_keep_recent %||% "N/A", " exchanges\n", sep = "")
   }
   cat(
     "Proxy:          ",
