@@ -3331,7 +3331,32 @@ def create_memory_folding_agent(
         current_summary = state.get("summary", "")
         fold_count = state.get("fold_count", 0)
 
-        if len(messages) <= keep_recent:
+        def _compute_effective_keep_recent(messages, keep_recent):
+            # Guarantee the most recent tool round stays intact by preserving
+            # everything from the last AI tool-call message to the end.
+            last_tool_call_idx = None
+            for idx in range(len(messages) - 1, -1, -1):
+                msg = messages[idx]
+                if type(msg).__name__ == "AIMessage":
+                    tool_calls = getattr(msg, "tool_calls", None)
+                    if tool_calls:
+                        last_tool_call_idx = idx
+                        break
+
+            if last_tool_call_idx is None:
+                return keep_recent
+
+            needed_for_last_round = len(messages) - last_tool_call_idx
+            return max(keep_recent, needed_for_last_round)
+
+        effective_keep_recent = _compute_effective_keep_recent(messages, keep_recent)
+        if debug and effective_keep_recent != keep_recent:
+            logger.info(
+                f"Adjusted keep_recent from {keep_recent} to {effective_keep_recent} "
+                "to preserve the most recent tool round"
+            )
+
+        if len(messages) <= effective_keep_recent:
             return {}  # Nothing to fold
 
         # IMPORTANT: Never fold away the initial HumanMessage. Some providers
@@ -3346,7 +3371,7 @@ def create_memory_folding_agent(
         # We fold only complete sequences (never split tool-call / tool-response pairs).
         safe_fold_idx = 0
         i = 0
-        while i < len(messages) - keep_recent:
+        while i < len(messages) - effective_keep_recent:
             msg = messages[i]
             msg_type = type(msg).__name__
 
