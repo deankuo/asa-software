@@ -1,6 +1,6 @@
 # Speed Test Report
 
-**Last Run:** 2026-02-04 16:00:21 CST
+**Last Run:** 2026-02-04 16:48:29 CST
 **Overall Status:** PASS
 **Tolerance Factor:** 4.00x baseline
 
@@ -8,10 +8,10 @@
 
 | Benchmark | Current | Baseline | Threshold | Ratio | Status |
 |-----------|---------|----------|-----------|-------|--------|
-| build_prompt | 0.1296s | 0.09s | 0.36s | 1.44x | PASS |
-| helper_funcs | 0.0725s | 0.07s | 0.28s | 1.04x | PASS |
-| combined | 0.1109s | 0.09s | 0.36s | 1.22x | PASS |
-| agent_search | 22.0s | 18s | 70s | 1.25x | PASS |
+| build_prompt | 0.0783s | 0.09s | 0.36s | 0.87x | PASS |
+| helper_funcs | 0.0440s | 0.07s | 0.28s | 0.63x | PASS |
+| combined | 0.0685s | 0.09s | 0.36s | 0.75x | PASS |
+| agent_search | 41.9s | 18s | 70s | 2.38x | PASS |
 
 ## Baseline Reference
 
@@ -24,3 +24,4 @@ Baselines were established on Dec 19, 2024. Tests fail if current time exceeds
 | helper_funcs | 0.07s | 10 iterations x 100 calls x 5 functions |
 | combined | 0.09s | 10 iterations of mixed workload |
 | agent_search | 18s | 1 search task (API + network latency) |
+
