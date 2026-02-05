@@ -132,7 +132,8 @@
 
   # Only seed summary/fold_count when starting a fresh (ephemeral) thread.
   if (is.null(thread_id)) {
-    initial_state$summary <- ""
+    initial_state$summary <- reticulate::dict()
+    initial_state$archive <- list()
     initial_state$fold_count <- 0L
   }
 

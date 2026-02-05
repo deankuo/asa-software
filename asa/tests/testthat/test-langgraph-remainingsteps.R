@@ -695,12 +695,13 @@ test_that("memory folding updates summary and injects it into the next system pr
     "    def invoke(self, messages):\n",
     "        self.calls += 1\n",
     "        self.last_prompt = messages[0].content if messages else None\n",
-    "        return _StubResponse('FOLDED_SUMMARY')\n",
+    "        return _StubResponse('{\"version\":1,\"facts\":[\"FOLDED_SUMMARY\"],\"decisions\":[],\"open_questions\":[],\"sources\":[],\"warnings\":[]}')\n",
     "\n",
     "class _RecordingLLM:\n",
     "    def __init__(self):\n",
     "        self.n = 0\n",
     "        self.system_prompts = []\n",
+    "        self.seen_messages = []\n",
     "    def bind_tools(self, tools):\n",
     "        return self\n",
     "    def invoke(self, messages):\n",
@@ -709,6 +710,13 @@ test_that("memory folding updates summary and injects it into the next system pr
     "            self.system_prompts.append(getattr(messages[0], 'content', None))\n",
     "        except Exception:\n",
     "            self.system_prompts.append(None)\n",
+    "        try:\n",
+    "            snap = []\n",
+    "            for m in messages:\n",
+    "                snap.append({'type': type(m).__name__, 'content': getattr(m, 'content', None)})\n",
+    "            self.seen_messages.append(snap)\n",
+    "        except Exception:\n",
+    "            self.seen_messages.append([])\n",
     "        if self.n == 1:\n",
     "            return AIMessage(\n",
     "                content='calling tool',\n",
@@ -733,7 +741,7 @@ test_that("memory folding updates summary and injects it into the next system pr
   # Prior history has two completed exchanges. The tool-call round starts with an
   # AI tool-call message (no new HumanMessage), so keep_recent=1 will preserve
   # only the tool-call pair while folding earlier content.
-  initial <- msgs$HumanMessage(content = "initial question")
+  initial <- msgs$HumanMessage(content = "initial question: IMPORTANT_FACT=42")
   ai1 <- msgs$AIMessage(content = "alpha: old assistant answer")
   human2 <- msgs$HumanMessage(content = "followup: IMPORTANT_FACT=42")
   ai2 <- msgs$AIMessage(content = "beta: old assistant note")
@@ -747,7 +755,11 @@ test_that("memory folding updates summary and injects it into the next system pr
   )
 
   expect_equal(as.integer(final_state$fold_count), 1L)
-  expect_equal(final_state$summary, "FOLDED_SUMMARY")
+  expect_true(is.list(final_state$summary))
+  expect_true("facts" %in% names(final_state$summary))
+  expect_true("FOLDED_SUMMARY" %in% unlist(final_state$summary$facts))
+  expect_true(is.list(final_state$archive))
+  expect_true(length(final_state$archive) >= 1L)
 
   # Folding should pass prior content into the summarizer prompt.
   expect_equal(as.integer(reticulate::py$stub_summarizer$calls), 1L)
@@ -763,4 +775,16 @@ test_that("memory folding updates summary and injects it into the next system pr
   expect_true(!grepl("LONG-TERM MEMORY", sys_prompts[[1]], fixed = TRUE))
   expect_true(grepl("LONG-TERM MEMORY", sys_prompts[[2]], fixed = TRUE))
   expect_true(grepl("FOLDED_SUMMARY", sys_prompts[[2]], fixed = TRUE))
+
+  # Retrieval: when the query overlaps with archived content but not structured memory,
+  # we insert an UNTRUSTED CONTEXT message before the user prompt.
+  seen <- reticulate::py_to_r(reticulate::py$stub_llm$seen_messages)
+  expect_true(length(seen) >= 2L)
+  contents_second <- vapply(seen[[2]], function(x) {
+    c <- x$content
+    if (is.null(c) || length(c) == 0) return("")
+    as.character(c)[1]
+  }, character(1))
+  expect_true(any(grepl("UNTRUSTED CONTEXT", contents_second, fixed = TRUE)))
+  expect_true(any(grepl("IMPORTANT_FACT=42", contents_second, fixed = TRUE)))
 })
