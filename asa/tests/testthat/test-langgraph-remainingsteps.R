@@ -562,3 +562,85 @@ test_that("message reducer assigns ids so memory folding can remove messages", {
   expect_equal(length(out2), 1L)
   expect_equal(out2[[1]]$id, id2)
 })
+
+test_that("memory folding preserves initial HumanMessage for Gemini tool-call ordering", {
+  python_path <- .skip_if_no_python_langgraph()
+  .skip_if_missing_python_modules_langgraph(c(
+    "langchain_core",
+    "langgraph",
+    "langgraph.prebuilt",
+    "pydantic"
+  ))
+
+  custom_ddg <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  msgs <- reticulate::import("langchain_core.messages", convert = TRUE)
+
+  # Deterministic tool + stub LLM that *always* calls the tool when tools are bound.
+  reticulate::py_run_string(paste0(
+    "from langchain_core.tools import Tool\n",
+    "from langchain_core.messages import AIMessage\n",
+    "\n",
+    "def _fake_search(query: str) -> str:\n",
+    "    return 'ok'\n",
+    "\n",
+    "fake_search_tool = Tool(\n",
+    "    name='Search',\n",
+    "    description='Fake search',\n",
+    "    func=_fake_search,\n",
+    ")\n",
+    "\n",
+    "class _StubLLM:\n",
+    "    def __init__(self, tool_mode=False):\n",
+    "        self.tool_mode = tool_mode\n",
+    "        self.n = 0\n",
+    "    def bind_tools(self, tools):\n",
+    "        out = _StubLLM(tool_mode=True)\n",
+    "        out.n = self.n\n",
+    "        return out\n",
+    "    def invoke(self, messages):\n",
+    "        self.n += 1\n",
+    "        if self.tool_mode:\n",
+    "            call_id = f'call_{self.n}'\n",
+    "            return AIMessage(\n",
+    "                content='calling tool',\n",
+    "                tool_calls=[{'name':'Search','args':{'query':'x'},'id':call_id}],\n",
+    "            )\n",
+    "        return AIMessage(content='summary')\n",
+    "\n",
+    "stub_llm = _StubLLM()\n"
+  ))
+
+  agent <- custom_ddg$create_memory_folding_agent(
+    model = reticulate::py$stub_llm,
+    tools = list(reticulate::py$fake_search_tool),
+    checkpointer = NULL,
+    message_threshold = as.integer(6),
+    keep_recent = as.integer(4),
+    debug = FALSE
+  )
+
+  initial <- msgs$HumanMessage(content = "hi")
+
+  final_state <- agent$invoke(
+    list(messages = list(initial), summary = "", fold_count = 0L),
+    config = list(
+      recursion_limit = as.integer(30),
+      configurable = list(thread_id = "test")
+    )
+  )
+
+  # Ensure we actually folded (otherwise this test is meaningless).
+  expect_true(as.integer(final_state$fold_count) >= 1L)
+
+  types <- vapply(
+    final_state$messages,
+    function(m) tryCatch(as.character(m$`__class__`$`__name__`), error = function(e) NA_character_),
+    character(1)
+  )
+
+  # Critical invariant for Gemini tool calling: history must not start with an AI tool-call turn.
+  expect_equal(types[[1]], "HumanMessage")
+  expect_true(length(types) >= 2L)
+  expect_equal(types[[2]], "AIMessage")
+  expect_true(!is.null(final_state$messages[[2]]$tool_calls))
+})

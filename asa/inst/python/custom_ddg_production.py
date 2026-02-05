@@ -3334,58 +3334,79 @@ def create_memory_folding_agent(
         if len(messages) <= keep_recent:
             return {}  # Nothing to fold
 
+        # IMPORTANT: Never fold away the initial HumanMessage. Some providers
+        # (notably Gemini function calling) require tool-call turns to follow a
+        # user turn or a tool response turn. If we fold away the initial user
+        # prompt, the first remaining AI tool-call message can become the first
+        # turn after the system prompt, triggering INVALID_ARGUMENT errors.
+        preserve_first_user = bool(messages) and type(messages[0]).__name__ == "HumanMessage"
+
         # Find safe fold boundary - we need to fold complete "rounds"
         # A round = HumanMessage -> AIMessage(with tool_calls) -> ToolMessages -> AIMessage(final)
-        # We should only fold messages up to a complete AI response (no pending tool calls)
+        # We fold only complete sequences (never split tool-call / tool-response pairs).
         safe_fold_idx = 0
         i = 0
         while i < len(messages) - keep_recent:
             msg = messages[i]
             msg_type = type(msg).__name__
 
-            if msg_type == 'AIMessage':
-                tool_calls = getattr(msg, 'tool_calls', None)
+            if msg_type == "AIMessage":
+                tool_calls = getattr(msg, "tool_calls", None)
                 if not tool_calls:
-                    # This AI message has no tool calls - safe boundary
+                    # This AI message has no tool calls - safe boundary.
                     safe_fold_idx = i + 1
-            elif msg_type == 'HumanMessage':
-                # Human messages are safe fold boundaries
-                safe_fold_idx = i + 1
+            elif msg_type == "ToolMessage":
+                # Tool responses are safe fold boundaries (tool call has completed),
+                # but only at the END of a contiguous ToolMessage block. An AIMessage
+                # can request multiple tool calls, producing multiple ToolMessages
+                # in a row; folding mid-block would orphan later ToolMessages.
+                next_type = type(messages[i + 1]).__name__ if (i + 1) < len(messages) else ""
+                if next_type != "ToolMessage":
+                    safe_fold_idx = i + 1
 
             i += 1
 
-        # If safe_fold_idx is 0, we can't safely fold anything yet
+        # If safe_fold_idx is 0, we can't safely fold anything yet.
         if safe_fold_idx == 0:
             if debug:
                 logger.info("No safe fold boundary found, skipping fold")
             return {}
 
         messages_to_fold = messages[:safe_fold_idx]
-
         if not messages_to_fold:
             return {}
 
-        if debug:
-            logger.info(f"Folding {len(messages_to_fold)} messages into summary (safe boundary at {safe_fold_idx})")
+        # Exclude the preserved initial user message from both summary input and removal.
+        summary_candidates = messages_to_fold[1:] if preserve_first_user else messages_to_fold
+        if not summary_candidates:
+            return {}
 
-        # Build the summarization prompt
+        if debug:
+            logger.info(
+                f"Folding {len(summary_candidates)} messages into summary (safe boundary at {safe_fold_idx})"
+            )
+
+        # Build the summarization prompt.
         fold_text_parts = []
-        for msg in messages_to_fold:
+        for msg in summary_candidates:
             msg_type = type(msg).__name__
-            content = getattr(msg, 'content', str(msg))
-            # Handle tool calls in AI messages
-            tool_calls = getattr(msg, 'tool_calls', None)
+            content = getattr(msg, "content", str(msg))
+            tool_calls = getattr(msg, "tool_calls", None)
             if tool_calls:
                 tool_info = ", ".join([f"{tc.get('name', 'tool')}" for tc in tool_calls])
-                fold_text_parts.append(f"[{msg_type}] (called tools: {tool_info}) {content[:200] if len(content) > 200 else content}")
-            elif msg_type == 'ToolMessage':
-                # Truncate tool responses for summary
+                fold_text_parts.append(
+                    f"[{msg_type}] (called tools: {tool_info}) {content[:200] if len(content) > 200 else content}"
+                )
+            elif msg_type == "ToolMessage":
+                # Truncate tool responses for summary.
                 truncated = content[:300] + "..." if len(content) > 300 else content
                 fold_text_parts.append(f"[{msg_type}] {truncated}")
             else:
                 fold_text_parts.append(f"[{msg_type}] {content}")
 
-        fold_text = "\n".join(fold_text_parts)
+        fold_text = "\n".join(fold_text_parts).strip()
+        if not fold_text:
+            return {}
 
         summarize_prompt = (
             f"You are summarizing a conversation for long-term memory storage.\n\n"
@@ -3398,21 +3419,25 @@ def create_memory_folding_agent(
             f"Keep the summary under 500 words. Focus on information density."
         )
 
-        # Generate new summary
+        # Generate new summary.
         summary_response = summarizer_model.invoke([HumanMessage(content=summarize_prompt)])
-        new_summary = summary_response.content if hasattr(summary_response, 'content') else str(summary_response)
+        new_summary = summary_response.content if hasattr(summary_response, "content") else str(summary_response)
 
-        # Create RemoveMessage objects for old messages
+        # Create RemoveMessage objects for old messages.
         remove_messages = []
-        for msg in messages_to_fold:
-            msg_id = getattr(msg, 'id', None)
+        removable = messages_to_fold[1:] if preserve_first_user else messages_to_fold
+        for msg in removable:
+            msg_id = getattr(msg, "id", None)
             if msg_id:
                 remove_messages.append(RemoveMessage(id=msg_id))
+
+        if not remove_messages:
+            return {}
 
         return {
             "summary": new_summary,
             "messages": remove_messages,
-            "fold_count": fold_count + 1
+            "fold_count": fold_count + 1,
         }
 
     def should_continue(state: MemoryFoldingAgentState) -> str:
