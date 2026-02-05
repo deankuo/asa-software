@@ -457,23 +457,28 @@ tor_options <- function(registry_path = NULL,
                         max_rotation_attempts = ASA_TOR_MAX_ROTATION_ATTEMPTS,
                         ip_cache_ttl = ASA_TOR_IP_CACHE_TTL) {
 
-  # Default registry path in user cache
-  if (is.null(registry_path) || registry_path == "") {
-    base_dir <- tools::R_user_dir("asa", which = "cache")
-    dir.create(base_dir, recursive = TRUE, showWarnings = FALSE)
-    registry_path <- file.path(base_dir, "tor_exit_registry.sqlite")
-  }
+  normalized <- .normalize_tor_registry_options(
+    registry_path = registry_path,
+    enable = dirty_tor_exists,
+    bad_ttl = bad_ttl,
+    good_ttl = good_ttl,
+    overuse_threshold = overuse_threshold,
+    overuse_decay = overuse_decay,
+    max_rotation_attempts = max_rotation_attempts,
+    ip_cache_ttl = ip_cache_ttl,
+    create_parent_for_custom = FALSE
+  )
 
   structure(
     list(
-      registry_path = registry_path,
-      dirty_tor_exists = isTRUE(dirty_tor_exists),
-      bad_ttl = as.numeric(bad_ttl),
-      good_ttl = as.numeric(good_ttl),
-      overuse_threshold = as.integer(overuse_threshold),
-      overuse_decay = as.numeric(overuse_decay),
-      max_rotation_attempts = as.integer(max_rotation_attempts),
-      ip_cache_ttl = as.numeric(ip_cache_ttl)
+      registry_path = normalized$registry_path,
+      dirty_tor_exists = normalized$enable,
+      bad_ttl = normalized$bad_ttl,
+      good_ttl = normalized$good_ttl,
+      overuse_threshold = normalized$overuse_threshold,
+      overuse_decay = normalized$overuse_decay,
+      max_rotation_attempts = normalized$max_rotation_attempts,
+      ip_cache_ttl = normalized$ip_cache_ttl
     ),
     class = "asa_tor"
   )

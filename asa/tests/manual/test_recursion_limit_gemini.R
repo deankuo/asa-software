@@ -75,31 +75,48 @@ agent <- custom_ddg$create_standard_agent(
 )
 cat("✓ Agent created\n")
 
+# Shared prompt helper (keeps manual + testthat prompts in sync)
+if (!exists("asa_test_recursion_limit_prompt", mode = "function")) {
+  helper_candidates <- c(
+    file.path(getwd(), "tests", "testthat", "helper-asa-env.R"),
+    file.path(getwd(), "asa", "tests", "testthat", "helper-asa-env.R"),
+    file.path(dirname(getwd()), "asa", "tests", "testthat", "helper-asa-env.R")
+  )
+  helper_path <- helper_candidates[file.exists(helper_candidates)][1]
+  if (length(helper_path) == 1 && nzchar(helper_path)) {
+    source(helper_path, local = TRUE)
+  }
+}
+
 # Test prompt
-prompt <- paste0(
-  "You are doing a multi-step research task.\n",
-  "1) You MUST call the Search tool first with the query: \"asa recursion limit test data\".\n",
-  "   Do NOT output the final JSON until after you have tool output.\n",
-  "2) After you get tool output, produce ONLY valid JSON with this exact schema:\n",
-  "{\n",
-  "  \"status\": \"complete\"|\"partial\",\n",
-  "  \"items\": [\n",
-  "    {\"name\": string, \"birth_year\": integer, \"field\": string, \"key_contribution\": string|null}\n",
-  "  ],\n",
-  "  \"missing\": [string],\n",
-  "  \"notes\": string\n",
-  "}\n",
-  "Missing-data rules:\n",
-  "- If you could not run Search or did not get tool output, set status=\"partial\".\n",
-  "- Use null for unknown key_contribution.\n",
-  "- List any unknown fields in missing.\n",
-  "- Do NOT speculate.\n",
-  "Known seed data (you may use this even without Search):\n",
-  "- Ada Lovelace (birth_year=1815, field=\"mathematics\")\n",
-  "- Alan Turing (birth_year=1912, field=\"computer science\")\n",
-  "- Grace Hopper (birth_year=1906, field=\"computer science\")\n",
-  "Your items MUST include these three people at minimum.\n"
-)
+prompt <- if (exists("asa_test_recursion_limit_prompt", mode = "function")) {
+  asa_test_recursion_limit_prompt()
+} else {
+  paste0(
+    "You are doing a multi-step research task.\n",
+    "1) You MUST call the Search tool first with the query: \"asa recursion limit test data\".\n",
+    "   Do NOT output the final JSON until after you have tool output.\n",
+    "2) After you get tool output, produce ONLY valid JSON with this exact schema:\n",
+    "{\n",
+    "  \"status\": \"complete\"|\"partial\",\n",
+    "  \"items\": [\n",
+    "    {\"name\": string, \"birth_year\": integer, \"field\": string, \"key_contribution\": string|null}\n",
+    "  ],\n",
+    "  \"missing\": [string],\n",
+    "  \"notes\": string\n",
+    "}\n",
+    "Missing-data rules:\n",
+    "- If you could not run Search or did not get tool output, set status=\"partial\".\n",
+    "- Use null for unknown key_contribution.\n",
+    "- List any unknown fields in missing.\n",
+    "- Do NOT speculate.\n",
+    "Known seed data (you may use this even without Search):\n",
+    "- Ada Lovelace (birth_year=1815, field=\"mathematics\")\n",
+    "- Alan Turing (birth_year=1912, field=\"computer science\")\n",
+    "- Grace Hopper (birth_year=1906, field=\"computer science\")\n",
+    "Your items MUST include these three people at minimum.\n"
+  )
+}
 
 # Run tests with different recursion limits
 for (rec_limit in c(3L, 4L, 5L)) {

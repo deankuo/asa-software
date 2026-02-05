@@ -1,80 +1,14 @@
 # Tests for RemainingSteps-based recursion_limit handling in LangGraph graphs.
 
-.get_python_path_langgraph <- function() {
-  candidates <- c(
-    # Most common dev/test entrypoints:
-    file.path(getwd(), "inst", "python"),
-    file.path(getwd(), "asa", "inst", "python"),
-    file.path(getwd(), "..", "inst", "python"),
-    file.path(getwd(), "..", "..", "inst", "python"),
-    # Installed package path:
-    system.file("python", package = "asa")
-  )
-
-  candidates <- unique(normalizePath(candidates, winslash = "/", mustWork = FALSE))
-  candidates <- candidates[nzchar(candidates)]
-
-  for (path in candidates) {
-    if (dir.exists(path) && file.exists(file.path(path, "custom_ddg_production.py"))) {
-      return(path)
-    }
-  }
-
-  for (path in candidates) {
-    if (dir.exists(path)) {
-      return(path)
-    }
-  }
-
-  ""
-}
-
-.skip_if_no_python_langgraph <- function() {
-  python_path <- .get_python_path_langgraph()
-  if (!dir.exists(python_path)) {
-    skip("Python modules not found")
-  }
-  # Prefer the package's default conda env when available so python modules
-  # resolve consistently in CI/local dev.
-  conda_env <- tryCatch(asa:::.get_default_conda_env(), error = function(e) NULL)
-  if (!is.null(conda_env) && is.character(conda_env) && nzchar(conda_env)) {
-    try(reticulate::use_condaenv(conda_env, required = FALSE), silent = TRUE)
-  }
-
-  if (!reticulate::py_available(initialize = TRUE)) {
-    skip("Python not available")
-  }
-  python_path
-}
-
-.skip_if_missing_python_modules_langgraph <- function(modules) {
-  if (is.null(modules) || length(modules) == 0) {
-    return(invisible(TRUE))
-  }
-
-  for (module in modules) {
-    ok <- tryCatch({
-      reticulate::import(module, convert = FALSE)
-      TRUE
-    }, error = function(e) FALSE)
-
-    if (!ok) {
-      skip(paste0("Python module not available: ", module))
-    }
-  }
-
-  invisible(TRUE)
-}
-
 test_that("research graph stops with stop_reason='recursion_limit' (RemainingSteps)", {
-  python_path <- .skip_if_no_python_langgraph()
-  .skip_if_missing_python_modules_langgraph(c(
+  python_path <- asa_test_skip_if_no_python(required_files = "research_graph.py")
+  asa_test_skip_if_missing_python_modules(c(
     "langchain_core",
     "langgraph",
     "langgraph.prebuilt",
     "pydantic",
     "requests"
-  ))
+  ), method = "import")
 
   research <- reticulate::import_from_path("research_graph", path = python_path)
 
@@ -147,14 +81,14 @@ test_that("research graph stops with stop_reason='recursion_limit' (RemainingSte
 })
 
 test_that("best-effort recursion_limit output populates required JSON fields (stubbed)", {
-  python_path <- .skip_if_no_python_langgraph()
-  .skip_if_missing_python_modules_langgraph(c(
+  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
+  asa_test_skip_if_missing_python_modules(c(
     "langchain_core",
     "langgraph",
     "langgraph.prebuilt",
     "pydantic",
     "requests"
-  ))
+  ), method = "import")
 
   custom_ddg <- reticulate::import_from_path("custom_ddg_production", path = python_path)
 
@@ -222,14 +156,14 @@ test_that("best-effort recursion_limit output populates required JSON fields (st
 })
 
 test_that("JSON repair populates nested required keys (explicit schema)", {
-  python_path <- .skip_if_no_python_langgraph()
-  .skip_if_missing_python_modules_langgraph(c(
+  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
+  asa_test_skip_if_missing_python_modules(c(
     "langchain_core",
     "langgraph",
     "langgraph.prebuilt",
     "pydantic",
     "requests"
-  ))
+  ), method = "import")
 
   custom_ddg <- reticulate::import_from_path("custom_ddg_production", path = python_path)
 
@@ -306,8 +240,8 @@ test_that("JSON repair populates nested required keys (explicit schema)", {
 })
 
 test_that("repair_json_output_to_schema is idempotent", {
-  python_path <- .skip_if_no_python_langgraph()
-  .skip_if_missing_python_modules_langgraph(c("pydantic"))
+  python_path <- asa_test_skip_if_no_python(required_files = "state_utils.py")
+  asa_test_skip_if_missing_python_modules(c("pydantic"), method = "import")
 
   utils <- reticulate::import_from_path("state_utils", path = python_path)
 
@@ -347,15 +281,15 @@ test_that("standard agent reaches recursion_limit and preserves JSON output (Gem
     "No Gemini API key available (GOOGLE_API_KEY or GEMINI_API_KEY)"
   )
 
-  python_path <- .skip_if_no_python_langgraph()
-  .skip_if_missing_python_modules_langgraph(c(
+  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
+  asa_test_skip_if_missing_python_modules(c(
     "langchain_core",
     "langgraph",
     "langgraph.prebuilt",
     "pydantic",
     "requests",
     "langchain_google_genai"
-  ))
+  ), method = "import")
 
   custom_ddg <- reticulate::import_from_path("custom_ddg_production", path = python_path)
   chat_models <- reticulate::import("langchain_google_genai")
@@ -405,30 +339,7 @@ test_that("standard agent reaches recursion_limit and preserves JSON output (Gem
   # A deliberately multi-part task that normally requires multiple tool calls.
   # We also require strict JSON output so the test can validate best-effort
   # formatting even when the step budget is exhausted.
-  prompt <- paste0(
-    "You are doing a multi-step research task.\n",
-    "1) You MUST call the Search tool first with the query: \"asa recursion limit test data\".\n",
-    "   Do NOT output the final JSON until after you have tool output.\n",
-    "2) After you get tool output, produce ONLY valid JSON with this exact schema:\n",
-    "{\n",
-    "  \"status\": \"complete\"|\"partial\",\n",
-    "  \"items\": [\n",
-    "    {\"name\": string, \"birth_year\": integer, \"field\": string, \"key_contribution\": string|null}\n",
-    "  ],\n",
-    "  \"missing\": [string],\n",
-    "  \"notes\": string\n",
-    "}\n",
-    "Missing-data rules:\n",
-    "- If you could not run Search or did not get tool output, set status=\"partial\".\n",
-    "- Use null for unknown key_contribution.\n",
-    "- List any unknown fields in missing.\n",
-    "- Do NOT speculate.\n",
-    "Known seed data (you may use this even without Search):\n",
-    "- Ada Lovelace (birth_year=1815, field=\"mathematics\")\n",
-    "- Alan Turing (birth_year=1912, field=\"computer science\")\n",
-    "- Grace Hopper (birth_year=1906, field=\"computer science\")\n",
-    "Your items MUST include these three people at minimum.\n"
-  )
+  prompt <- asa_test_recursion_limit_prompt()
 
   final_state <- agent$invoke(
     list(messages = list(list(role = "user", content = prompt))),
@@ -457,14 +368,14 @@ test_that("standard agent reaches recursion_limit and preserves JSON output (Gem
 })
 
 test_that("run_task passes expected_schema into LangGraph state (explicit schema)", {
-  python_path <- .skip_if_no_python_langgraph()
-  .skip_if_missing_python_modules_langgraph(c(
+  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
+  asa_test_skip_if_missing_python_modules(c(
     "langchain_core",
     "langgraph",
     "langgraph.prebuilt",
     "pydantic",
     "requests"
-  ))
+  ), method = "import")
 
   custom_ddg <- reticulate::import_from_path("custom_ddg_production", path = python_path)
 
@@ -535,11 +446,11 @@ test_that("run_task passes expected_schema into LangGraph state (explicit schema
 })
 
 test_that("message reducer assigns ids so memory folding can remove messages", {
-  python_path <- .skip_if_no_python_langgraph()
-  .skip_if_missing_python_modules_langgraph(c(
+  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
+  asa_test_skip_if_missing_python_modules(c(
     "langchain_core",
     "pydantic"
-  ))
+  ), method = "import")
 
   custom_ddg <- reticulate::import_from_path("custom_ddg_production", path = python_path)
   msgs <- reticulate::import("langchain_core.messages", convert = TRUE)
@@ -564,13 +475,13 @@ test_that("message reducer assigns ids so memory folding can remove messages", {
 })
 
 test_that("memory folding preserves initial HumanMessage for Gemini tool-call ordering", {
-  python_path <- .skip_if_no_python_langgraph()
-  .skip_if_missing_python_modules_langgraph(c(
+  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
+  asa_test_skip_if_missing_python_modules(c(
     "langchain_core",
     "langgraph",
     "langgraph.prebuilt",
     "pydantic"
-  ))
+  ), method = "import")
 
   custom_ddg <- reticulate::import_from_path("custom_ddg_production", path = python_path)
   msgs <- reticulate::import("langchain_core.messages", convert = TRUE)
@@ -655,13 +566,13 @@ test_that("memory folding preserves initial HumanMessage for Gemini tool-call or
 })
 
 test_that("memory folding updates summary and injects it into the next system prompt", {
-  python_path <- .skip_if_no_python_langgraph()
-  .skip_if_missing_python_modules_langgraph(c(
+  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
+  asa_test_skip_if_missing_python_modules(c(
     "langchain_core",
     "langgraph",
     "langgraph.prebuilt",
     "pydantic"
-  ))
+  ), method = "import")
 
   custom_ddg <- reticulate::import_from_path("custom_ddg_production", path = python_path)
   msgs <- reticulate::import("langchain_core.messages", convert = TRUE)

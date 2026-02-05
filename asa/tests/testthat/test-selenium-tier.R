@@ -1,54 +1,6 @@
 # test-selenium-tier.R
 # Deterministic tests that exercise the Selenium browser tier against local HTML fixtures.
 
-.get_python_path_selenium <- function() {
-  python_path <- system.file("python", package = "asa")
-  if (python_path == "" || !dir.exists(python_path)) {
-    # Development path fallback
-    python_path <- file.path(getwd(), "inst/python")
-    if (!dir.exists(python_path)) {
-      python_path <- file.path(dirname(getwd()), "asa/inst/python")
-    }
-  }
-  python_path
-}
-
-.skip_if_no_python_selenium <- function() {
-  python_path <- .get_python_path_selenium()
-  if (python_path == "" || !dir.exists(python_path)) {
-    skip("Python modules not found")
-  }
-  conda_env <- tryCatch(asa:::.get_default_conda_env(), error = function(e) NULL)
-  if (!is.null(conda_env) && is.character(conda_env) && nzchar(conda_env)) {
-    try(reticulate::use_condaenv(conda_env, required = FALSE), silent = TRUE)
-  }
-  if (!reticulate::py_available(initialize = TRUE)) {
-    skip("Python not available")
-  }
-  python_path
-}
-
-.skip_if_missing_python_modules_selenium <- function(modules) {
-  if (is.null(modules) || length(modules) == 0) {
-    return(invisible(TRUE))
-  }
-  for (module in modules) {
-    if (!reticulate::py_module_available(module)) {
-      skip(paste0("Python module not available: ", module))
-    }
-  }
-  invisible(TRUE)
-}
-
-.import_custom_ddg_selenium <- function(python_path) {
-  tryCatch(
-    reticulate::import_from_path("custom_ddg_production", path = python_path),
-    error = function(e) {
-      skip(paste0("Failed to import custom_ddg_production: ", conditionMessage(e)))
-    }
-  )
-}
-
 .file_url <- function(path) {
   paste0("file://", normalizePath(path, winslash = "/", mustWork = TRUE))
 }
@@ -136,10 +88,10 @@ test_that("Selenium tier can load and parse a local result fixture", {
   run_selenium <- tolower(Sys.getenv("ASA_RUN_SELENIUM_TESTS")) %in% c("true", "1", "yes")
   skip_if(!run_selenium, "Set ASA_RUN_SELENIUM_TESTS=true to run Selenium tier tests")
 
-  python_path <- .skip_if_no_python_selenium()
-  .skip_if_missing_python_modules_selenium(c("selenium", "bs4"))
+  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
+  asa_test_skip_if_missing_python_modules(c("selenium", "bs4"))
 
-  ddg <- .import_custom_ddg_selenium(python_path)
+  ddg <- asa_test_import_from_path_or_skip("custom_ddg_production", python_path)
 
   setTimeLimit(elapsed = 60, transient = TRUE)
   on.exit(setTimeLimit(cpu = Inf, elapsed = Inf, transient = FALSE), add = TRUE)
@@ -193,10 +145,10 @@ test_that("Selenium tier raises a timeout on a local empty fixture", {
   run_selenium <- tolower(Sys.getenv("ASA_RUN_SELENIUM_TESTS")) %in% c("true", "1", "yes")
   skip_if(!run_selenium, "Set ASA_RUN_SELENIUM_TESTS=true to run Selenium tier tests")
 
-  python_path <- .skip_if_no_python_selenium()
-  .skip_if_missing_python_modules_selenium(c("selenium", "bs4"))
+  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
+  asa_test_skip_if_missing_python_modules(c("selenium", "bs4"))
 
-  ddg <- .import_custom_ddg_selenium(python_path)
+  ddg <- asa_test_import_from_path_or_skip("custom_ddg_production", python_path)
 
   setTimeLimit(elapsed = 60, transient = TRUE)
   on.exit(setTimeLimit(cpu = Inf, elapsed = Inf, transient = FALSE), add = TRUE)
@@ -248,10 +200,10 @@ test_that("PRIMP tier parses a local fixture without network access", {
   run_selenium <- tolower(Sys.getenv("ASA_RUN_SELENIUM_TESTS")) %in% c("true", "1", "yes")
   skip_if(!run_selenium, "Set ASA_RUN_SELENIUM_TESTS=true to run Selenium tier tests")
 
-  python_path <- .skip_if_no_python_selenium()
-  .skip_if_missing_python_modules_selenium(c("selenium", "bs4", "ddgs", "primp"))
+  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
+  asa_test_skip_if_missing_python_modules(c("selenium", "bs4", "ddgs", "primp"))
 
-  ddg <- .import_custom_ddg_selenium(python_path)
+  ddg <- asa_test_import_from_path_or_skip("custom_ddg_production", python_path)
   .configure_fast_search(ddg)
 
   fixture <- tempfile(fileext = ".html")
@@ -287,10 +239,10 @@ test_that("DDGS tier returns stubbed results when PRIMP is empty", {
   run_selenium <- tolower(Sys.getenv("ASA_RUN_SELENIUM_TESTS")) %in% c("true", "1", "yes")
   skip_if(!run_selenium, "Set ASA_RUN_SELENIUM_TESTS=true to run Selenium tier tests")
 
-  python_path <- .skip_if_no_python_selenium()
-  .skip_if_missing_python_modules_selenium(c("selenium", "bs4", "ddgs", "primp"))
+  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
+  asa_test_skip_if_missing_python_modules(c("selenium", "bs4", "ddgs", "primp"))
 
-  ddg <- .import_custom_ddg_selenium(python_path)
+  ddg <- asa_test_import_from_path_or_skip("custom_ddg_production", python_path)
   .configure_fast_search(ddg)
 
   fixture <- tempfile(fileext = ".html")

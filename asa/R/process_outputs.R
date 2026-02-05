@@ -90,6 +90,162 @@ extract_agent_results <- function(raw_output) {
   contents
 }
 
+#' Decode legacy ToolMessage content (Python repr-like escapes)
+#' @keywords internal
+.decode_legacy_toolmessage_content <- function(x) {
+  if (!is.character(x) || length(x) != 1 || is.na(x) || !nzchar(x)) {
+    return("")
+  }
+
+  decoded <- .decode_trace_escaped_string(x)
+  if (is.character(decoded) && length(decoded) == 1L && !is.null(decoded)) {
+    return(decoded)
+  }
+
+  # Backward-compatible fallback: manual unescaping for common sequences.
+  out <- x
+  out <- gsub("\\\\n", " ", out)
+  out <- gsub("\\\\'", "'", out)
+  out <- gsub('\\\\"', '"', out)
+  out <- gsub("\\\\\\\\", "\\\\", out)
+  out
+}
+
+#' Extract tool contents from legacy (non-JSON) ToolMessage(...) traces
+#' @keywords internal
+.extract_tool_contents_legacy <- function(text, tool_name) {
+  if (!is.character(text) || length(text) != 1 || is.na(text) || !nzchar(text)) {
+    return(character(0))
+  }
+
+  tool_name <- as.character(tool_name)
+  tool_name_esc <- gsub("([\\\\.^$|()\\[\\]{}*+?])", "\\\\\\1", tool_name, perl = TRUE)
+
+  tool_pattern <- paste0(
+    "ToolMessage\\(content=(?:'([^']*(?:\\\\'[^']*)*)'|",
+    "\"([^\"]*(?:\\\\\"[^\"]*)*)\"), ",
+    "name=(?:'(?i:", tool_name_esc, ")'|\"(?i:", tool_name_esc, ")\").*?\\)"
+  )
+
+  tool_matches <- gregexpr(tool_pattern, text, perl = TRUE)[[1]]
+  if (tool_matches[1] == -1) {
+    return(character(0))
+  }
+
+  match_texts <- regmatches(text, list(tool_matches))[[1]]
+  contents <- character(0)
+
+  for (match_text in match_texts) {
+    content_match <- regmatches(match_text, regexec(tool_pattern, match_text, perl = TRUE))[[1]]
+
+    # Content is in group 2 or 3 (single-quoted vs double-quoted).
+    content <- ifelse(nchar(content_match[2]) > 0, content_match[2], content_match[3])
+    if (is.na(content) || !nzchar(content)) next
+
+    contents <- c(contents, .decode_legacy_toolmessage_content(content))
+  }
+
+  contents
+}
+
+#' Extract tool contents from either asa_trace_v1 JSON or legacy ToolMessage traces.
+#' @keywords internal
+.extract_tool_contents_any <- function(text, tool_name) {
+  tool_contents <- .extract_tool_contents(text, tool_name)
+  if (!is.null(tool_contents)) {
+    return(tool_contents)
+  }
+  .extract_tool_contents_legacy(text, tool_name)
+}
+
+#' Select sources from an ordered vector (1-indexed)
+#' @keywords internal
+.select_sources <- function(result, source = NULL) {
+  if (is.null(source)) {
+    return(result)
+  }
+
+  source <- as.integer(source)
+  source <- source[!is.na(source) & source > 0]
+  if (length(source) == 0) {
+    return(character(0))
+  }
+
+  result[source]
+}
+
+#' Extract per-source search fields (content or URL) from Search tool traces
+#' @keywords internal
+.extract_search_sources <- function(text, field = c("content", "url"), source = NULL) {
+  field <- match.arg(field)
+
+  tool_contents <- .extract_tool_contents_any(text, "search")
+  if (length(tool_contents) == 0) {
+    return(character(0))
+  }
+
+  source_values <- list()
+
+  source_pattern <- if (field == "content") {
+    "(?s)__START_OF_SOURCE (\\d+)__.*?<CONTENT>(.*?)</CONTENT>.*?__END_OF_SOURCE.*?__"
+  } else {
+    "(?s)__START_OF_SOURCE (\\d+)__.*?<URL>(.*?)</URL>.*?__END_OF_SOURCE.*?__"
+  }
+
+  for (content in tool_contents) {
+    if (is.na(content) || !nzchar(content)) next
+
+    source_matches <- gregexpr(source_pattern, content, perl = TRUE)[[1]]
+    if (source_matches[1] == -1) next
+
+    source_match_texts <- regmatches(content, list(source_matches))[[1]]
+    for (src_match in source_match_texts) {
+      m <- regmatches(src_match, regexec(source_pattern, src_match, perl = TRUE))[[1]]
+      if (length(m) < 3) next
+
+      source_num <- suppressWarnings(as.integer(m[2]))
+      if (is.na(source_num) || source_num <= 0) next
+
+      value <- m[3]
+      if (field == "content") {
+        value <- trimws(gsub("\\s+", " ", value))
+      } else {
+        value <- trimws(value)
+      }
+
+      if (!nzchar(value)) next
+
+      key <- as.character(source_num)
+      if (is.null(source_values[[key]])) {
+        source_values[[key]] <- character(0)
+      }
+
+      if (field == "url") {
+        source_values[[key]] <- unique(c(source_values[[key]], value))
+      } else {
+        source_values[[key]] <- c(source_values[[key]], value)
+      }
+    }
+  }
+
+  if (length(source_values) == 0) {
+    return(character(0))
+  }
+
+  max_source <- max(as.integer(names(source_values)))
+  result <- character(max_source)
+  for (i in seq_len(max_source)) {
+    source_key <- as.character(i)
+    if (source_key %in% names(source_values)) {
+      result[i] <- paste(source_values[[source_key]], collapse = " ")
+    } else {
+      result[i] <- ""
+    }
+  }
+
+  .select_sources(result, source)
+}
+
 #' Extract Search Snippets by Source Number
 #'
 #' Extracts content from Search tool messages in the agent trace.
@@ -108,151 +264,7 @@ extract_agent_results <- function(raw_output) {
 #'
 #' @export
 extract_search_snippets <- function(text, source = NULL) {
-  source_contents <- list()
-
-  tool_contents <- .extract_tool_contents(text, "search")
-  if (!is.null(tool_contents)) {
-    for (content in tool_contents) {
-      if (is.na(content) || !nzchar(content)) next
-
-      # Extract sources with dotall
-      source_pattern <- "(?s)__START_OF_SOURCE (\\d+)__ <CONTENT>(.*?)</CONTENT>.*?__END_OF_SOURCE.*?__"
-      source_matches <- gregexpr(source_pattern, content, perl = TRUE)[[1]]
-
-      if (source_matches[1] != -1) {
-        source_match_texts <- regmatches(content, list(source_matches))[[1]]
-
-        for (src_match in source_match_texts) {
-          num_match <- regmatches(src_match, regexec("(?s)__START_OF_SOURCE (\\d+)__.*", src_match, perl = TRUE))[[1]]
-          source_num <- as.integer(num_match[2])
-
-          cont_match <- regmatches(src_match, regexec("(?s)<CONTENT>(.*?)</CONTENT>", src_match, perl = TRUE))[[1]]
-          src_content <- cont_match[2]
-
-          cleaned_content <- trimws(gsub("\\s+", " ", src_content))
-
-          if (nchar(cleaned_content) > 0) {
-            key <- as.character(source_num)
-            if (is.null(source_contents[[key]])) {
-              source_contents[[key]] <- c()
-            }
-            source_contents[[key]] <- c(source_contents[[key]], cleaned_content)
-          }
-        }
-      }
-    }
-
-    if (length(source_contents) == 0) {
-      return(character(0))
-    }
-
-    max_source <- max(as.integer(names(source_contents)))
-    result <- character(max_source)
-
-    for (i in seq_len(max_source)) {
-      source_key <- as.character(i)
-      if (source_key %in% names(source_contents)) {
-        result[i] <- paste(source_contents[[source_key]], collapse = " ")
-      } else {
-        result[i] <- ""
-      }
-    }
-
-    if (is.null(source)) {
-      return(result)
-    }
-
-    source <- as.integer(source)
-    source <- source[!is.na(source) & source > 0]
-    if (length(source) == 0) {
-      return(character(0))
-    }
-
-    return(result[source])
-  }
-
-  # Pattern for ToolMessage with Search
-  tool_pattern <- paste0(
-    "ToolMessage\\(content=(?:'([^']*(?:\\\\'[^']*)*)'|",
-    "\"([^\"]*(?:\\\\\"[^\"]*)*)\"), ",
-    "name=(?:'([sS]earch)'|\"([sS]earch)\").*?\\)"
-  )
-
-  tool_matches <- gregexpr(tool_pattern, text, perl = TRUE)[[1]]
-
-  if (tool_matches[1] != -1) {
-    match_texts <- regmatches(text, list(tool_matches))[[1]]
-
-    for (match_text in match_texts) {
-      content_match <- regmatches(match_text, regexec(tool_pattern, match_text, perl = TRUE))[[1]]
-
-      # Content in position 2 or 3
-      content <- ifelse(nchar(content_match[2]) > 0, content_match[2], content_match[3])
-
-      if (!is.na(content) && nchar(content) > 0) {
-        # Clean escape sequences
-        content <- gsub("\\\\n", " ", content)
-        content <- gsub("\\\\'", "'", content)
-        content <- gsub('\\\\"', '"', content)
-        content <- gsub("\\\\\\\\", "\\\\", content)
-
-        # Extract sources with dotall
-        source_pattern <- "(?s)__START_OF_SOURCE (\\d+)__ <CONTENT>(.*?)</CONTENT>.*?__END_OF_SOURCE.*?__"
-        source_matches <- gregexpr(source_pattern, content, perl = TRUE)[[1]]
-
-        if (source_matches[1] != -1) {
-          source_match_texts <- regmatches(content, list(source_matches))[[1]]
-
-          for (src_match in source_match_texts) {
-            num_match <- regmatches(src_match, regexec("(?s)__START_OF_SOURCE (\\d+)__.*", src_match, perl = TRUE))[[1]]
-            source_num <- as.integer(num_match[2])
-
-            cont_match <- regmatches(src_match, regexec("(?s)<CONTENT>(.*?)</CONTENT>", src_match, perl = TRUE))[[1]]
-            src_content <- cont_match[2]
-
-            cleaned_content <- trimws(gsub("\\s+", " ", src_content))
-
-            if (nchar(cleaned_content) > 0) {
-              key <- as.character(source_num)
-              if (is.null(source_contents[[key]])) {
-                source_contents[[key]] <- c()
-              }
-              source_contents[[key]] <- c(source_contents[[key]], cleaned_content)
-            }
-          }
-        }
-      }
-    }
-  }
-
-  # Create output vector ordered by source number
-  if (length(source_contents) == 0) {
-    return(character(0))
-  }
-
-  max_source <- max(as.integer(names(source_contents)))
-  result <- character(max_source)
-
-  for (i in seq_len(max_source)) {
-    source_key <- as.character(i)
-    if (source_key %in% names(source_contents)) {
-      result[i] <- paste(source_contents[[source_key]], collapse = " ")
-    } else {
-      result[i] <- ""
-    }
-  }
-
-  if (is.null(source)) {
-    return(result)
-  }
-
-  source <- as.integer(source)
-  source <- source[!is.na(source) & source > 0]
-  if (length(source) == 0) {
-    return(character(0))
-  }
-
-  result[source]
+  .extract_search_sources(text, field = "content", source = source)
 }
 
 #' Extract Wikipedia Content
@@ -272,53 +284,14 @@ extract_search_snippets <- function(text, source = NULL) {
 extract_wikipedia_content <- function(text) {
   snippets <- character(0)
 
-  tool_contents <- .extract_tool_contents(text, "wikipedia")
-  if (!is.null(tool_contents)) {
-    for (content in tool_contents) {
-      if (is.na(content) || !nzchar(content)) next
-      if ((grepl("Page:", content) || grepl("Summary:", content)) &&
-          !grepl("No good Wikipedia Search Result", content, ignore.case = TRUE)) {
-        cleaned <- trimws(gsub("\\s+", " ", content))
-        if (nchar(cleaned) > 0) {
-          snippets <- c(snippets, cleaned)
-        }
-      }
-    }
-    return(snippets)
-  }
-
-  # Pattern for ToolMessage with Wikipedia
-  tool_pattern <- paste0(
-    "ToolMessage\\(content=(?:'([^']*(?:\\\\'[^']*)*)'|",
-    "\"([^\"]*(?:\\\\\"[^\"]*)*)\"), ",
-    "name=(?:'([wW]ikipedia)'|\"([wW]ikipedia)\").*?\\)"
-  )
-
-  tool_matches <- gregexpr(tool_pattern, text, perl = TRUE)[[1]]
-
-  if (tool_matches[1] != -1) {
-    match_texts <- regmatches(text, list(tool_matches))[[1]]
-
-    for (match_text in match_texts) {
-      content_match <- regmatches(match_text, regexec(tool_pattern, match_text, perl = TRUE))[[1]]
-
-      content <- ifelse(nchar(content_match[2]) > 0, content_match[2], content_match[3])
-
-      if (!is.na(content) && nchar(content) > 0) {
-        # Clean escape sequences
-        content <- gsub("\\\\n", " ", content)
-        content <- gsub("\\\\'", "'", content)
-        content <- gsub('\\\\"', '"', content)
-        content <- gsub("\\\\\\\\", "\\\\", content)
-
-        # Only add valid Wikipedia results
-        if ((grepl("Page:", content) || grepl("Summary:", content)) &&
-            !grepl("No good Wikipedia Search Result", content, ignore.case = TRUE)) {
-          cleaned <- trimws(gsub("\\s+", " ", content))
-          if (nchar(cleaned) > 0) {
-            snippets <- c(snippets, cleaned)
-          }
-        }
+  tool_contents <- .extract_tool_contents_any(text, "wikipedia")
+  for (content in tool_contents) {
+    if (is.na(content) || !nzchar(content)) next
+    if ((grepl("Page:", content) || grepl("Summary:", content)) &&
+        !grepl("No good Wikipedia Search Result", content, ignore.case = TRUE)) {
+      cleaned <- trimws(gsub("\\s+", " ", content))
+      if (nchar(cleaned) > 0) {
+        snippets <- c(snippets, cleaned)
       }
     }
   }
@@ -344,146 +317,7 @@ extract_wikipedia_content <- function(text) {
 #'
 #' @export
 extract_urls <- function(text, source = NULL) {
-  source_urls <- list()
-
-  tool_contents <- .extract_tool_contents(text, "search")
-  if (!is.null(tool_contents)) {
-    for (content in tool_contents) {
-      if (is.na(content) || !nzchar(content)) next
-
-      # Extract sources with URLs
-      source_pattern <- "(?s)__START_OF_SOURCE (\\d+)__.*?<URL>(.*?)</URL>.*?__END_OF_SOURCE.*?__"
-      source_matches <- gregexpr(source_pattern, content, perl = TRUE)[[1]]
-
-      if (source_matches[1] != -1) {
-        source_match_texts <- regmatches(content, list(source_matches))[[1]]
-
-        for (src_match in source_match_texts) {
-          num_match <- regmatches(src_match, regexec("(?s)__START_OF_SOURCE (\\d+)__.*", src_match, perl = TRUE))[[1]]
-          source_num <- as.integer(num_match[2])
-
-          url_match <- regmatches(src_match, regexec("(?s)<URL>(.*?)</URL>", src_match, perl = TRUE))[[1]]
-          url <- trimws(url_match[2])
-
-          if (nchar(url) > 0) {
-            key <- as.character(source_num)
-            if (is.null(source_urls[[key]])) {
-              source_urls[[key]] <- c()
-            }
-            source_urls[[key]] <- unique(c(source_urls[[key]], url))
-          }
-        }
-      }
-    }
-
-    if (length(source_urls) == 0) {
-      return(character(0))
-    }
-
-    max_source <- max(as.integer(names(source_urls)))
-    result <- character(max_source)
-
-    for (i in seq_len(max_source)) {
-      source_key <- as.character(i)
-      if (source_key %in% names(source_urls)) {
-        result[i] <- paste(source_urls[[source_key]], collapse = " ")
-      } else {
-        result[i] <- ""
-      }
-    }
-
-    if (is.null(source)) {
-      return(result)
-    }
-
-    source <- as.integer(source)
-    source <- source[!is.na(source) & source > 0]
-    if (length(source) == 0) {
-      return(character(0))
-    }
-
-    return(result[source])
-  }
-
-  # Pattern for ToolMessage with Search
-  tool_pattern <- paste0(
-    "ToolMessage\\(content=(?:'([^']*(?:\\\\'[^']*)*)'|",
-    "\"([^\"]*(?:\\\\\"[^\"]*)*)\"), ",
-    "name=(?:'([sS]earch)'|\"([sS]earch)\").*?\\)"
-  )
-
-  tool_matches <- gregexpr(tool_pattern, text, perl = TRUE)[[1]]
-
-  if (tool_matches[1] != -1) {
-    match_texts <- regmatches(text, list(tool_matches))[[1]]
-
-    for (match_text in match_texts) {
-      content_match <- regmatches(match_text, regexec(tool_pattern, match_text, perl = TRUE))[[1]]
-
-      content <- ifelse(nchar(content_match[2]) > 0, content_match[2], content_match[3])
-
-      if (!is.na(content) && nchar(content) > 0) {
-        # Clean escape sequences
-        content <- gsub("\\\\n", " ", content)
-        content <- gsub("\\\\'", "'", content)
-        content <- gsub('\\\\"', '"', content)
-        content <- gsub("\\\\\\\\", "\\\\", content)
-
-        # Extract sources with URLs
-        source_pattern <- "(?s)__START_OF_SOURCE (\\d+)__.*?<URL>(.*?)</URL>.*?__END_OF_SOURCE.*?__"
-        source_matches <- gregexpr(source_pattern, content, perl = TRUE)[[1]]
-
-        if (source_matches[1] != -1) {
-          source_match_texts <- regmatches(content, list(source_matches))[[1]]
-
-          for (src_match in source_match_texts) {
-            num_match <- regmatches(src_match, regexec("(?s)__START_OF_SOURCE (\\d+)__.*", src_match, perl = TRUE))[[1]]
-            source_num <- as.integer(num_match[2])
-
-            url_match <- regmatches(src_match, regexec("(?s)<URL>(.*?)</URL>", src_match, perl = TRUE))[[1]]
-            url <- trimws(url_match[2])
-
-            if (nchar(url) > 0) {
-              key <- as.character(source_num)
-              if (is.null(source_urls[[key]])) {
-                source_urls[[key]] <- c()
-              }
-              source_urls[[key]] <- unique(c(source_urls[[key]], url))
-            }
-          }
-        }
-      }
-    }
-  }
-
-  # Create output vector
-  if (length(source_urls) == 0) {
-    return(character(0))
-  }
-
-  max_source <- max(as.integer(names(source_urls)))
-  result <- character(max_source)
-
-  for (i in seq_len(max_source)) {
-    source_key <- as.character(i)
-    if (source_key %in% names(source_urls)) {
-      result[i] <- paste(source_urls[[source_key]], collapse = " ")
-    } else {
-      result[i] <- ""
-    }
-  }
-
-  if (is.null(source)) {
-    return(result)
-  }
-
-  source <- as.integer(source)
-  source <- source[!is.na(source) & source > 0]
-  if (length(source) == 0) {
-    return(character(0))
-  }
-
-  result[source]
+  .extract_search_sources(text, field = "url", source = source)
 }
 
 #' Extract Search Tier Information

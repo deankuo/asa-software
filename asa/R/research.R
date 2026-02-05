@@ -205,19 +205,20 @@ asa_enumerate <- function(query,
     config_search <- config$search
   }
 
-  temporal <- .resolve_temporal_input(temporal, config)
-
-  webpage_settings <- .resolve_webpage_reader_settings(
-    config_search,
-    allow_read_webpages,
-    webpage_relevance_mode,
-    webpage_embedding_provider,
-    webpage_embedding_model
+  resolved <- .resolve_temporal_and_webpage_reader(
+    temporal = temporal,
+    config = config,
+    config_search = config_search,
+    allow_read_webpages = allow_read_webpages,
+    webpage_relevance_mode = webpage_relevance_mode,
+    webpage_embedding_provider = webpage_embedding_provider,
+    webpage_embedding_model = webpage_embedding_model
   )
-  allow_rw <- webpage_settings$allow_read_webpages
-  relevance_mode <- webpage_settings$relevance_mode
-  embedding_provider <- webpage_settings$embedding_provider
-  embedding_model <- webpage_settings$embedding_model
+  temporal <- resolved$temporal
+  allow_rw <- resolved$allow_read_webpages
+  relevance_mode <- resolved$relevance_mode
+  embedding_provider <- resolved$embedding_provider
+  embedding_model <- resolved$embedding_model
 
   # Apply defaults from constants
   if (is.null(workers)) {
