@@ -241,6 +241,28 @@ test_that("repair_json_output_to_schema is idempotent", {
   expect_equal(out2, out1)
 })
 
+test_that("repair_json_output_to_schema uses shape defaults for array/object leaves", {
+  python_path <- asa_test_skip_if_no_python(required_files = "state_utils.py")
+  asa_test_skip_if_missing_python_modules(c("pydantic"), method = "import")
+
+  utils <- reticulate::import_from_path("state_utils", path = python_path)
+
+  schema <- list(
+    missing = "array",
+    metadata = "object",
+    notes = "string"
+  )
+
+  out <- utils$repair_json_output_to_schema("{}", schema, fallback_on_failure = TRUE)
+  parsed <- jsonlite::fromJSON(out, simplifyVector = FALSE)
+
+  expect_true(is.list(parsed))
+  expect_true(is.list(parsed$missing))
+  expect_equal(length(parsed$missing), 0L)
+  expect_true(is.list(parsed$metadata))
+  expect_equal(length(parsed$metadata), 0L)
+})
+
 test_that("standard agent reaches recursion_limit and preserves JSON output (Gemini, best-effort)", {
 
   asa_test_skip_api_tests()
@@ -1135,6 +1157,82 @@ test_that("finalize strips residual tool calls and returns terminal JSON (standa
   last_msg <- final_state$messages[[length(final_state$messages)]]
   tool_calls <- tryCatch(last_msg$tool_calls, error = function(e) NULL)
   expect_true(is.null(tool_calls) || length(tool_calls) == 0L)
+
+  response_text <- asa:::.extract_response_text(final_state, backend = "gemini")
+  parsed <- jsonlite::fromJSON(response_text)
+  expect_true(is.list(parsed))
+  expect_true(all(c("status", "items", "missing", "notes") %in% names(parsed)))
+})
+
+test_that("explicit schema does not rewrite intermediate tool-call turns (standard)", {
+  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
+  asa_test_skip_if_missing_python_modules(c(
+    "langchain_core",
+    "langgraph",
+    "langgraph.prebuilt",
+    "pydantic",
+    "requests"
+  ), method = "import")
+
+  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+
+  reticulate::py_run_string(paste0(
+    "from langchain_core.messages import AIMessage\n",
+    "from langchain_core.tools import Tool\n\n",
+    "def _fake_search(query: str) -> str:\n",
+    "    return 'result for ' + query\n\n",
+    "search_tool_for_rewrite = Tool(\n",
+    "    name='Search',\n",
+    "    description='Fake Search tool',\n",
+    "    func=_fake_search,\n",
+    ")\n\n",
+    "class _NoRewriteLLM:\n",
+    "    def __init__(self):\n",
+    "        self.calls = 0\n",
+    "    def bind_tools(self, tools):\n",
+    "        return self\n",
+    "    def invoke(self, messages):\n",
+    "        self.calls += 1\n",
+    "        if self.calls == 1:\n",
+    "            return AIMessage(\n",
+    "                content='calling tool',\n",
+    "                tool_calls=[{'name':'Search','args':{'query':'ada'},'id':'call_1'}],\n",
+    "            )\n",
+    "        return AIMessage(content='{\\\"status\\\":\\\"partial\\\",\\\"items\\\":[{\\\"name\\\":\\\"Ada\\\"}]}')\n\n",
+    "no_rewrite_llm = _NoRewriteLLM()\n"
+  ))
+
+  expected_schema <- list(
+    status = "string",
+    items = list(list(name = "string", birth_year = "integer")),
+    missing = "array",
+    notes = "string"
+  )
+
+  agent <- prod$create_standard_agent(
+    model = reticulate::py$no_rewrite_llm,
+    tools = list(reticulate::py$search_tool_for_rewrite)
+  )
+
+  final_state <- agent$invoke(
+    list(
+      messages = list(list(role = "user", content = "Return JSON")),
+      expected_schema = expected_schema,
+      expected_schema_source = "explicit"
+    ),
+    config = list(recursion_limit = 10L)
+  )
+
+  tool_turn <- NULL
+  for (msg in final_state$messages) {
+    tc <- tryCatch(msg$tool_calls, error = function(e) NULL)
+    if (!is.null(tc) && length(tc) > 0L) {
+      tool_turn <- msg
+      break
+    }
+  }
+  expect_false(is.null(tool_turn))
+  expect_equal(as.character(tool_turn$content), "calling tool")
 
   response_text <- asa:::.extract_response_text(final_state, backend = "gemini")
   parsed <- jsonlite::fromJSON(response_text)

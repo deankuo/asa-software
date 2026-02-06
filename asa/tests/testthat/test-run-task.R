@@ -210,6 +210,7 @@ test_that("run_task validation accepts webpage embedding options", {
 test_that("run_task validation accepts recursion_limit", {
   expect_silent(asa:::.validate_run_task("prompt", "text", NULL, FALSE, recursion_limit = 50L))
   expect_error(asa:::.validate_run_task("prompt", "text", NULL, FALSE, recursion_limit = 0L), "recursion_limit")
+  expect_error(asa:::.validate_run_task("prompt", "text", NULL, FALSE, recursion_limit = 1L), "recursion_limit")
   expect_error(asa:::.validate_run_task("prompt", "text", NULL, FALSE, recursion_limit = 999L), "recursion_limit")
 })
 

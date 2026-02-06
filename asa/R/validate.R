@@ -357,7 +357,9 @@
   }
 
   .validate_positive(recursion_limit, param_name, integer_only = TRUE)
-  .validate_range(recursion_limit, param_name, min = 1, max = 500)
+  # LangGraph graphs require at least two node steps to reliably terminate
+  # without GraphRecursionError (entry node + END routing).
+  .validate_range(recursion_limit, param_name, min = 2, max = 500)
 
   invisible(TRUE)
 }

@@ -540,6 +540,12 @@ def _default_leaf_value(descriptor: Any, key: Optional[str] = None) -> Any:
                     return p
             return parts[0]
 
+    if "array" in lower:
+        return []
+
+    if "object" in lower:
+        return {}
+
     if "string" in lower:
         return ""
 

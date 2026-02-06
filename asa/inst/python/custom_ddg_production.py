@@ -3971,15 +3971,19 @@ def create_memory_folding_agent(
             if finalize_event:
                 repair_events.append(finalize_event)
 
-        force_fallback = _should_force_finalize(state) or expected_schema_source == "explicit"
-        response, repair_event = _repair_best_effort_json(
-            expected_schema,
-            response,
-            fallback_on_failure=force_fallback,
-            schema_source=expected_schema_source,
-            context="agent",
-            debug=debug,
-        )
+        repair_event = None
+        # Never rewrite intermediate tool-call turns as JSON payloads.
+        # Only repair terminal text responses.
+        if not _extract_response_tool_calls(response):
+            force_fallback = _should_force_finalize(state) or expected_schema_source == "explicit"
+            response, repair_event = _repair_best_effort_json(
+                expected_schema,
+                response,
+                fallback_on_failure=force_fallback,
+                schema_source=expected_schema_source,
+                context="agent",
+                debug=debug,
+            )
 
         out = {
             "messages": [response],
@@ -4616,15 +4620,19 @@ def create_standard_agent(
             if finalize_event:
                 repair_events.append(finalize_event)
 
-        force_fallback = _should_force_finalize(state) or expected_schema_source == "explicit"
-        response, repair_event = _repair_best_effort_json(
-            expected_schema,
-            response,
-            fallback_on_failure=force_fallback,
-            schema_source=expected_schema_source,
-            context="agent",
-            debug=debug,
-        )
+        repair_event = None
+        # Never rewrite intermediate tool-call turns as JSON payloads.
+        # Only repair terminal text responses.
+        if not _extract_response_tool_calls(response):
+            force_fallback = _should_force_finalize(state) or expected_schema_source == "explicit"
+            response, repair_event = _repair_best_effort_json(
+                expected_schema,
+                response,
+                fallback_on_failure=force_fallback,
+                schema_source=expected_schema_source,
+                context="agent",
+                debug=debug,
+            )
 
         out = {"messages": [response], "expected_schema": expected_schema, "expected_schema_source": expected_schema_source}
         if repair_event:
