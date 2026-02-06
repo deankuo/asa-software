@@ -12,6 +12,7 @@ import requests
 from langchain_core.tools import BaseTool
 from pydantic import Field
 
+from config_base import BaseNetworkConfig
 from state_utils import parse_date_filters
 from http_utils import make_request, DEFAULT_USER_AGENT
 
@@ -26,12 +27,10 @@ DEFAULT_USER_AGENT = "ASA-Research-Agent/1.0 (https://github.com/cjerzak/asa-sof
 
 
 @dataclass
-class WikidataConfig:
+class WikidataConfig(BaseNetworkConfig):
     """Configuration for Wikidata queries."""
     timeout: float = DEFAULT_TIMEOUT
     max_results: int = 500
-    retry_count: int = 3
-    retry_delay: float = 2.0
     # Temporal filtering
     date_after: Optional[str] = None   # ISO 8601: "2020-01-01"
     date_before: Optional[str] = None  # ISO 8601: "2024-01-01"

@@ -335,27 +335,8 @@ test_that("combined workload performance is within acceptable bounds", {
 
 test_that("agent search performance is within acceptable bounds", {
 
-  skip_if(
-    tolower(Sys.getenv("ASA_CI_SKIP_API_TESTS")) %in% c("true", "1", "yes"),
-    "ASA_CI_SKIP_API_TESTS is set"
-  )
-
-  # Skip if environment not configured for agent tests
-  skip_if_not(
-    nzchar(Sys.getenv("OPENAI_API_KEY")) || nzchar(Sys.getenv("GROQ_API_KEY")),
-    "No API key available (OPENAI_API_KEY or GROQ_API_KEY)"
-  )
-
-  # Try to initialize agent - skip if backend not available
-  agent <- tryCatch({
-    initialize_agent(
-      backend = if (nzchar(Sys.getenv("OPENAI_API_KEY"))) "openai" else "groq",
-      model = if (nzchar(Sys.getenv("OPENAI_API_KEY"))) "gpt-4.1-mini" else "llama-3.3-70b-versatile",
-      verbose = FALSE
-    )
-  }, error = function(e) {
-    skip(paste("Could not initialize agent:", e$message))
-  })
+  asa_test_skip_api_tests()
+  agent <- asa_test_initialize_agent_or_skip()
 
   start_time <- Sys.time()
 

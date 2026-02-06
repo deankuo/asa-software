@@ -265,21 +265,8 @@ test_that("repair_json_output_to_schema is idempotent", {
 
 test_that("standard agent reaches recursion_limit and preserves JSON output (Gemini, best-effort)", {
 
-  skip_on_cran()
-
-  skip_if(
-    tolower(Sys.getenv("ASA_CI_SKIP_API_TESTS")) %in% c("true", "1", "yes"),
-    "ASA_CI_SKIP_API_TESTS is set"
-  )
-
-  api_key <- Sys.getenv("GOOGLE_API_KEY", unset = "")
-  if (!nzchar(api_key)) {
-    api_key <- Sys.getenv("GEMINI_API_KEY", unset = "")
-  }
-  skip_if_not(
-    nzchar(api_key),
-    "No Gemini API key available (GOOGLE_API_KEY or GEMINI_API_KEY)"
-  )
+  asa_test_skip_api_tests()
+  api_key <- asa_test_require_gemini_key()
 
   python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
   asa_test_skip_if_missing_python_modules(c(

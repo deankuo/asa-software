@@ -1,13 +1,9 @@
 # Integration test: run_task JSON output with Gemini backend
 
 test_that("run_task returns Vietnam first-level divisions in JSON (Gemini)", {
-  skip_on_cran()
-
-  skip_api_tests <- tolower(Sys.getenv("ASA_CI_SKIP_API_TESTS")) %in% c("true", "1", "yes")
-  skip_if(skip_api_tests, "ASA_CI_SKIP_API_TESTS is set")
+  asa_test_skip_api_tests()
 
   # Activate asa_env before checking for Python modules
-  # (otherwise py_module_available checks wrong environment)
   tryCatch(
     reticulate::use_condaenv("asa_env", required = TRUE),
     error = function(e) skip("asa_env conda environment not available")
@@ -17,10 +13,7 @@ test_that("run_task returns Vietnam first-level divisions in JSON (Gemini)", {
     !reticulate::py_module_available("langchain_google_genai"),
     "Missing Python module langchain_google_genai"
   )
-  skip_if(
-    !any(nzchar(Sys.getenv(c("GOOGLE_API_KEY", "GEMINI_API_KEY")))),
-    "Missing GOOGLE_API_KEY or GEMINI_API_KEY"
-  )
+  asa_test_require_gemini_key()
 
   agent <- initialize_agent(
     backend = "gemini",

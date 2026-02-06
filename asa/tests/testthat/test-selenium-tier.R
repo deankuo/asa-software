@@ -84,9 +84,7 @@ class _StubDDGS:
 }
 
 test_that("Selenium tier can load and parse a local result fixture", {
-  skip_on_cran()
-  run_selenium <- tolower(Sys.getenv("ASA_RUN_SELENIUM_TESTS")) %in% c("true", "1", "yes")
-  skip_if(!run_selenium, "Set ASA_RUN_SELENIUM_TESTS=true to run Selenium tier tests")
+  asa_test_skip_if_no_selenium()
 
   python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
   asa_test_skip_if_missing_python_modules(c("selenium", "bs4"))
@@ -141,9 +139,7 @@ test_that("Selenium tier can load and parse a local result fixture", {
 })
 
 test_that("Selenium tier raises a timeout on a local empty fixture", {
-  skip_on_cran()
-  run_selenium <- tolower(Sys.getenv("ASA_RUN_SELENIUM_TESTS")) %in% c("true", "1", "yes")
-  skip_if(!run_selenium, "Set ASA_RUN_SELENIUM_TESTS=true to run Selenium tier tests")
+  asa_test_skip_if_no_selenium()
 
   python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
   asa_test_skip_if_missing_python_modules(c("selenium", "bs4"))
@@ -196,9 +192,7 @@ test_that("Selenium tier raises a timeout on a local empty fixture", {
 })
 
 test_that("PRIMP tier parses a local fixture without network access", {
-  skip_on_cran()
-  run_selenium <- tolower(Sys.getenv("ASA_RUN_SELENIUM_TESTS")) %in% c("true", "1", "yes")
-  skip_if(!run_selenium, "Set ASA_RUN_SELENIUM_TESTS=true to run Selenium tier tests")
+  asa_test_skip_if_no_selenium()
 
   python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
   asa_test_skip_if_missing_python_modules(c("selenium", "bs4", "ddgs", "primp"))
@@ -235,9 +229,7 @@ test_that("PRIMP tier parses a local fixture without network access", {
 })
 
 test_that("DDGS tier returns stubbed results when PRIMP is empty", {
-  skip_on_cran()
-  run_selenium <- tolower(Sys.getenv("ASA_RUN_SELENIUM_TESTS")) %in% c("true", "1", "yes")
-  skip_if(!run_selenium, "Set ASA_RUN_SELENIUM_TESTS=true to run Selenium tier tests")
+  asa_test_skip_if_no_selenium()
 
   python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
   asa_test_skip_if_missing_python_modules(c("selenium", "bs4", "ddgs", "primp"))

@@ -798,9 +798,7 @@ asa_enumerate <- function(query,
                                       webpage_embedding_model = NULL,
                                       checkpoint_dir, resume_from) {
   # Query validation
-  if (!is.character(query) || length(query) != 1 || is.na(query) || query == "") {
-    stop("`query` must be a non-empty character string", call. = FALSE)
-  }
+  .validate_string(query, "query")
 
   # Numeric parameters
   if (!is.null(workers) && (!is.numeric(workers) || workers < 1 || workers > 10)) {
@@ -828,34 +826,22 @@ asa_enumerate <- function(query,
 
   # Optional capability flag: TRUE, FALSE, "auto", or NULL
   if (!is.null(allow_read_webpages)) {
-    if (identical(allow_read_webpages, "auto")) {
-      # "auto" mode is valid
-    } else if (!is.logical(allow_read_webpages) || length(allow_read_webpages) != 1 || is.na(allow_read_webpages)) {
-      stop('`allow_read_webpages` must be TRUE, FALSE, "auto", or NULL', call. = FALSE)
+    if (!identical(allow_read_webpages, "auto")) {
+      .validate_logical(allow_read_webpages, "allow_read_webpages")
     }
   }
 
   # Webpage reader options (optional)
   if (!is.null(webpage_relevance_mode)) {
-    if (!is.character(webpage_relevance_mode) || length(webpage_relevance_mode) != 1) {
-      stop("`webpage_relevance_mode` must be a single string or NULL", call. = FALSE)
-    }
-    if (!webpage_relevance_mode %in% c("auto", "lexical", "embeddings")) {
-      stop("`webpage_relevance_mode` must be one of: auto, lexical, embeddings", call. = FALSE)
-    }
+    .validate_choice(webpage_relevance_mode, "webpage_relevance_mode",
+                     c("auto", "lexical", "embeddings"))
   }
   if (!is.null(webpage_embedding_provider)) {
-    if (!is.character(webpage_embedding_provider) || length(webpage_embedding_provider) != 1) {
-      stop("`webpage_embedding_provider` must be a single string or NULL", call. = FALSE)
-    }
-    if (!webpage_embedding_provider %in% c("auto", "openai", "sentence_transformers")) {
-      stop("`webpage_embedding_provider` must be one of: auto, openai, sentence_transformers", call. = FALSE)
-    }
+    .validate_choice(webpage_embedding_provider, "webpage_embedding_provider",
+                     c("auto", "openai", "sentence_transformers"))
   }
   if (!is.null(webpage_embedding_model)) {
-    if (!is.character(webpage_embedding_model) || length(webpage_embedding_model) != 1 || is.na(webpage_embedding_model) || webpage_embedding_model == "") {
-      stop("`webpage_embedding_model` must be a non-empty string or NULL", call. = FALSE)
-    }
+    .validate_string(webpage_embedding_model, "webpage_embedding_model")
   }
 
   # Checkpoint directory validation

@@ -18,12 +18,10 @@ backends <- list(
   list(backend = "openrouter", model = "deepseek/deepseek-r1:free", env = "OPENROUTER_API_KEY")
 )
 
-skip_api_tests <- tolower(Sys.getenv("ASA_CI_SKIP_API_TESTS")) %in% c("true", "1", "yes")
-
 # Test agent initialization for each backend
 for (cfg in backends) {
   test_that(paste0(cfg$backend, "/", cfg$model, " - agent initialization"), {
-    skip_if(skip_api_tests, "ASA_CI_SKIP_API_TESTS is set")
+    asa_test_skip_api_tests()
     if (!is.null(cfg$py_module)) {
       skip_if(
         !reticulate::py_module_available(cfg$py_module),
@@ -48,7 +46,7 @@ for (cfg in backends) {
 # Test simple query for each backend
 for (cfg in backends) {
   test_that(paste0(cfg$backend, "/", cfg$model, " - simple query"), {
-    skip_if(skip_api_tests, "ASA_CI_SKIP_API_TESTS is set")
+    asa_test_skip_api_tests()
     if (!is.null(cfg$py_module)) {
       skip_if(
         !reticulate::py_module_available(cfg$py_module),

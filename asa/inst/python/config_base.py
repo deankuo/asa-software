@@ -15,7 +15,7 @@ class BaseNetworkConfig:
     that are shared across Wikidata, Wayback, and other network tools.
     """
     timeout: float = 30.0
-    max_retries: int = 3
+    retry_count: int = 3
     retry_delay: float = 2.0
     max_results: int = 10
 

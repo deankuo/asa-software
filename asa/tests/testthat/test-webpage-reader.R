@@ -163,15 +163,8 @@ test_that("OpenWebpage can read collaborators page (live network)", {
 })
 
 test_that("Gemini reasons about fetched webpage content (live)", {
-  skip_on_cran()
-  skip_if(
-    tolower(Sys.getenv("ASA_CI_SKIP_API_TESTS")) %in% c("true", "1", "yes"),
-    "ASA_CI_SKIP_API_TESTS is set"
-  )
-  skip_if(
-    !any(nzchar(Sys.getenv(c("GOOGLE_API_KEY", "GEMINI_API_KEY")))),
-    "Missing GOOGLE_API_KEY or GEMINI_API_KEY"
-  )
+  asa_test_skip_api_tests()
+  asa_test_require_gemini_key()
 
   agent <- asa::initialize_agent(
     backend = "gemini",

@@ -643,6 +643,36 @@ def _resolve_registry_path() -> str | None:
 _SQLITE_TIMEOUT = 5.0  # Was 1.0s, now 5.0s for parallel execution
 
 
+def _sqlite_retry_transaction(path: str, callback, label: str = "sqlite op",
+                              max_attempts: int = 3) -> None:
+    """Run a SQLite write transaction with retry-on-contention.
+
+    The callback receives an open connection with BEGIN IMMEDIATE already
+    issued.  It must NOT call conn.commit() — the wrapper does that on
+    success.
+
+    Args:
+        path: Path to the SQLite database file.
+        callback: ``callable(conn)`` that executes SQL statements.
+        label: Human-readable label for debug log messages.
+        max_attempts: Number of retries on OperationalError (lock contention).
+    """
+    with _TOR_REGISTRY_LOCK:
+        for attempt in range(max_attempts):
+            try:
+                with sqlite3.connect(path, timeout=_SQLITE_TIMEOUT) as conn:
+                    conn.execute("BEGIN IMMEDIATE")
+                    callback(conn)
+                    conn.commit()
+                    return
+            except sqlite3.OperationalError as exc:
+                logger.debug("%s contention (attempt %d): %s", label, attempt + 1, exc)
+                time.sleep(0.05 * (attempt + 1))
+            except Exception as exc:
+                logger.debug("%s failed: %s", label, exc)
+                return
+
+
 def _ensure_registry() -> str | None:
     """Create registry if enabled; return path or None."""
     if not _TOR_REGISTRY_ENABLED:
@@ -764,90 +794,82 @@ def _update_exit_record(
         return
 
     now = time.time()
-    with _TOR_REGISTRY_LOCK:
-        for attempt in range(3):
-            try:
-                with sqlite3.connect(path, timeout=_SQLITE_TIMEOUT) as conn:
-                    conn.execute("BEGIN IMMEDIATE")
-                    row = conn.execute(
-                        """
-                        SELECT status, last_seen, failures, successes, last_reason, cooldown_until, recent_uses
-                        FROM exit_health WHERE exit_ip=?
-                        """,
-                        (exit_ip,),
-                    ).fetchone()
 
-                    if row:
-                        _, last_seen, failures, successes, last_reason, existing_cooldown, recent_uses = row
-                        if bump_use:
-                            if now - (last_seen or now) > _TOR_OVERUSE_DECAY:
-                                recent_uses = 0
-                            recent_uses = (recent_uses or 0) + 1
-                        if increment_failure:
-                            failures = (failures or 0) + 1
-                        if increment_success:
-                            successes = (successes or 0) + 1
-                        effective_reason = reason or last_reason
-                        effective_cooldown = cooldown_until if cooldown_until is not None else (existing_cooldown or 0)
+    def _do_upsert(conn):
+        row = conn.execute(
+            """
+            SELECT status, last_seen, failures, successes, last_reason, cooldown_until, recent_uses
+            FROM exit_health WHERE exit_ip=?
+            """,
+            (exit_ip,),
+        ).fetchone()
 
-                        if (recent_uses or 0) >= _TOR_OVERUSE_THRESHOLD:
-                            status = "bad"
-                            effective_reason = reason or "overused"
-                            effective_cooldown = max(effective_cooldown or 0, now + _TOR_OVERUSE_DECAY)
+        nonlocal status
+        if row:
+            _, last_seen, failures, successes, last_reason, existing_cooldown, recent_uses = row
+            if bump_use:
+                if now - (last_seen or now) > _TOR_OVERUSE_DECAY:
+                    recent_uses = 0
+                recent_uses = (recent_uses or 0) + 1
+            if increment_failure:
+                failures = (failures or 0) + 1
+            if increment_success:
+                successes = (successes or 0) + 1
+            effective_reason = reason or last_reason
+            effective_cooldown = cooldown_until if cooldown_until is not None else (existing_cooldown or 0)
 
-                        conn.execute(
-                            """
-                            UPDATE exit_health
-                            SET status=?, last_seen=?, failures=?, successes=?, last_reason=?, cooldown_until=?, recent_uses=?
-                            WHERE exit_ip=?
-                            """,
-                            (
-                                status,
-                                now,
-                                failures or 0,
-                                successes or 0,
-                                effective_reason,
-                                effective_cooldown,
-                                recent_uses or 0,
-                                exit_ip,
-                            ),
-                        )
-                    else:
-                        recent_uses = 1 if bump_use else 0
-                        insert_status = status
-                        insert_reason = reason
-                        insert_cooldown = cooldown_until or 0
+            if (recent_uses or 0) >= _TOR_OVERUSE_THRESHOLD:
+                status = "bad"
+                effective_reason = reason or "overused"
+                effective_cooldown = max(effective_cooldown or 0, now + _TOR_OVERUSE_DECAY)
 
-                        if recent_uses >= _TOR_OVERUSE_THRESHOLD:
-                            insert_status = "bad"
-                            insert_reason = reason or "overused"
-                            insert_cooldown = max(insert_cooldown, now + _TOR_OVERUSE_DECAY)
+            conn.execute(
+                """
+                UPDATE exit_health
+                SET status=?, last_seen=?, failures=?, successes=?, last_reason=?, cooldown_until=?, recent_uses=?
+                WHERE exit_ip=?
+                """,
+                (
+                    status,
+                    now,
+                    failures or 0,
+                    successes or 0,
+                    effective_reason,
+                    effective_cooldown,
+                    recent_uses or 0,
+                    exit_ip,
+                ),
+            )
+        else:
+            recent_uses = 1 if bump_use else 0
+            insert_status = status
+            insert_reason = reason
+            insert_cooldown = cooldown_until or 0
 
-                        conn.execute(
-                            """
-                            INSERT INTO exit_health
-                            (exit_ip, status, last_seen, failures, successes, last_reason, cooldown_until, recent_uses)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                            """,
-                            (
-                                exit_ip,
-                                insert_status,
-                                now,
-                                1 if increment_failure else 0,
-                                1 if increment_success else 0,
-                                insert_reason,
-                                insert_cooldown,
-                                recent_uses,
-                            ),
-                        )
-                    conn.commit()
-                    return
-            except sqlite3.OperationalError as exc:
-                logger.debug("Tor registry write contention for %s (attempt %d): %s", exit_ip, attempt + 1, exc)
-                time.sleep(0.05 * (attempt + 1))
-            except Exception as exc:
-                logger.debug("Tor registry update failed for %s: %s", exit_ip, exc)
-                return
+            if recent_uses >= _TOR_OVERUSE_THRESHOLD:
+                insert_status = "bad"
+                insert_reason = reason or "overused"
+                insert_cooldown = max(insert_cooldown, now + _TOR_OVERUSE_DECAY)
+
+            conn.execute(
+                """
+                INSERT INTO exit_health
+                (exit_ip, status, last_seen, failures, successes, last_reason, cooldown_until, recent_uses)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    exit_ip,
+                    insert_status,
+                    now,
+                    1 if increment_failure else 0,
+                    1 if increment_success else 0,
+                    insert_reason,
+                    insert_cooldown,
+                    recent_uses,
+                ),
+            )
+
+    _sqlite_retry_transaction(path, _do_upsert, label=f"Tor registry update for {exit_ip}")
 
 
 def _clear_exit_cache(proxy: str) -> None:
@@ -1091,30 +1113,21 @@ def _persist_proxy_block(proxy: str, captcha_count: int, now: float) -> None:
         return
 
     expires_at = now + (_PROXY_BLOCK_DURATION * min(captcha_count, 5))
-    with _TOR_REGISTRY_LOCK:
-        for attempt in range(3):
-            try:
-                with sqlite3.connect(path, timeout=_SQLITE_TIMEOUT) as conn:
-                    conn.execute("BEGIN IMMEDIATE")
-                    conn.execute(
-                        """
-                        INSERT INTO proxy_blocks(proxy, last_hit, captcha_count, expires_at)
-                        VALUES (?, ?, ?, ?)
-                        ON CONFLICT(proxy) DO UPDATE SET
-                            last_hit=excluded.last_hit,
-                            captcha_count=excluded.captcha_count,
-                            expires_at=excluded.expires_at
-                        """,
-                        (proxy, now, captcha_count, expires_at),
-                    )
-                    conn.commit()
-                    return
-            except sqlite3.OperationalError as exc:
-                logger.debug("Proxy block persist contention for %s (attempt %d): %s", proxy, attempt + 1, exc)
-                time.sleep(0.05 * (attempt + 1))
-            except Exception as exc:
-                logger.debug("Proxy block persist failed for %s: %s", proxy, exc)
-                return
+
+    def _do_upsert(conn):
+        conn.execute(
+            """
+            INSERT INTO proxy_blocks(proxy, last_hit, captcha_count, expires_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(proxy) DO UPDATE SET
+                last_hit=excluded.last_hit,
+                captcha_count=excluded.captcha_count,
+                expires_at=excluded.expires_at
+            """,
+            (proxy, now, captcha_count, expires_at),
+        )
+
+    _sqlite_retry_transaction(path, _do_upsert, label=f"Proxy block persist for {proxy}")
 
 
 def _get_proxy_block(proxy: str) -> Dict[str, float] | None:

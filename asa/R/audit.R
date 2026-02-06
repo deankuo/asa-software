@@ -528,8 +528,8 @@ If the data looks complete and consistent, say so with high scores.',
   }
 
   # Validate query
-  if (!is.null(query) && !is.character(query)) {
-    stop("query must be a character string", call. = FALSE)
+  if (!is.null(query)) {
+    .validate_string(query, "query")
   }
 
   # Validate known_universe
@@ -540,16 +540,15 @@ If the data looks complete and consistent, say so with high scores.',
   }
 
   # Validate confidence_threshold
-  if (!is.numeric(confidence_threshold) ||
-      confidence_threshold < 0 || confidence_threshold > 1) {
-    stop("confidence_threshold must be a number between 0 and 1",
-         call. = FALSE)
+  .validate_positive(confidence_threshold, "confidence_threshold", allow_zero = TRUE)
+  if (confidence_threshold > 1) {
+    .stop_validation("confidence_threshold", "be between 0 and 1",
+                     actual = confidence_threshold,
+                     fix = "Provide a value between 0 and 1")
   }
 
   # Validate timeout
-  if (!is.numeric(timeout) || timeout <= 0) {
-    stop("timeout must be a positive number", call. = FALSE)
-  }
+  .validate_positive(timeout, "timeout")
 
   invisible(TRUE)
 }

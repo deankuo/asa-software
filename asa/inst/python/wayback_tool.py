@@ -13,6 +13,7 @@ import requests
 from langchain_core.tools import BaseTool
 from pydantic import Field
 
+from config_base import BaseNetworkConfig
 from state_utils import parse_date_filters
 from http_utils import make_request
 
@@ -30,12 +31,10 @@ DEFAULT_USER_AGENT = "ASA-Research-Agent/1.0 (Wayback Integration)"
 
 
 @dataclass
-class WaybackConfig:
+class WaybackConfig(BaseNetworkConfig):
     """Configuration for Wayback Machine queries."""
     timeout: float = DEFAULT_TIMEOUT
     max_results: int = 100
-    retry_count: int = 3
-    retry_delay: float = 2.0
     # Rate limiting to be polite to Internet Archive
     request_delay: float = 0.5
 
