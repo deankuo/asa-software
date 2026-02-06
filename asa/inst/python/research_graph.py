@@ -809,18 +809,20 @@ def create_research_graph(
     return workflow.compile()
 
 
-def run_research(
-    graph,
+def _resolve_thread_id(query: str, thread_id: Optional[str] = None) -> str:
+    """Resolve thread id, generating a deterministic short id when absent."""
+    if thread_id:
+        return thread_id
+    return hashlib.md5(f"{query}_{time.time()}".encode()).hexdigest()[:16]
+
+
+def _build_initial_state(
     query: str,
     schema: Dict[str, str],
-    config_dict: Dict[str, Any] = None,
-    thread_id: str = None
+    config_dict: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
-    """Execute research graph and return results."""
-    if thread_id is None:
-        thread_id = hashlib.md5(f"{query}_{time.time()}".encode()).hexdigest()[:16]
-
-    initial_state = {
+    """Build the initial research state shared by sync and stream execution."""
+    return {
         "query": query,
         "schema": schema,
         "config": config_dict or {},
@@ -840,6 +842,61 @@ def run_research(
         "errors": []
     }
 
+
+def _build_research_result(
+    state: Dict[str, Any],
+    elapsed: float,
+    status_fallback: str = "unknown"
+) -> Dict[str, Any]:
+    """Build normalized research results from a completed state."""
+    state = state or {}
+    results = state.get("results", [])
+    return {
+        "results": results,
+        "provenance": [],
+        "metrics": {
+            "round_number": state.get("round_number", 0),
+            "queries_used": state.get("queries_used", 0),
+            "tokens_used": state.get("tokens_used", 0),
+            "time_elapsed": elapsed,
+            "items_found": len(results)
+        },
+        "status": state.get("status", status_fallback),
+        "stop_reason": state.get("stop_reason"),
+        "errors": state.get("errors", []),
+        "plan": state.get("plan", {})
+    }
+
+
+def _build_research_error_result(
+    error: Exception,
+    elapsed: float,
+    state: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """Build normalized failed research results."""
+    state = state or {}
+    return {
+        "results": state.get("results", []),
+        "provenance": [],
+        "metrics": {"time_elapsed": elapsed},
+        "status": "failed",
+        "stop_reason": f"execution_error: {str(error)}",
+        "errors": [{"stage": "execution", "error": str(error)}],
+        "plan": state.get("plan", {})
+    }
+
+
+def run_research(
+    graph,
+    query: str,
+    schema: Dict[str, str],
+    config_dict: Dict[str, Any] = None,
+    thread_id: str = None
+) -> Dict[str, Any]:
+    """Execute research graph and return results."""
+    thread_id = _resolve_thread_id(query, thread_id)
+    initial_state = _build_initial_state(query, schema, config_dict)
+
     config = {"configurable": {"thread_id": thread_id}}
     start_time = time.time()
 
@@ -847,33 +904,11 @@ def run_research(
         final_state = graph.invoke(initial_state, config)
         elapsed = time.time() - start_time
 
-        return {
-            "results": final_state.get("results", []),
-            "provenance": [],
-            "metrics": {
-                "round_number": final_state.get("round_number", 0),
-                "queries_used": final_state.get("queries_used", 0),
-                "tokens_used": final_state.get("tokens_used", 0),
-                "time_elapsed": elapsed,
-                "items_found": len(final_state.get("results", []))
-            },
-            "status": final_state.get("status", "unknown"),
-            "stop_reason": final_state.get("stop_reason"),
-            "errors": final_state.get("errors", []),
-            "plan": final_state.get("plan", {})
-        }
+        return _build_research_result(final_state, elapsed, status_fallback="unknown")
 
     except Exception as e:
         logger.error(f"Research error: {e}")
-        return {
-            "results": [],
-            "provenance": [],
-            "metrics": {"time_elapsed": time.time() - start_time},
-            "status": "failed",
-            "stop_reason": f"execution_error: {str(e)}",
-            "errors": [{"stage": "execution", "error": str(e)}],
-            "plan": {}
-        }
+        return _build_research_error_result(e, time.time() - start_time)
 
 
 def stream_research(
@@ -888,28 +923,8 @@ def stream_research(
     Yields progress events during execution, with the final 'complete' event
     containing the full result (same format as run_research).
     """
-    if thread_id is None:
-        thread_id = hashlib.md5(f"{query}_{time.time()}".encode()).hexdigest()[:16]
-
-    initial_state = {
-        "query": query,
-        "schema": schema,
-        "config": config_dict or {},
-        "plan": {},
-        "entity_type": "",
-        "wikidata_type": None,
-        "results": [],
-        "new_results": [],
-        "seen_hashes": {},
-        "novelty_history": [],
-        "round_number": 0,
-        "queries_used": 0,
-        "tokens_used": 0,
-        "start_time": time.time(),
-        "status": "planning",
-        "stop_reason": None,
-        "errors": []
-    }
+    thread_id = _resolve_thread_id(query, thread_id)
+    initial_state = _build_initial_state(query, schema, config_dict)
 
     config = {"configurable": {"thread_id": thread_id}}
     start_time = time.time()
@@ -950,21 +965,11 @@ def stream_research(
 
         # Build final result in same format as run_research()
         elapsed = time.time() - start_time
-        final_result = {
-            "results": accumulated_state.get("results", []),
-            "provenance": [],
-            "metrics": {
-                "round_number": accumulated_state.get("round_number", 0),
-                "queries_used": accumulated_state.get("queries_used", 0),
-                "tokens_used": accumulated_state.get("tokens_used", 0),
-                "time_elapsed": elapsed,
-                "items_found": len(accumulated_state.get("results", []))
-            },
-            "status": accumulated_state.get("status", "complete"),
-            "stop_reason": accumulated_state.get("stop_reason"),
-            "errors": accumulated_state.get("errors", []),
-            "plan": accumulated_state.get("plan", {})
-        }
+        final_result = _build_research_result(
+            accumulated_state,
+            elapsed,
+            status_fallback="complete"
+        )
 
         yield {
             "event_type": "complete",
@@ -974,15 +979,7 @@ def stream_research(
 
     except Exception as e:
         elapsed = time.time() - start_time
-        error_result = {
-            "results": accumulated_state.get("results", []),
-            "provenance": [],
-            "metrics": {"time_elapsed": elapsed},
-            "status": "failed",
-            "stop_reason": f"execution_error: {str(e)}",
-            "errors": [{"stage": "execution", "error": str(e)}],
-            "plan": accumulated_state.get("plan", {})
-        }
+        error_result = _build_research_error_result(e, elapsed, state=accumulated_state)
         yield {
             "event_type": "error",
             "error": str(e),

@@ -1,9 +1,45 @@
 # test-temporal.R
 # Tests for temporal filtering functionality across Python modules and R interface
 
-# ============================================================================
-# Helper: Load Python Modules
-# ============================================================================
+.get_date_extractor <- function() {
+  asa_test_import_module("date_extractor", required_modules = c("bs4", "requests"))
+}
+
+.mock_article_html <- '
+  <html>
+  <head>
+    <script type="application/ld+json">
+      {"@type": "Article", "datePublished": "2023-06-15"}
+    </script>
+  </head>
+  <body></body>
+  </html>
+'
+
+.verify_constraint <- function(date_extractor, date_after = NULL, date_before = NULL, html_content = .mock_article_html) {
+  date_extractor$verify_date_constraint(
+    url = "https://example.com/article",
+    date_after = date_after,
+    date_before = date_before,
+    html_content = html_content
+  )
+}
+
+.get_research_graph_module <- function() {
+  python_path <- asa_test_skip_if_no_python(required_files = "date_extractor.py", initialize = FALSE)
+  asa_test_skip_if_missing_python_modules(c("langchain_core", "langgraph", "pydantic", "requests"))
+  reticulate::import_from_path("research_graph", path = python_path)
+}
+
+.create_stopper <- function(target_items = NULL, plateau_rounds = 2L, novelty_min = 0.1) {
+  research <- .get_research_graph_module()
+  config <- research$ResearchConfig(
+    target_items = target_items,
+    plateau_rounds = plateau_rounds,
+    novelty_min = novelty_min
+  )
+  research$create_stopper_node(config)
+}
 
 # ============================================================================
 # R Interface Validation Tests (research.R)
@@ -259,106 +295,43 @@ test_that("_extract_from_url handles boundary dates", {
 })
 
 test_that("verify_date_constraint validates after constraint", {
-  date_extractor <- asa_test_import_module("date_extractor", required_modules = c("bs4", "requests"))
-
-  mock_html <- '
-    <html>
-    <head>
-      <script type="application/ld+json">
-        {"@type": "Article", "datePublished": "2023-06-15"}
-      </script>
-    </head>
-    <body></body>
-    </html>
-  '
+  date_extractor <- .get_date_extractor()
 
   # Date passes "after" constraint (2023-06-15 > 2023-01-01)
-  result <- date_extractor$verify_date_constraint(
-    url = "https://example.com/article",
-    date_after = "2023-01-01",
-    date_before = NULL,
-    html_content = mock_html
-  )
+  result <- .verify_constraint(date_extractor, date_after = "2023-01-01")
   expect_true(result$passes)
   expect_equal(result$extracted_date, "2023-06-15")
 
   # Date fails "after" constraint (2023-06-15 < 2024-01-01)
-  result <- date_extractor$verify_date_constraint(
-    url = "https://example.com/article",
-    date_after = "2024-01-01",
-    date_before = NULL,
-    html_content = mock_html
-  )
+  result <- .verify_constraint(date_extractor, date_after = "2024-01-01")
   expect_false(result$passes)
 
   # Boundary test: extracted date exactly equals "after" date
-  result <- date_extractor$verify_date_constraint(
-    url = "https://example.com/article",
-    date_after = "2023-06-15",
-    date_before = NULL,
-    html_content = mock_html
-  )
+  result <- .verify_constraint(date_extractor, date_after = "2023-06-15")
   # Documents the inclusive/exclusive boundary semantics
   expect_true(is.logical(result$passes) || is.null(result$passes),
     info = "Boundary case: date == after should have well-defined behavior")
 })
 
 test_that("verify_date_constraint validates before constraint boundary", {
-  date_extractor <- asa_test_import_module("date_extractor", required_modules = c("bs4", "requests"))
-
-  mock_html <- '
-    <html>
-    <head>
-      <script type="application/ld+json">
-        {"@type": "Article", "datePublished": "2023-06-15"}
-      </script>
-    </head>
-    <body></body>
-    </html>
-  '
+  date_extractor <- .get_date_extractor()
 
   # Boundary test: extracted date exactly equals "before" date
-  result <- date_extractor$verify_date_constraint(
-    url = "https://example.com/article",
-    date_after = NULL,
-    date_before = "2023-06-15",
-    html_content = mock_html
-  )
+  result <- .verify_constraint(date_extractor, date_before = "2023-06-15")
   # Documents the inclusive/exclusive boundary semantics
   expect_true(is.logical(result$passes) || is.null(result$passes),
     info = "Boundary case: date == before should have well-defined behavior")
 })
 
 test_that("verify_date_constraint validates before constraint", {
-  date_extractor <- asa_test_import_module("date_extractor", required_modules = c("bs4", "requests"))
-
-  mock_html <- '
-    <html>
-    <head>
-      <script type="application/ld+json">
-        {"@type": "Article", "datePublished": "2023-06-15"}
-      </script>
-    </head>
-    <body></body>
-    </html>
-  '
+  date_extractor <- .get_date_extractor()
 
   # Date passes "before" constraint (2023-06-15 < 2024-01-01)
-  result <- date_extractor$verify_date_constraint(
-    url = "https://example.com/article",
-    date_after = NULL,
-    date_before = "2024-01-01",
-    html_content = mock_html
-  )
+  result <- .verify_constraint(date_extractor, date_before = "2024-01-01")
   expect_true(result$passes)
 
   # Date fails "before" constraint (2023-06-15 is not before 2023-01-01)
-  result <- date_extractor$verify_date_constraint(
-    url = "https://example.com/article",
-    date_after = NULL,
-    date_before = "2023-01-01",
-    html_content = mock_html
-  )
+  result <- .verify_constraint(date_extractor, date_before = "2023-01-01")
   expect_false(result$passes)
 })
 
@@ -686,12 +659,7 @@ test_that("ResearchConfig accepts all valid time_filter values", {
 # ============================================================================
 
 test_that("stopper honors target_items", {
-  python_path <- asa_test_skip_if_no_python(required_files = "date_extractor.py", initialize = FALSE)
-  asa_test_skip_if_missing_python_modules(c("langchain_core", "langgraph", "pydantic", "requests"))
-  research <- reticulate::import_from_path("research_graph", path = python_path)
-
-  config <- research$ResearchConfig(target_items = 2L, plateau_rounds = 2L, novelty_min = 0.1)
-  stopper <- research$create_stopper_node(config)
+  stopper <- .create_stopper(target_items = 2L, plateau_rounds = 2L, novelty_min = 0.1)
 
   state <- list(
     round_number = 1L,
@@ -706,12 +674,7 @@ test_that("stopper honors target_items", {
 })
 
 test_that("stopper stops on novelty plateau", {
-  python_path <- asa_test_skip_if_no_python(required_files = "date_extractor.py", initialize = FALSE)
-  asa_test_skip_if_missing_python_modules(c("langchain_core", "langgraph", "pydantic", "requests"))
-  research <- reticulate::import_from_path("research_graph", path = python_path)
-
-  config <- research$ResearchConfig(target_items = NULL, plateau_rounds = 2L, novelty_min = 0.1)
-  stopper <- research$create_stopper_node(config)
+  stopper <- .create_stopper(target_items = NULL, plateau_rounds = 2L, novelty_min = 0.1)
 
   state <- list(
     round_number = 3L,
@@ -726,12 +689,7 @@ test_that("stopper stops on novelty plateau", {
 })
 
 test_that("stopper continues when novelty remains above threshold", {
-  python_path <- asa_test_skip_if_no_python(required_files = "date_extractor.py", initialize = FALSE)
-  asa_test_skip_if_missing_python_modules(c("langchain_core", "langgraph", "pydantic", "requests"))
-  research <- reticulate::import_from_path("research_graph", path = python_path)
-
-  config <- research$ResearchConfig(target_items = NULL, plateau_rounds = 2L, novelty_min = 0.1)
-  stopper <- research$create_stopper_node(config)
+  stopper <- .create_stopper(target_items = NULL, plateau_rounds = 2L, novelty_min = 0.1)
 
   state <- list(
     round_number = 2L,

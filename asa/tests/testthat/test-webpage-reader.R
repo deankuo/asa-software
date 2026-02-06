@@ -10,15 +10,8 @@
   excerpt
 }
 
-test_that("OpenWebpage tool is gated by allow_read_webpages", {
-  python_path <- asa_test_skip_if_no_python(required_files = "webpage_tool.py")
-  asa_test_skip_if_missing_python_modules(
-    c("curl_cffi", "bs4", "pydantic", "langchain_core")
-  )
-
-  webpage_tool <- asa_test_import_from_path_or_skip("webpage_tool", python_path)
+.with_restored_webpage_reader <- function(webpage_tool, expr) {
   cfg_prev <- webpage_tool$configure_webpage_reader()
-
   on.exit({
     try(webpage_tool$configure_webpage_reader(
       allow_read_webpages = cfg_prev$allow_read_webpages,
@@ -32,31 +25,42 @@ test_that("OpenWebpage tool is gated by allow_read_webpages", {
     ), silent = TRUE)
     try(webpage_tool$clear_webpage_reader_cache(), silent = TRUE)
   }, add = TRUE)
+  eval.parent(substitute(expr))
+}
 
-  tool <- webpage_tool$create_webpage_reader_tool()
+test_that("OpenWebpage tool is gated by allow_read_webpages", {
+  python_path <- asa_test_skip_if_no_python(required_files = "webpage_tool.py")
+  asa_test_skip_if_missing_python_modules(
+    c("curl_cffi", "bs4", "pydantic", "langchain_core")
+  )
 
-  webpage_tool$configure_webpage_reader(
-    allow_read_webpages = FALSE,
-    relevance_mode = "lexical",
-    cache_enabled = FALSE
-  )
-  out_disabled <- tool$`_run`(
-    url = "https://connorjerzak.com/collaborators/",
-    query = "Europe"
-  )
-  expect_match(out_disabled, "Webpage reading is disabled", fixed = TRUE)
-  expect_match(out_disabled, "allow_read_webpages=FALSE", fixed = TRUE)
+  webpage_tool <- asa_test_import_from_path_or_skip("webpage_tool", python_path)
+  .with_restored_webpage_reader(webpage_tool, {
+    tool <- webpage_tool$create_webpage_reader_tool()
 
-  webpage_tool$configure_webpage_reader(
-    allow_read_webpages = TRUE,
-    relevance_mode = "lexical",
-    cache_enabled = FALSE
-  )
-  out_enabled <- tool$`_run`(
-    url = "http://localhost/",
-    query = "test"
-  )
-  expect_match(out_enabled, "Refusing to open URL", fixed = TRUE)
+    webpage_tool$configure_webpage_reader(
+      allow_read_webpages = FALSE,
+      relevance_mode = "lexical",
+      cache_enabled = FALSE
+    )
+    out_disabled <- tool$`_run`(
+      url = "https://connorjerzak.com/collaborators/",
+      query = "Europe"
+    )
+    expect_match(out_disabled, "Webpage reading is disabled", fixed = TRUE)
+    expect_match(out_disabled, "allow_read_webpages=FALSE", fixed = TRUE)
+
+    webpage_tool$configure_webpage_reader(
+      allow_read_webpages = TRUE,
+      relevance_mode = "lexical",
+      cache_enabled = FALSE
+    )
+    out_enabled <- tool$`_run`(
+      url = "http://localhost/",
+      query = "test"
+    )
+    expect_match(out_enabled, "Refusing to open URL", fixed = TRUE)
+  })
 })
 
 test_that(".with_webpage_reader_config toggles Python allow_read_webpages", {
@@ -117,49 +121,35 @@ test_that("OpenWebpage can read collaborators page (live network)", {
   )
 
   webpage_tool <- asa_test_import_from_path_or_skip("webpage_tool", python_path)
-  cfg_prev <- webpage_tool$configure_webpage_reader()
+  .with_restored_webpage_reader(webpage_tool, {
+    webpage_tool$configure_webpage_reader(
+      allow_read_webpages = TRUE,
+      relevance_mode = "lexical",
+      chunk_chars = 2000,
+      max_chunks = 2,
+      cache_enabled = FALSE
+    )
 
-  on.exit({
-    try(webpage_tool$configure_webpage_reader(
-      allow_read_webpages = cfg_prev$allow_read_webpages,
-      relevance_mode = cfg_prev$relevance_mode,
-      embedding_provider = cfg_prev$embedding_provider,
-      embedding_model = cfg_prev$embedding_model,
-      prefilter_k = cfg_prev$prefilter_k,
-      use_mmr = cfg_prev$use_mmr,
-      mmr_lambda = cfg_prev$mmr_lambda,
-      cache_enabled = cfg_prev$cache_enabled
-    ), silent = TRUE)
-    try(webpage_tool$clear_webpage_reader_cache(), silent = TRUE)
-  }, add = TRUE)
+    tool <- webpage_tool$create_webpage_reader_tool()
+    out <- tool$`_run`(
+      url = "https://connorjerzak.com/collaborators/",
+      query = "Europe:"
+    )
 
-  webpage_tool$configure_webpage_reader(
-    allow_read_webpages = TRUE,
-    relevance_mode = "lexical",
-    chunk_chars = 2000,
-    max_chunks = 2,
-    cache_enabled = FALSE
-  )
+    excerpt1 <- .extract_first_excerpt(out)
+    expect_true(nchar(excerpt1) > 0)
 
-  tool <- webpage_tool$create_webpage_reader_tool()
-  out <- tool$`_run`(
-    url = "https://connorjerzak.com/collaborators/",
-    query = "Europe:"
-  )
+    pos_europe <- regexpr("Europe:", excerpt1, fixed = TRUE)
+    expect_true(pos_europe[1] > -1)
 
-  excerpt1 <- .extract_first_excerpt(out)
-  expect_true(nchar(excerpt1) > 0)
+    after <- substring(excerpt1, pos_europe[1] + attr(pos_europe, "match.length"))
+    lines <- trimws(unlist(strsplit(after, "\n", fixed = TRUE)))
+    lines <- lines[lines != ""]
+    lines <- lines[!grepl("^[\\-–—]+$", lines)]
 
-  pos_europe <- regexpr("Europe:", excerpt1, fixed = TRUE)
-  expect_true(pos_europe[1] > -1)
-
-  after <- substring(excerpt1, pos_europe[1] + attr(pos_europe, "match.length"))
-  lines <- trimws(unlist(strsplit(after, "\n", fixed = TRUE)))
-  lines <- lines[lines != ""]
-  lines <- lines[!grepl("^[\\-–—]+$", lines)]
-
-  expect_true(length(lines) >= 1)
-  expect_true(grepl("Adel Daoud", lines[1], fixed = TRUE))
+    expect_true(length(lines) >= 1)
+    expect_true(grepl("Adel Daoud", lines[1], fixed = TRUE))
+  })
 })
 
 test_that("Gemini reasons about fetched webpage content (live)", {

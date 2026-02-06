@@ -18,61 +18,52 @@ backends <- list(
   list(backend = "openrouter", model = "deepseek/deepseek-r1:free", env = "OPENROUTER_API_KEY")
 )
 
+.with_backend_agent <- function(cfg, expr) {
+  asa_test_skip_api_tests()
+  if (!is.null(cfg$py_module)) {
+    skip_if(
+      !reticulate::py_module_available(cfg$py_module),
+      paste("Missing Python module", cfg$py_module)
+    )
+  }
+  skip_if(
+    !any(nzchar(Sys.getenv(cfg$env))),
+    paste("Missing", paste(cfg$env, collapse = " or "))
+  )
+
+  agent <- initialize_agent(
+    backend = cfg$backend,
+    model = cfg$model,
+    verbose = FALSE
+  )
+  eval(substitute(expr), envir = list2env(list(agent = agent, cfg = cfg), parent = parent.frame()))
+}
+
 # Test agent initialization for each backend
 for (cfg in backends) {
   test_that(paste0(cfg$backend, "/", cfg$model, " - agent initialization"), {
-    asa_test_skip_api_tests()
-    if (!is.null(cfg$py_module)) {
-      skip_if(
-        !reticulate::py_module_available(cfg$py_module),
-        paste("Missing Python module", cfg$py_module)
-      )
-    }
-    skip_if(
-      !any(nzchar(Sys.getenv(cfg$env))),
-      paste("Missing", paste(cfg$env, collapse = " or "))
-    )
-
-    agent <- initialize_agent(
-      backend = cfg$backend,
-      model = cfg$model,
-      verbose = FALSE
-    )
-    expect_s3_class(agent, "asa_agent")
-    expect_equal(agent$backend, cfg$backend)
+    .with_backend_agent(cfg, {
+      expect_s3_class(agent, "asa_agent")
+      expect_equal(agent$backend, cfg$backend)
+    })
   })
 }
 
 # Test simple query for each backend
 for (cfg in backends) {
   test_that(paste0(cfg$backend, "/", cfg$model, " - simple query"), {
-    asa_test_skip_api_tests()
-    if (!is.null(cfg$py_module)) {
-      skip_if(
-        !reticulate::py_module_available(cfg$py_module),
-        paste("Missing Python module", cfg$py_module)
+    .with_backend_agent(cfg, {
+      result <- run_task(
+        prompt = "What is 2+2? Reply with just the number.",
+        output_format = "text",
+        agent = agent
       )
-    }
-    skip_if(
-      !any(nzchar(Sys.getenv(cfg$env))),
-      paste("Missing", paste(cfg$env, collapse = " or "))
-    )
-
-    agent <- initialize_agent(
-      backend = cfg$backend,
-      model = cfg$model,
-      verbose = FALSE
-    )
-    result <- run_task(
-      prompt = "What is 2+2? Reply with just the number.",
-      output_format = "text",
-      agent = agent
-    )
-    # Collapse result to single string and check for "4" not adjacent to other digits
-    result_text <- paste(unlist(result), collapse = " ")
-    expect_true(
-      grepl("(?<![0-9])4(?![0-9])", result_text, perl = TRUE),
-      info = paste("Expected '4' in response:", substr(result_text, 1, 200))
-    )
+      # Collapse result to single string and check for "4" not adjacent to other digits
+      result_text <- paste(unlist(result), collapse = " ")
+      expect_true(
+        grepl("(?<![0-9])4(?![0-9])", result_text, perl = TRUE),
+        info = paste("Expected '4' in response:", substr(result_text, 1, 200))
+      )
+    })
   })
 }

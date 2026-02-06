@@ -1095,6 +1095,107 @@ configure_temporal <- function(time_filter = NULL) {
   )
 }
 
+.resolve_agent_config_value <- function(config = NULL, agent = NULL, key) {
+  value <- NULL
+
+  if (!is.null(config) && inherits(config, "asa_config")) {
+    value <- config[[key]] %||% NULL
+  }
+
+  if (is.null(value)) {
+    if (!is.null(agent) && inherits(agent, "asa_agent")) {
+      value <- agent$config[[key]] %||% NULL
+    } else if (is.null(agent) && .is_initialized()) {
+      value <- .try_or(get_agent()$config[[key]] %||% NULL)
+    }
+  }
+
+  value
+}
+
+.resolve_runtime_settings <- function(config = NULL,
+                                     agent = NULL,
+                                     temporal = NULL,
+                                     allow_read_webpages = NULL,
+                                     webpage_relevance_mode = NULL,
+                                     webpage_embedding_provider = NULL,
+                                     webpage_embedding_model = NULL) {
+  config_search <- .resolve_agent_config_value(config = config, agent = agent, key = "search")
+  config_conda_env <- .resolve_agent_config_value(config = config, agent = agent, key = "conda_env")
+
+  resolved <- .resolve_temporal_and_webpage_reader(
+    temporal = temporal,
+    config = config,
+    config_search = config_search,
+    allow_read_webpages = allow_read_webpages,
+    webpage_relevance_mode = webpage_relevance_mode,
+    webpage_embedding_provider = webpage_embedding_provider,
+    webpage_embedding_model = webpage_embedding_model
+  )
+
+  c(
+    list(
+      config_search = config_search,
+      config_conda_env = config_conda_env
+    ),
+    resolved
+  )
+}
+
+.resolve_runtime_inputs <- function(config = NULL,
+                                   agent = NULL,
+                                   temporal = NULL,
+                                   allow_read_webpages = NULL,
+                                   webpage_relevance_mode = NULL,
+                                   webpage_embedding_provider = NULL,
+                                   webpage_embedding_model = NULL) {
+  runtime <- .resolve_runtime_settings(
+    config = config,
+    agent = agent,
+    temporal = temporal,
+    allow_read_webpages = allow_read_webpages,
+    webpage_relevance_mode = webpage_relevance_mode,
+    webpage_embedding_provider = webpage_embedding_provider,
+    webpage_embedding_model = webpage_embedding_model
+  )
+
+  list(
+    runtime = runtime,
+    temporal = runtime$temporal,
+    allow_rw = runtime$allow_read_webpages
+  )
+}
+
+.with_runtime_wrappers <- function(runtime, conda_env = NULL, agent = NULL, fn) {
+  conda_env <- conda_env %||% runtime$config_conda_env %||% .get_default_conda_env()
+
+  .with_search_config(runtime$config_search, conda_env = conda_env, function() {
+    .with_webpage_reader_config(
+      runtime$allow_read_webpages,
+      relevance_mode = runtime$relevance_mode,
+      embedding_provider = runtime$embedding_provider,
+      embedding_model = runtime$embedding_model,
+      timeout = runtime$timeout,
+      max_bytes = runtime$max_bytes,
+      max_chars = runtime$max_chars,
+      max_chunks = runtime$max_chunks,
+      chunk_chars = runtime$chunk_chars,
+      embedding_api_base = runtime$embedding_api_base,
+      prefilter_k = runtime$prefilter_k,
+      use_mmr = runtime$use_mmr,
+      mmr_lambda = runtime$mmr_lambda,
+      cache_enabled = runtime$cache_enabled,
+      cache_max_entries = runtime$cache_max_entries,
+      cache_max_text_chars = runtime$cache_max_text_chars,
+      user_agent = runtime$user_agent,
+      conda_env = conda_env,
+      fn = function() {
+        .with_temporal(runtime$temporal, fn, agent = agent)
+      }
+    )
+  })
+}
+
 
 #' Apply Temporal Filtering for a Single Operation
 #'

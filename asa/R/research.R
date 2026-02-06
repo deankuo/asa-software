@@ -199,46 +199,18 @@ asa_enumerate <- function(query,
     stop("`config` must be an asa_config object or NULL", call. = FALSE)
   }
 
-  # Pull defaults from config where appropriate (explicit args win)
-  config_search <- NULL
-  if (!is.null(config)) {
-    config_search <- config$search
-  }
-  if (is.null(config_search)) {
-    if (!is.null(agent) && inherits(agent, "asa_agent")) {
-      config_search <- agent$config$search %||% NULL
-    } else if (is.null(agent) && .is_initialized()) {
-      config_search <- .try_or(get_agent()$config$search %||% NULL)
-    }
-  }
-
-  resolved <- .resolve_temporal_and_webpage_reader(
-    temporal = temporal,
-    config = config,
-    config_search = config_search,
-    allow_read_webpages = allow_read_webpages,
-    webpage_relevance_mode = webpage_relevance_mode,
-    webpage_embedding_provider = webpage_embedding_provider,
-    webpage_embedding_model = webpage_embedding_model
+  runtime_inputs <- .resolve_runtime_inputs(
+    config,
+    agent,
+    temporal,
+    allow_read_webpages,
+    webpage_relevance_mode,
+    webpage_embedding_provider,
+    webpage_embedding_model
   )
-  temporal <- resolved$temporal
-  allow_rw <- resolved$allow_read_webpages
-  relevance_mode <- resolved$relevance_mode
-  embedding_provider <- resolved$embedding_provider
-  embedding_model <- resolved$embedding_model
-  webpage_timeout <- resolved$timeout
-  webpage_max_bytes <- resolved$max_bytes
-  webpage_max_chars <- resolved$max_chars
-  webpage_max_chunks <- resolved$max_chunks
-  webpage_chunk_chars <- resolved$chunk_chars
-  webpage_embedding_api_base <- resolved$embedding_api_base
-  webpage_prefilter_k <- resolved$prefilter_k
-  webpage_use_mmr <- resolved$use_mmr
-  webpage_mmr_lambda <- resolved$mmr_lambda
-  webpage_cache_enabled <- resolved$cache_enabled
-  webpage_cache_max_entries <- resolved$cache_max_entries
-  webpage_cache_max_text_chars <- resolved$cache_max_text_chars
-  webpage_user_agent <- resolved$user_agent
+  runtime <- runtime_inputs$runtime
+  temporal <- runtime_inputs$temporal
+  allow_rw <- runtime_inputs$allow_rw
 
   # Apply defaults from constants
   if (is.null(workers)) {
@@ -351,37 +323,19 @@ asa_enumerate <- function(query,
 
   # Enable/disable webpage reading during this call (tool-level gating).
   conda_env_used <- conda_env %||% .get_default_conda_env()
-  result <- .with_search_config(config_search, conda_env = conda_env_used, function() {
-    .with_webpage_reader_config(
-      allow_rw,
-      relevance_mode = relevance_mode,
-      embedding_provider = embedding_provider,
-      embedding_model = embedding_model,
-      timeout = webpage_timeout,
-      max_bytes = webpage_max_bytes,
-      max_chars = webpage_max_chars,
-      max_chunks = webpage_max_chunks,
-      chunk_chars = webpage_chunk_chars,
-      embedding_api_base = webpage_embedding_api_base,
-      prefilter_k = webpage_prefilter_k,
-      use_mmr = webpage_use_mmr,
-      mmr_lambda = webpage_mmr_lambda,
-      cache_enabled = webpage_cache_enabled,
-      cache_max_entries = webpage_cache_max_entries,
-      cache_max_text_chars = webpage_cache_max_text_chars,
-      user_agent = webpage_user_agent,
-      conda_env = conda_env_used,
-      fn = function() {
-      .with_temporal(temporal, function() {
-    if (progress) {
-      .run_research_with_progress(graph, query, schema_dict, config_dict,
-                                  checkpoint_file, verbose)
-    } else {
-      .run_research(graph, query, schema_dict, config_dict)
+  result <- .with_runtime_wrappers(
+    runtime = runtime,
+    conda_env = conda_env_used,
+    agent = agent,
+    fn = function() {
+      if (progress) {
+        .run_research_with_progress(graph, query, schema_dict, config_dict,
+                                    checkpoint_file, verbose)
+      } else {
+        .run_research(graph, query, schema_dict, config_dict)
+      }
     }
-  }, agent = agent)
-  })
-  })
+  )
 
   elapsed <- as.numeric(difftime(Sys.time(), start_time, units = "secs"))
 

@@ -214,6 +214,16 @@ build_backend <- function(conda_env = NULL,
   trimws(out)
 }
 
+.first_executable_candidate <- function(candidates) {
+  candidates <- unique(candidates[nzchar(candidates)])
+  for (p in candidates) {
+    if (file.exists(p) && file.access(p, 1) == 0) {
+      return(p)
+    }
+  }
+  NULL
+}
+
 .find_chrome_executable <- function() {
   # Prefer explicit env var when set.
   chrome_env <- Sys.getenv("ASA_CHROME_BIN", unset = Sys.getenv("CHROME_BIN", unset = ""))
@@ -240,14 +250,7 @@ build_backend <- function(conda_env = NULL,
     "chrome"
   )))
   candidates <- c(candidates, path_hits)
-  candidates <- unique(candidates[nzchar(candidates)])
-
-  for (p in candidates) {
-    if (file.exists(p) && file.access(p, 1) == 0) {
-      return(p)
-    }
-  }
-  NULL
+  .first_executable_candidate(candidates)
 }
 
 .find_chromedriver_executable <- function() {
@@ -260,13 +263,7 @@ build_backend <- function(conda_env = NULL,
     candidates <- c(candidates, driver_env)
   }
   candidates <- c(candidates, unname(Sys.which("chromedriver")))
-  candidates <- unique(candidates[nzchar(candidates)])
-  for (p in candidates) {
-    if (file.exists(p) && file.access(p, 1) == 0) {
-      return(p)
-    }
-  }
-  NULL
+  .first_executable_candidate(candidates)
 }
 
 .check_browser_stack <- function(verbose = TRUE) {
