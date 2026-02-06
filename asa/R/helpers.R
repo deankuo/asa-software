@@ -249,8 +249,20 @@ truncate_string <- function(x, max_length = 100, ellipsis = "...") {
 safe_json_parse <- function(x) {
   if (is.null(x) || is.na(x) || x == "") return(NULL)
 
+  # Strip markdown code fences (```json ... ``` or ``` ... ```)
+  txt <- trimws(x)
+  if (startsWith(txt, "```")) {
+    parts <- strsplit(txt, "```", fixed = TRUE)[[1]]
+    if (length(parts) >= 2) {
+      inner <- parts[2]
+      inner <- sub("^json\\s*", "", inner)
+      inner <- sub("^\\n", "", inner)
+      txt <- trimws(inner)
+    }
+  }
+
   tryCatch(
-    jsonlite::fromJSON(x),
+    jsonlite::fromJSON(txt),
     error = function(e) NULL
   )
 }

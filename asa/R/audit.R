@@ -559,7 +559,11 @@ If the data looks complete and consistent, say so with high scores.',
 .extract_json_from_output <- function(output) {
   if (is.null(output) || output == "") return(NULL)
 
-  # Try to find JSON object in output
+  # Use safe_json_parse first (handles markdown fences)
+  parsed <- safe_json_parse(output)
+  if (!is.null(parsed)) return(parsed)
+
+  # Fallback: extract embedded JSON object from mixed text
   json_pattern <- "\\{[^{}]*(?:\\{[^{}]*\\}[^{}]*)*\\}"
   matches <- regmatches(output, gregexpr(json_pattern, output, perl = TRUE))[[1]]
 
