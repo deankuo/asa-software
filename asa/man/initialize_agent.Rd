@@ -14,6 +14,7 @@ initialize_agent(
   use_memory_folding = ASA_DEFAULT_MEMORY_FOLDING,
   memory_threshold = ASA_DEFAULT_MEMORY_THRESHOLD,
   memory_keep_recent = ASA_DEFAULT_MEMORY_KEEP_RECENT,
+  fold_char_budget = ASA_DEFAULT_FOLD_CHAR_BUDGET,
   rate_limit = ASA_DEFAULT_RATE_LIMIT,
   timeout = ASA_DEFAULT_TIMEOUT,
   tor = tor_options(),
@@ -50,6 +51,10 @@ tuning knobs (e.g., \code{webpage_max_chars}, \code{webpage_max_chunks},
 \item{memory_keep_recent}{Number of recent exchanges to preserve after folding
 (default: 2). An exchange is a user turn plus the assistant response,
 including any tool calls and tool outputs.}
+
+\item{fold_char_budget}{Total character budget across all messages before
+memory folding triggers (default: 30000). Lower values fold more
+aggressively; higher values preserve more raw conversation.}
 
 \item{rate_limit}{Requests per second for rate limiting (default: 0.1)}
 

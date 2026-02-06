@@ -25,6 +25,9 @@
 #' @param memory_keep_recent Number of recent exchanges to preserve after folding
 #'   (default: 2). An exchange is a user turn plus the assistant response,
 #'   including any tool calls and tool outputs.
+#' @param fold_char_budget Total character budget across all messages before
+#'   memory folding triggers (default: 30000). Lower values fold more
+#'   aggressively; higher values preserve more raw conversation.
 #' @param rate_limit Requests per second for rate limiting (default: 0.1)
 #' @param timeout Request timeout in seconds (default: 120)
 #' @param tor Tor registry options from \code{\link{tor_options}}. Disable shared
@@ -104,6 +107,7 @@ initialize_agent <- function(backend = NULL,
                              use_memory_folding = ASA_DEFAULT_MEMORY_FOLDING,
                              memory_threshold = ASA_DEFAULT_MEMORY_THRESHOLD,
                              memory_keep_recent = ASA_DEFAULT_MEMORY_KEEP_RECENT,
+                             fold_char_budget = ASA_DEFAULT_FOLD_CHAR_BUDGET,
                              rate_limit = ASA_DEFAULT_RATE_LIMIT,
                              timeout = ASA_DEFAULT_TIMEOUT,
                              tor = tor_options(),
@@ -278,7 +282,8 @@ initialize_agent <- function(backend = NULL,
     tools = tools,
     use_memory_folding = use_memory_folding,
     memory_threshold = memory_threshold,
-    memory_keep_recent = memory_keep_recent
+    memory_keep_recent = memory_keep_recent,
+    fold_char_budget = fold_char_budget
   )
 
   # Store in package environment

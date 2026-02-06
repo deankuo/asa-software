@@ -161,3 +161,36 @@ test_that("OpenWebpage can read collaborators page (live network)", {
   expect_true(length(lines) >= 1)
   expect_true(grepl("Adel Daoud", lines[1], fixed = TRUE))
 })
+
+test_that("Gemini reasons about fetched webpage content (live)", {
+  skip_on_cran()
+  skip_if(
+    tolower(Sys.getenv("ASA_CI_SKIP_API_TESTS")) %in% c("true", "1", "yes"),
+    "ASA_CI_SKIP_API_TESTS is set"
+  )
+  skip_if(
+    !any(nzchar(Sys.getenv(c("GOOGLE_API_KEY", "GEMINI_API_KEY")))),
+    "Missing GOOGLE_API_KEY or GEMINI_API_KEY"
+  )
+
+  agent <- asa::initialize_agent(
+    backend = "gemini",
+    model = "gemini-2.0-flash"
+  )
+
+  result <- asa::run_task(
+    agent,
+    paste(
+      "Open this webpage: https://connorjerzak.com/collaborators/",
+      "and tell me the name of one collaborator listed under Europe."
+    ),
+    allow_read_webpages = TRUE
+  )
+
+  # If the LLM saw the webpage content, it can name a real collaborator
+  expect_match(
+    result$message,
+    "Adel Daoud|Olga Gasparyan|Miguel Rueda",
+    ignore.case = TRUE
+  )
+})
