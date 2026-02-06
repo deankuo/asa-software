@@ -7,7 +7,7 @@
 build_backend(
   conda_env = NULL,
   conda = "auto",
-  python_version = "3.11",
+  python_version = "3.14",
   force = FALSE,
   check_browser = TRUE,
   fix_browser = FALSE,
@@ -20,7 +20,7 @@ option \code{asa.default_conda_env} (or \code{"asa_env"} if unset).}
 
 \item{conda}{Path to conda executable (default: "auto")}
 
-\item{python_version}{Python version to use (default: "3.11")}
+\item{python_version}{Python version to use (default: "3.14")}
 
 \item{force}{If TRUE, delete and recreate the conda environment if it already exists.}
 

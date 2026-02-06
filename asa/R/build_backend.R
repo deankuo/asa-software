@@ -6,7 +6,7 @@
 #' @param conda_env Name of the conda environment. Defaults to the package
 #'   option \code{asa.default_conda_env} (or \code{"asa_env"} if unset).
 #' @param conda Path to conda executable (default: "auto")
-#' @param python_version Python version to use (default: "3.11")
+#' @param python_version Python version to use (default: "3.14")
 #' @param force If TRUE, delete and recreate the conda environment if it already exists.
 #' @param check_browser If TRUE, performs a best-effort check for a system Chrome/Chromium
 #'   binary and `chromedriver`, warning when major versions are incompatible. Set to
@@ -50,7 +50,7 @@
 #' @export
 build_backend <- function(conda_env = NULL,
                           conda = "auto",
-                          python_version = "3.11",
+                          python_version = "3.14",
                           force = FALSE,
                           check_browser = TRUE,
                           fix_browser = FALSE,
