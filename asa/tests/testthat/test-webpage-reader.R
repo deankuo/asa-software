@@ -179,11 +179,11 @@ test_that("Gemini reasons about fetched webpage content (live)", {
   )
 
   result <- asa::run_task(
-    agent,
-    paste(
+    prompt = paste(
       "Open this webpage: https://connorjerzak.com/collaborators/",
       "and tell me the name of one collaborator listed under Europe."
     ),
+    agent = agent,
     allow_read_webpages = TRUE
   )
 
