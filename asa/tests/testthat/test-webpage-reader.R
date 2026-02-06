@@ -77,19 +77,35 @@ test_that(".with_webpage_reader_config toggles Python allow_read_webpages", {
     asa:::.with_webpage_reader_config(
       allow_read_webpages = TRUE,
       relevance_mode = "lexical",
+      max_chars = 12345,
+      max_chunks = 2,
+      chunk_chars = 2000,
       conda_env = conda_env,
-      fn = function() webpage_tool$configure_webpage_reader()$allow_read_webpages
+      fn = function() {
+        cfg <- webpage_tool$configure_webpage_reader()
+        list(
+          allow_read_webpages = cfg$allow_read_webpages,
+          max_chars = cfg$max_chars,
+          max_chunks = cfg$max_chunks,
+          chunk_chars = cfg$chunk_chars
+        )
+      }
     ),
     error = function(e) {
       skip(paste0("Webpage reader config wrapper unavailable: ", conditionMessage(e)))
     }
   )
 
-  expect_true(isTRUE(inside))
-  expect_equal(
-    webpage_tool$configure_webpage_reader()$allow_read_webpages,
-    cfg_prev$allow_read_webpages
-  )
+  expect_true(isTRUE(inside$allow_read_webpages))
+  expect_equal(inside$max_chars, 12345)
+  expect_equal(inside$max_chunks, 2)
+  expect_equal(inside$chunk_chars, 2000)
+
+  cfg_after <- webpage_tool$configure_webpage_reader()
+  expect_equal(cfg_after$allow_read_webpages, cfg_prev$allow_read_webpages)
+  expect_equal(cfg_after$max_chars, cfg_prev$max_chars)
+  expect_equal(cfg_after$max_chunks, cfg_prev$max_chunks)
+  expect_equal(cfg_after$chunk_chars, cfg_prev$chunk_chars)
 })
 
 test_that("OpenWebpage can read collaborators page (live network)", {

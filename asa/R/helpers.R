@@ -857,14 +857,40 @@ configure_temporal <- function(time_filter = NULL) {
                                                 allow_read_webpages = NULL,
                                                 webpage_relevance_mode = NULL,
                                                 webpage_embedding_provider = NULL,
-                                                webpage_embedding_model = NULL) {
+                                                webpage_embedding_model = NULL,
+                                                webpage_timeout = NULL,
+                                                webpage_max_bytes = NULL,
+                                                webpage_max_chars = NULL,
+                                                webpage_max_chunks = NULL,
+                                                webpage_chunk_chars = NULL,
+                                                webpage_embedding_api_base = NULL,
+                                                webpage_prefilter_k = NULL,
+                                                webpage_use_mmr = NULL,
+                                                webpage_mmr_lambda = NULL,
+                                                webpage_cache_enabled = NULL,
+                                                webpage_cache_max_entries = NULL,
+                                                webpage_cache_max_text_chars = NULL,
+                                                webpage_user_agent = NULL) {
   temporal <- .resolve_temporal_input(temporal, config)
   webpage_settings <- .resolve_webpage_reader_settings(
     config_search,
     allow_read_webpages,
     webpage_relevance_mode,
     webpage_embedding_provider,
-    webpage_embedding_model
+    webpage_embedding_model,
+    webpage_timeout,
+    webpage_max_bytes,
+    webpage_max_chars,
+    webpage_max_chunks,
+    webpage_chunk_chars,
+    webpage_embedding_api_base,
+    webpage_prefilter_k,
+    webpage_use_mmr,
+    webpage_mmr_lambda,
+    webpage_cache_enabled,
+    webpage_cache_max_entries,
+    webpage_cache_max_text_chars,
+    webpage_user_agent
   )
 
   list(
@@ -872,7 +898,20 @@ configure_temporal <- function(time_filter = NULL) {
     allow_read_webpages = webpage_settings$allow_read_webpages,
     relevance_mode = webpage_settings$relevance_mode,
     embedding_provider = webpage_settings$embedding_provider,
-    embedding_model = webpage_settings$embedding_model
+    embedding_model = webpage_settings$embedding_model,
+    timeout = webpage_settings$timeout,
+    max_bytes = webpage_settings$max_bytes,
+    max_chars = webpage_settings$max_chars,
+    max_chunks = webpage_settings$max_chunks,
+    chunk_chars = webpage_settings$chunk_chars,
+    embedding_api_base = webpage_settings$embedding_api_base,
+    prefilter_k = webpage_settings$prefilter_k,
+    use_mmr = webpage_settings$use_mmr,
+    mmr_lambda = webpage_settings$mmr_lambda,
+    cache_enabled = webpage_settings$cache_enabled,
+    cache_max_entries = webpage_settings$cache_max_entries,
+    cache_max_text_chars = webpage_settings$cache_max_text_chars,
+    user_agent = webpage_settings$user_agent
   )
 }
 
@@ -1051,13 +1090,49 @@ configure_temporal <- function(time_filter = NULL) {
 #' @param webpage_relevance_mode "auto", "lexical", "embeddings", or NULL
 #' @param webpage_embedding_provider "auto", "openai", "sentence_transformers", or NULL
 #' @param webpage_embedding_model Embedding model identifier or NULL
+#' @param webpage_timeout OpenWebpage timeout in seconds, or NULL to use the
+#'   Python default.
+#' @param webpage_max_bytes OpenWebpage download cap in bytes, or NULL to use
+#'   the Python default.
+#' @param webpage_max_chars OpenWebpage output cap in characters, or NULL to use
+#'   the Python default.
+#' @param webpage_max_chunks Max relevant excerpts to return, or NULL to use the
+#'   Python default.
+#' @param webpage_chunk_chars Approximate chunk size (characters), or NULL to
+#'   use the Python default.
+#' @param webpage_embedding_api_base OpenAI-compatible base URL for embeddings,
+#'   or NULL to use the Python default.
+#' @param webpage_prefilter_k Optional lexical prefilter size before embedding
+#'   selection.
+#' @param webpage_use_mmr Whether to apply maximal marginal relevance (MMR) for
+#'   diverse excerpts.
+#' @param webpage_mmr_lambda MMR tradeoff between relevance (1.0) and diversity (0.0).
+#' @param webpage_cache_enabled Enable per-run caching, or NULL to use the Python
+#'   default.
+#' @param webpage_cache_max_entries Max cached entries per run, or NULL.
+#' @param webpage_cache_max_text_chars Max extracted text chars to cache per page,
+#'   or NULL.
+#' @param webpage_user_agent User-Agent string for webpage fetches, or NULL.
 #' @return List with resolved settings
 #' @keywords internal
 .resolve_webpage_reader_settings <- function(config_search = NULL,
                                              allow_read_webpages = NULL,
                                              webpage_relevance_mode = NULL,
                                              webpage_embedding_provider = NULL,
-                                             webpage_embedding_model = NULL) {
+                                             webpage_embedding_model = NULL,
+                                             webpage_timeout = NULL,
+                                             webpage_max_bytes = NULL,
+                                             webpage_max_chars = NULL,
+                                             webpage_max_chunks = NULL,
+                                             webpage_chunk_chars = NULL,
+                                             webpage_embedding_api_base = NULL,
+                                             webpage_prefilter_k = NULL,
+                                             webpage_use_mmr = NULL,
+                                             webpage_mmr_lambda = NULL,
+                                             webpage_cache_enabled = NULL,
+                                             webpage_cache_max_entries = NULL,
+                                             webpage_cache_max_text_chars = NULL,
+                                             webpage_user_agent = NULL) {
   allow_rw <- allow_read_webpages
   if (is.null(allow_rw) &&
       is.list(config_search) &&
@@ -1086,11 +1161,115 @@ configure_temporal <- function(time_filter = NULL) {
     embedding_model <- config_search$webpage_embedding_model
   }
 
+  timeout <- webpage_timeout
+  if (is.null(timeout) &&
+      is.list(config_search) &&
+      !is.null(config_search$webpage_timeout)) {
+    timeout <- config_search$webpage_timeout
+  }
+
+  max_bytes <- webpage_max_bytes
+  if (is.null(max_bytes) &&
+      is.list(config_search) &&
+      !is.null(config_search$webpage_max_bytes)) {
+    max_bytes <- config_search$webpage_max_bytes
+  }
+
+  max_chars <- webpage_max_chars
+  if (is.null(max_chars) &&
+      is.list(config_search) &&
+      !is.null(config_search$webpage_max_chars)) {
+    max_chars <- config_search$webpage_max_chars
+  }
+
+  max_chunks <- webpage_max_chunks
+  if (is.null(max_chunks) &&
+      is.list(config_search) &&
+      !is.null(config_search$webpage_max_chunks)) {
+    max_chunks <- config_search$webpage_max_chunks
+  }
+
+  chunk_chars <- webpage_chunk_chars
+  if (is.null(chunk_chars) &&
+      is.list(config_search) &&
+      !is.null(config_search$webpage_chunk_chars)) {
+    chunk_chars <- config_search$webpage_chunk_chars
+  }
+
+  embedding_api_base <- webpage_embedding_api_base
+  if (is.null(embedding_api_base) &&
+      is.list(config_search) &&
+      !is.null(config_search$webpage_embedding_api_base)) {
+    embedding_api_base <- config_search$webpage_embedding_api_base
+  }
+
+  prefilter_k <- webpage_prefilter_k
+  if (is.null(prefilter_k) &&
+      is.list(config_search) &&
+      !is.null(config_search$webpage_prefilter_k)) {
+    prefilter_k <- config_search$webpage_prefilter_k
+  }
+
+  use_mmr <- webpage_use_mmr
+  if (is.null(use_mmr) &&
+      is.list(config_search) &&
+      !is.null(config_search$webpage_use_mmr)) {
+    use_mmr <- config_search$webpage_use_mmr
+  }
+
+  mmr_lambda <- webpage_mmr_lambda
+  if (is.null(mmr_lambda) &&
+      is.list(config_search) &&
+      !is.null(config_search$webpage_mmr_lambda)) {
+    mmr_lambda <- config_search$webpage_mmr_lambda
+  }
+
+  cache_enabled <- webpage_cache_enabled
+  if (is.null(cache_enabled) &&
+      is.list(config_search) &&
+      !is.null(config_search$webpage_cache_enabled)) {
+    cache_enabled <- config_search$webpage_cache_enabled
+  }
+
+  cache_max_entries <- webpage_cache_max_entries
+  if (is.null(cache_max_entries) &&
+      is.list(config_search) &&
+      !is.null(config_search$webpage_cache_max_entries)) {
+    cache_max_entries <- config_search$webpage_cache_max_entries
+  }
+
+  cache_max_text_chars <- webpage_cache_max_text_chars
+  if (is.null(cache_max_text_chars) &&
+      is.list(config_search) &&
+      !is.null(config_search$webpage_cache_max_text_chars)) {
+    cache_max_text_chars <- config_search$webpage_cache_max_text_chars
+  }
+
+  user_agent <- webpage_user_agent
+  if (is.null(user_agent) &&
+      is.list(config_search) &&
+      !is.null(config_search$webpage_user_agent)) {
+    user_agent <- config_search$webpage_user_agent
+  }
+
   list(
     allow_read_webpages = allow_rw,
     relevance_mode = relevance_mode,
     embedding_provider = embedding_provider,
-    embedding_model = embedding_model
+    embedding_model = embedding_model,
+    timeout = timeout,
+    max_bytes = max_bytes,
+    max_chars = max_chars,
+    max_chunks = max_chunks,
+    chunk_chars = chunk_chars,
+    embedding_api_base = embedding_api_base,
+    prefilter_k = prefilter_k,
+    use_mmr = use_mmr,
+    mmr_lambda = mmr_lambda,
+    cache_enabled = cache_enabled,
+    cache_max_entries = cache_max_entries,
+    cache_max_text_chars = cache_max_text_chars,
+    user_agent = user_agent
   )
 }
 
@@ -1107,9 +1286,19 @@ configure_temporal <- function(time_filter = NULL) {
 #' @param embedding_provider Embedding provider for relevance ("auto",
 #'   "openai", or "sentence_transformers").
 #' @param embedding_model Embedding model identifier for relevance.
+#' @param timeout Timeout (seconds) for webpage fetches/embeddings.
+#' @param max_bytes Download cap in bytes.
+#' @param max_chars Output cap in characters.
+#' @param max_chunks Max relevant excerpts to return.
+#' @param chunk_chars Approximate chunk size (characters).
+#' @param embedding_api_base OpenAI-compatible base URL for embeddings.
 #' @param prefilter_k Optional lexical prefilter size before embedding.
 #' @param use_mmr Whether to apply maximal marginal relevance for diverse excerpts.
 #' @param mmr_lambda MMR tradeoff between relevance (1.0) and diversity (0.0).
+#' @param cache_enabled Enable per-run caching.
+#' @param cache_max_entries Max cached entries per run.
+#' @param cache_max_text_chars Max extracted text chars to cache per page.
+#' @param user_agent User-Agent string for webpage fetches.
 #' @param conda_env Conda env used by Python tools
 #' @param fn Function to run with webpage reader config applied
 #' @return Result of fn()
@@ -1118,9 +1307,19 @@ configure_temporal <- function(time_filter = NULL) {
                                        relevance_mode = NULL,
                                        embedding_provider = NULL,
                                        embedding_model = NULL,
+                                       timeout = NULL,
+                                       max_bytes = NULL,
+                                       max_chars = NULL,
+                                       max_chunks = NULL,
+                                       chunk_chars = NULL,
+                                       embedding_api_base = NULL,
                                        prefilter_k = NULL,
                                        use_mmr = NULL,
                                        mmr_lambda = NULL,
+                                       cache_enabled = NULL,
+                                       cache_max_entries = NULL,
+                                       cache_max_text_chars = NULL,
+                                       user_agent = NULL,
                                        conda_env = NULL,
                                        fn) {
   conda_env <- conda_env %||% .get_default_conda_env()
@@ -1129,9 +1328,19 @@ configure_temporal <- function(time_filter = NULL) {
       is.null(relevance_mode) &&
       is.null(embedding_provider) &&
       is.null(embedding_model) &&
+      is.null(timeout) &&
+      is.null(max_bytes) &&
+      is.null(max_chars) &&
+      is.null(max_chunks) &&
+      is.null(chunk_chars) &&
+      is.null(embedding_api_base) &&
       is.null(prefilter_k) &&
       is.null(use_mmr) &&
-      is.null(mmr_lambda)) {
+      is.null(mmr_lambda) &&
+      is.null(cache_enabled) &&
+      is.null(cache_max_entries) &&
+      is.null(cache_max_text_chars) &&
+      is.null(user_agent)) {
     return(fn())
   }
 
@@ -1155,9 +1364,19 @@ configure_temporal <- function(time_filter = NULL) {
       relevance_mode = cfg$relevance_mode,
       embedding_provider = cfg$embedding_provider,
       embedding_model = cfg$embedding_model,
+      timeout = cfg$timeout,
+      max_bytes = cfg$max_bytes,
+      max_chars = cfg$max_chars,
+      max_chunks = cfg$max_chunks,
+      chunk_chars = cfg$chunk_chars,
+      embedding_api_base = cfg$embedding_api_base,
       prefilter_k = cfg$prefilter_k,
       use_mmr = cfg$use_mmr,
-      mmr_lambda = cfg$mmr_lambda
+      mmr_lambda = cfg$mmr_lambda,
+      cache_enabled = cfg$cache_enabled,
+      cache_max_entries = cfg$cache_max_entries,
+      cache_max_text_chars = cfg$cache_max_text_chars,
+      user_agent = cfg$user_agent
     )
   }, error = function(e) NULL)
 
@@ -1169,9 +1388,19 @@ configure_temporal <- function(time_filter = NULL) {
           relevance_mode = previous$relevance_mode,
           embedding_provider = previous$embedding_provider,
           embedding_model = previous$embedding_model,
+          timeout = previous$timeout,
+          max_bytes = previous$max_bytes,
+          max_chars = previous$max_chars,
+          max_chunks = previous$max_chunks,
+          chunk_chars = previous$chunk_chars,
+          embedding_api_base = previous$embedding_api_base,
           prefilter_k = previous$prefilter_k,
           use_mmr = previous$use_mmr,
-          mmr_lambda = previous$mmr_lambda
+          mmr_lambda = previous$mmr_lambda,
+          cache_enabled = previous$cache_enabled,
+          cache_max_entries = previous$cache_max_entries,
+          cache_max_text_chars = previous$cache_max_text_chars,
+          user_agent = previous$user_agent
         ),
         error = function(e) NULL
       )
@@ -1194,15 +1423,27 @@ configure_temporal <- function(time_filter = NULL) {
     )
   }
 
+  allow_arg <- if (is.null(allow_read_webpages)) NULL else isTRUE(allow_read_webpages)
+
   tryCatch(
     asa_env$webpage_tool$configure_webpage_reader(
-      allow_read_webpages = isTRUE(allow_read_webpages),
+      allow_read_webpages = allow_arg,
       relevance_mode = relevance_mode,
       embedding_provider = embedding_provider,
       embedding_model = embedding_model,
+      timeout = timeout,
+      max_bytes = max_bytes,
+      max_chars = max_chars,
+      max_chunks = max_chunks,
+      chunk_chars = chunk_chars,
+      embedding_api_base = embedding_api_base,
       prefilter_k = prefilter_k,
       use_mmr = use_mmr,
-      mmr_lambda = mmr_lambda
+      mmr_lambda = mmr_lambda,
+      cache_enabled = cache_enabled,
+      cache_max_entries = cache_max_entries,
+      cache_max_text_chars = cache_max_text_chars,
+      user_agent = user_agent
     ),
     error = function(e) NULL
   )

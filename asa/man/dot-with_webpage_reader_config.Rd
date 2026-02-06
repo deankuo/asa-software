@@ -9,9 +9,19 @@
   relevance_mode = NULL,
   embedding_provider = NULL,
   embedding_model = NULL,
+  timeout = NULL,
+  max_bytes = NULL,
+  max_chars = NULL,
+  max_chunks = NULL,
+  chunk_chars = NULL,
+  embedding_api_base = NULL,
   prefilter_k = NULL,
   use_mmr = NULL,
   mmr_lambda = NULL,
+  cache_enabled = NULL,
+  cache_max_entries = NULL,
+  cache_max_text_chars = NULL,
+  user_agent = NULL,
   conda_env = NULL,
   fn
 )
@@ -28,11 +38,31 @@ otherwise falls back to lexical overlap.}
 
 \item{embedding_model}{Embedding model identifier for relevance.}
 
+\item{timeout}{Timeout (seconds) for webpage fetches/embeddings.}
+
+\item{max_bytes}{Download cap in bytes.}
+
+\item{max_chars}{Output cap in characters.}
+
+\item{max_chunks}{Max relevant excerpts to return.}
+
+\item{chunk_chars}{Approximate chunk size (characters).}
+
+\item{embedding_api_base}{OpenAI-compatible base URL for embeddings.}
+
 \item{prefilter_k}{Optional lexical prefilter size before embedding.}
 
 \item{use_mmr}{Whether to apply maximal marginal relevance for diverse excerpts.}
 
 \item{mmr_lambda}{MMR tradeoff between relevance (1.0) and diversity (0.0).}
+
+\item{cache_enabled}{Enable per-run caching.}
+
+\item{cache_max_entries}{Max cached entries per run.}
+
+\item{cache_max_text_chars}{Max extracted text chars to cache per page.}
+
+\item{user_agent}{User-Agent string for webpage fetches.}
 
 \item{conda_env}{Conda env used by Python tools}
 

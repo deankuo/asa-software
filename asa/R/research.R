@@ -204,6 +204,13 @@ asa_enumerate <- function(query,
   if (!is.null(config)) {
     config_search <- config$search
   }
+  if (is.null(config_search)) {
+    if (!is.null(agent) && inherits(agent, "asa_agent")) {
+      config_search <- agent$config$search %||% NULL
+    } else if (is.null(agent) && .is_initialized()) {
+      config_search <- tryCatch(get_agent()$config$search %||% NULL, error = function(e) NULL)
+    }
+  }
 
   resolved <- .resolve_temporal_and_webpage_reader(
     temporal = temporal,
@@ -219,6 +226,19 @@ asa_enumerate <- function(query,
   relevance_mode <- resolved$relevance_mode
   embedding_provider <- resolved$embedding_provider
   embedding_model <- resolved$embedding_model
+  webpage_timeout <- resolved$timeout
+  webpage_max_bytes <- resolved$max_bytes
+  webpage_max_chars <- resolved$max_chars
+  webpage_max_chunks <- resolved$max_chunks
+  webpage_chunk_chars <- resolved$chunk_chars
+  webpage_embedding_api_base <- resolved$embedding_api_base
+  webpage_prefilter_k <- resolved$prefilter_k
+  webpage_use_mmr <- resolved$use_mmr
+  webpage_mmr_lambda <- resolved$mmr_lambda
+  webpage_cache_enabled <- resolved$cache_enabled
+  webpage_cache_max_entries <- resolved$cache_max_entries
+  webpage_cache_max_text_chars <- resolved$cache_max_text_chars
+  webpage_user_agent <- resolved$user_agent
 
   # Apply defaults from constants
   if (is.null(workers)) {
@@ -227,7 +247,13 @@ asa_enumerate <- function(query,
   max_rounds <- max_rounds %||% ASA_DEFAULT_MAX_ROUNDS
   backend <- backend %||% if (!is.null(config)) config$backend else .get_default_backend()
   model <- model %||% if (!is.null(config)) config$model else .get_default_model_for_backend(backend)
-  conda_env <- conda_env %||% if (!is.null(config)) config$conda_env else .get_default_conda_env()
+  conda_env <- conda_env %||% if (!is.null(config)) {
+    config$conda_env
+  } else if (!is.null(agent) && inherits(agent, "asa_agent")) {
+    agent$config$conda_env %||% .get_default_conda_env()
+  } else {
+    .get_default_conda_env()
+  }
 
   # Match output format
   output <- match.arg(output)
@@ -293,6 +319,7 @@ asa_enumerate <- function(query,
         conda_env = config_for_agent$conda_env,
         proxy = config_for_agent$proxy,
         use_browser = config_for_agent$use_browser %||% ASA_DEFAULT_USE_BROWSER,
+        search = config_for_agent$search,
         use_memory_folding = config_for_agent$memory_folding,
         memory_threshold = config_for_agent$memory_threshold,
         memory_keep_recent = config_for_agent$memory_keep_recent,
@@ -330,6 +357,19 @@ asa_enumerate <- function(query,
       relevance_mode = relevance_mode,
       embedding_provider = embedding_provider,
       embedding_model = embedding_model,
+      timeout = webpage_timeout,
+      max_bytes = webpage_max_bytes,
+      max_chars = webpage_max_chars,
+      max_chunks = webpage_max_chunks,
+      chunk_chars = webpage_chunk_chars,
+      embedding_api_base = webpage_embedding_api_base,
+      prefilter_k = webpage_prefilter_k,
+      use_mmr = webpage_use_mmr,
+      mmr_lambda = webpage_mmr_lambda,
+      cache_enabled = webpage_cache_enabled,
+      cache_max_entries = webpage_cache_max_entries,
+      cache_max_text_chars = webpage_cache_max_text_chars,
+      user_agent = webpage_user_agent,
       conda_env = conda_env_used,
       fn = function() {
       .with_temporal(temporal, function() {

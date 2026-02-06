@@ -10,6 +10,7 @@ initialize_agent(
   conda_env = NULL,
   proxy = NA,
   use_browser = ASA_DEFAULT_USE_BROWSER,
+  search = NULL,
   use_memory_folding = ASA_DEFAULT_MEMORY_FOLDING,
   memory_threshold = ASA_DEFAULT_MEMORY_THRESHOLD,
   memory_keep_recent = ASA_DEFAULT_MEMORY_KEEP_RECENT,
@@ -35,6 +36,12 @@ searches through Tor.}
 
 \item{use_browser}{Enable Selenium browser tier for DuckDuckGo search
 (default: TRUE). Set to FALSE to avoid Chromedriver requirements.}
+
+\item{search}{Optional search options (created with \code{\link{search_options}})
+used as defaults for \code{\link{run_task}}/\code{\link{asa_enumerate}} when
+no \code{asa_config} is provided. This is useful for setting OpenWebpage
+tuning knobs (e.g., \code{webpage_max_chars}, \code{webpage_max_chunks},
+\code{webpage_chunk_chars}) once when initializing an agent.}
 
 \item{use_memory_folding}{Enable DeepAgent-style memory compression (default: TRUE)}
 

@@ -344,6 +344,28 @@ print.asa_temporal <- function(x, ...) {
 #' @param webpage_embedding_provider Embedding provider for relevance. One of:
 #'   "auto", "openai", "sentence_transformers".
 #' @param webpage_embedding_model Embedding model identifier for relevance.
+#' @param webpage_timeout Timeout in seconds for OpenWebpage fetches and (when
+#'   used) relevance embeddings.
+#' @param webpage_max_bytes Maximum bytes to download per page (hard cap).
+#' @param webpage_max_chars Maximum characters returned from an opened page
+#'   (hard cap on tool output).
+#' @param webpage_max_chunks Maximum number of relevant excerpts to include from
+#'   a page.
+#' @param webpage_chunk_chars Approximate size (in characters) of each excerpt.
+#' @param webpage_embedding_api_base Optional OpenAI-compatible base URL for
+#'   embeddings. If NULL, uses \code{OPENAI_API_BASE} or
+#'   \code{https://api.openai.com/v1}.
+#' @param webpage_prefilter_k Optional lexical prefilter size before embedding
+#'   relevance selection.
+#' @param webpage_use_mmr Whether to apply maximal marginal relevance (MMR) for
+#'   more diverse excerpts.
+#' @param webpage_mmr_lambda MMR tradeoff between relevance (1.0) and diversity (0.0).
+#' @param webpage_cache_enabled Enable per-run caching of opened pages.
+#' @param webpage_cache_max_entries Max cached page entries per run.
+#' @param webpage_cache_max_text_chars Max characters of extracted page text to
+#'   store per cached page (separate from \code{webpage_max_chars}, which caps
+#'   tool output).
+#' @param webpage_user_agent User-Agent string used for webpage fetches.
 #'
 #' @return An object of class \code{asa_search}
 #'
@@ -397,7 +419,20 @@ search_options <- function(max_results = NULL,
                            allow_read_webpages = NULL,
                            webpage_relevance_mode = NULL,
                            webpage_embedding_provider = NULL,
-                           webpage_embedding_model = NULL) {
+                           webpage_embedding_model = NULL,
+                           webpage_timeout = NULL,
+                           webpage_max_bytes = NULL,
+                           webpage_max_chars = NULL,
+                           webpage_max_chunks = NULL,
+                           webpage_chunk_chars = NULL,
+                           webpage_embedding_api_base = NULL,
+                           webpage_prefilter_k = NULL,
+                           webpage_use_mmr = NULL,
+                           webpage_mmr_lambda = NULL,
+                           webpage_cache_enabled = NULL,
+                           webpage_cache_max_entries = NULL,
+                           webpage_cache_max_text_chars = NULL,
+                           webpage_user_agent = NULL) {
 
   structure(
     list(
@@ -410,7 +445,21 @@ search_options <- function(max_results = NULL,
       allow_read_webpages = allow_read_webpages %||% FALSE,
       webpage_relevance_mode = webpage_relevance_mode %||% "auto",
       webpage_embedding_provider = webpage_embedding_provider %||% "auto",
-      webpage_embedding_model = webpage_embedding_model %||% "text-embedding-3-small"
+      webpage_embedding_model = webpage_embedding_model %||% "text-embedding-3-small",
+      # OpenWebpage tool tuning (optional; defaults to Python-side config)
+      webpage_timeout = webpage_timeout,
+      webpage_max_bytes = webpage_max_bytes,
+      webpage_max_chars = webpage_max_chars,
+      webpage_max_chunks = webpage_max_chunks,
+      webpage_chunk_chars = webpage_chunk_chars,
+      webpage_embedding_api_base = webpage_embedding_api_base,
+      webpage_prefilter_k = webpage_prefilter_k,
+      webpage_use_mmr = webpage_use_mmr,
+      webpage_mmr_lambda = webpage_mmr_lambda,
+      webpage_cache_enabled = webpage_cache_enabled,
+      webpage_cache_max_entries = webpage_cache_max_entries,
+      webpage_cache_max_text_chars = webpage_cache_max_text_chars,
+      webpage_user_agent = webpage_user_agent
     ),
     class = "asa_search"
   )
@@ -428,7 +477,18 @@ print.asa_search <- function(x, ...) {
       ", timeout=", x$timeout, "s",
       ", retries=", x$max_retries,
       ", delay=", x$inter_search_delay, "s",
-      ", allow_read_webpages=", x$allow_read_webpages, "\n", sep = "")
+      ", allow_read_webpages=", x$allow_read_webpages, sep = "")
+  # Only show OpenWebpage size tuning when explicitly set.
+  if (!is.null(x$webpage_max_chars)) {
+    cat(", webpage_max_chars=", x$webpage_max_chars, sep = "")
+  }
+  if (!is.null(x$webpage_max_chunks)) {
+    cat(", webpage_max_chunks=", x$webpage_max_chunks, sep = "")
+  }
+  if (!is.null(x$webpage_chunk_chars)) {
+    cat(", webpage_chunk_chars=", x$webpage_chunk_chars, sep = "")
+  }
+  cat("\n")
   invisible(x)
 }
 

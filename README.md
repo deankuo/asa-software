@@ -355,7 +355,11 @@ search <- asa::search_options(
   allow_read_webpages = TRUE,
   webpage_relevance_mode = "embeddings",
   webpage_embedding_provider = "openai",
-  webpage_embedding_model = "text-embedding-3-small"
+  webpage_embedding_model = "text-embedding-3-small",
+  # Optional: allow larger excerpts (defaults are conservative)
+  webpage_max_chars = 30000,
+  webpage_max_chunks = 10,
+  webpage_chunk_chars = 2000
 )
 
 result <- asa::run_task(
@@ -648,14 +652,14 @@ asa::build_backend(conda_env = "asa_env", force = TRUE)
 ## Performance
 
 <!-- SPEED_REPORT_START -->
-**Last Run:** 2026-02-05 17:39:56 CST | **Status:** PASS
+**Last Run:** 2026-02-05 20:26:35 CST | **Status:** PASS
 
 | Benchmark | Current | Baseline | Ratio | Status |
 |-----------|---------|----------|-------|--------|
-| `build_prompt` | 0.125s | 0.09s | 1.39x | PASS |
-| `helper_funcs` | 0.071s | 0.07s | 1.01x | PASS |
-| `combined` | 0.111s | 0.09s | 1.22x | PASS |
-| `agent_search` | 41.3s | 18s | 2.35x | PASS |
+| `build_prompt` | 0.157s | 0.09s | 1.75x | PASS |
+| `helper_funcs` | 0.097s | 0.07s | 1.38x | PASS |
+| `combined` | 0.137s | 0.09s | 1.50x | PASS |
+| `agent_search` | 30.8s | 18s | 1.75x | PASS |
 
 Tests fail if time exceeds 4.00x baseline. 
 See [full report](asa/tests/testthat/SPEED_REPORT.md) for details.

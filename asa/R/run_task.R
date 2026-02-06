@@ -163,6 +163,22 @@ run_task <- function(prompt,
     config_conda_env <- config$conda_env
   }
 
+  # Allow initialize_agent(search = ...) to provide defaults when no asa_config was passed.
+  if (is.null(config_search)) {
+    if (!is.null(agent) && inherits(agent, "asa_agent")) {
+      config_search <- agent$config$search %||% NULL
+    } else if (is.null(agent) && .is_initialized()) {
+      config_search <- tryCatch(get_agent()$config$search %||% NULL, error = function(e) NULL)
+    }
+  }
+  if (is.null(config_conda_env)) {
+    if (!is.null(agent) && inherits(agent, "asa_agent")) {
+      config_conda_env <- agent$config$conda_env %||% NULL
+    } else if (is.null(agent) && .is_initialized()) {
+      config_conda_env <- tryCatch(get_agent()$config$conda_env %||% NULL, error = function(e) NULL)
+    }
+  }
+
   resolved <- .resolve_temporal_and_webpage_reader(
     temporal = temporal,
     config = config,
@@ -177,6 +193,19 @@ run_task <- function(prompt,
   relevance_mode <- resolved$relevance_mode
   embedding_provider <- resolved$embedding_provider
   embedding_model <- resolved$embedding_model
+  webpage_timeout <- resolved$timeout
+  webpage_max_bytes <- resolved$max_bytes
+  webpage_max_chars <- resolved$max_chars
+  webpage_max_chunks <- resolved$max_chunks
+  webpage_chunk_chars <- resolved$chunk_chars
+  webpage_embedding_api_base <- resolved$embedding_api_base
+  webpage_prefilter_k <- resolved$prefilter_k
+  webpage_use_mmr <- resolved$use_mmr
+  webpage_mmr_lambda <- resolved$mmr_lambda
+  webpage_cache_enabled <- resolved$cache_enabled
+  webpage_cache_max_entries <- resolved$cache_max_entries
+  webpage_cache_max_text_chars <- resolved$cache_max_text_chars
+  webpage_user_agent <- resolved$user_agent
 
   # Validate inputs
   .validate_run_task(
@@ -210,6 +239,7 @@ run_task <- function(prompt,
         conda_env = config$conda_env,
         proxy = config$proxy,
         use_browser = config$use_browser %||% ASA_DEFAULT_USE_BROWSER,
+        search = config$search,
         use_memory_folding = config$memory_folding,
         memory_threshold = config$memory_threshold,
         memory_keep_recent = config$memory_keep_recent,
@@ -246,6 +276,19 @@ run_task <- function(prompt,
       relevance_mode = relevance_mode,
       embedding_provider = embedding_provider,
       embedding_model = embedding_model,
+      timeout = webpage_timeout,
+      max_bytes = webpage_max_bytes,
+      max_chars = webpage_max_chars,
+      max_chunks = webpage_max_chunks,
+      chunk_chars = webpage_chunk_chars,
+      embedding_api_base = webpage_embedding_api_base,
+      prefilter_k = webpage_prefilter_k,
+      use_mmr = webpage_use_mmr,
+      mmr_lambda = webpage_mmr_lambda,
+      cache_enabled = webpage_cache_enabled,
+      cache_max_entries = webpage_cache_max_entries,
+      cache_max_text_chars = webpage_cache_max_text_chars,
+      user_agent = webpage_user_agent,
       conda_env = conda_env,
       fn = function() {
       .with_temporal(temporal, function() {
@@ -745,6 +788,7 @@ run_task_batch <- function(prompts,
       memory_folding = config_template$config$use_memory_folding,
       memory_threshold = config_template$config$memory_threshold,
       memory_keep_recent = config_template$config$memory_keep_recent,
+      search = config_template$config$search,
       tor = config_template$config$tor
     )
 

@@ -11,7 +11,20 @@
   allow_read_webpages = NULL,
   webpage_relevance_mode = NULL,
   webpage_embedding_provider = NULL,
-  webpage_embedding_model = NULL
+  webpage_embedding_model = NULL,
+  webpage_timeout = NULL,
+  webpage_max_bytes = NULL,
+  webpage_max_chars = NULL,
+  webpage_max_chunks = NULL,
+  webpage_chunk_chars = NULL,
+  webpage_embedding_api_base = NULL,
+  webpage_prefilter_k = NULL,
+  webpage_use_mmr = NULL,
+  webpage_mmr_lambda = NULL,
+  webpage_cache_enabled = NULL,
+  webpage_cache_max_entries = NULL,
+  webpage_cache_max_text_chars = NULL,
+  webpage_user_agent = NULL
 )
 }
 \arguments{

@@ -14,7 +14,20 @@ search_options(
   allow_read_webpages = NULL,
   webpage_relevance_mode = NULL,
   webpage_embedding_provider = NULL,
-  webpage_embedding_model = NULL
+  webpage_embedding_model = NULL,
+  webpage_timeout = NULL,
+  webpage_max_bytes = NULL,
+  webpage_max_chars = NULL,
+  webpage_max_chunks = NULL,
+  webpage_chunk_chars = NULL,
+  webpage_embedding_api_base = NULL,
+  webpage_prefilter_k = NULL,
+  webpage_use_mmr = NULL,
+  webpage_mmr_lambda = NULL,
+  webpage_cache_enabled = NULL,
+  webpage_cache_max_entries = NULL,
+  webpage_cache_max_text_chars = NULL,
+  webpage_user_agent = NULL
 )
 }
 \arguments{
@@ -46,6 +59,41 @@ One of: "auto", "lexical", "embeddings".}
 "auto", "openai", "sentence_transformers".}
 
 \item{webpage_embedding_model}{Embedding model identifier for relevance.}
+
+\item{webpage_timeout}{Timeout in seconds for OpenWebpage fetches and (when
+used) relevance embeddings.}
+
+\item{webpage_max_bytes}{Maximum bytes to download per page (hard cap).}
+
+\item{webpage_max_chars}{Maximum characters returned from an opened page
+(hard cap on tool output).}
+
+\item{webpage_max_chunks}{Maximum number of relevant excerpts to include from
+a page.}
+
+\item{webpage_chunk_chars}{Approximate size (in characters) of each excerpt.}
+
+\item{webpage_embedding_api_base}{Optional OpenAI-compatible base URL for
+embeddings. If NULL, uses \code{OPENAI_API_BASE} or
+\code{https://api.openai.com/v1}.}
+
+\item{webpage_prefilter_k}{Optional lexical prefilter size before embedding
+relevance selection.}
+
+\item{webpage_use_mmr}{Whether to apply maximal marginal relevance (MMR) for
+more diverse excerpts.}
+
+\item{webpage_mmr_lambda}{MMR tradeoff between relevance (1.0) and diversity (0.0).}
+
+\item{webpage_cache_enabled}{Enable per-run caching of opened pages.}
+
+\item{webpage_cache_max_entries}{Max cached page entries per run.}
+
+\item{webpage_cache_max_text_chars}{Max characters of extracted page text to
+store per cached page (separate from \code{webpage_max_chars}, which caps
+tool output).}
+
+\item{webpage_user_agent}{User-Agent string used for webpage fetches.}
 }
 \value{
 An object of class \code{asa_search}

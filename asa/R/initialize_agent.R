@@ -15,6 +15,11 @@
 #'   searches through Tor.
 #' @param use_browser Enable Selenium browser tier for DuckDuckGo search
 #'   (default: TRUE). Set to FALSE to avoid Chromedriver requirements.
+#' @param search Optional search options (created with \code{\link{search_options}})
+#'   used as defaults for \code{\link{run_task}}/\code{\link{asa_enumerate}} when
+#'   no \code{asa_config} is provided. This is useful for setting OpenWebpage
+#'   tuning knobs (e.g., \code{webpage_max_chars}, \code{webpage_max_chunks},
+#'   \code{webpage_chunk_chars}) once when initializing an agent.
 #' @param use_memory_folding Enable DeepAgent-style memory compression (default: TRUE)
 #' @param memory_threshold Number of messages before folding triggers (default: 4)
 #' @param memory_keep_recent Number of recent exchanges to preserve after folding
@@ -95,6 +100,7 @@ initialize_agent <- function(backend = NULL,
                              conda_env = NULL,
                              proxy = NA,
                              use_browser = ASA_DEFAULT_USE_BROWSER,
+                             search = NULL,
                              use_memory_folding = ASA_DEFAULT_MEMORY_FOLDING,
                              memory_threshold = ASA_DEFAULT_MEMORY_THRESHOLD,
                              memory_keep_recent = ASA_DEFAULT_MEMORY_KEEP_RECENT,
@@ -142,6 +148,16 @@ initialize_agent <- function(backend = NULL,
       tor <- do.call(tor_options, tor)
     } else {
       stop("`tor` must be created with tor_options() or be a list", call. = FALSE)
+    }
+  }
+
+  # Normalize search options (optional). Used as default per-run search/webpage
+  # settings when run_task()/asa_enumerate() are called without an asa_config.
+  if (!is.null(search) && !inherits(search, "asa_search")) {
+    if (is.list(search)) {
+      search <- do.call(search_options, search)
+    } else {
+      stop("`search` must be created with search_options() or be a list", call. = FALSE)
     }
   }
 
@@ -284,6 +300,7 @@ initialize_agent <- function(backend = NULL,
     memory_folding = use_memory_folding,
     memory_threshold = memory_threshold,
     memory_keep_recent = memory_keep_recent,
+    search = search,
     tor = tor
   )
 
