@@ -23,6 +23,9 @@
 #' @param memory_threshold Messages before folding triggers
 #' @param memory_keep_recent Exchanges to preserve after folding. An exchange is
 #'   a user turn plus the assistant response, including any tool calls and tool outputs.
+#' @param recursion_limit Optional default maximum number of agent steps.
+#'   When NULL, mode-specific defaults are used at runtime unless overridden in
+#'   \code{\link{run_task}}/\code{\link{run_task_batch}}.
 #' @param temporal Temporal filtering options (use \code{temporal_options()})
 #' @param search Search configuration (use \code{search_options()})
 #' @param tor Tor registry options (use \code{tor_options()})
@@ -64,7 +67,8 @@ asa_config <- function(backend = NULL,
                        memory_keep_recent = NULL,
                        temporal = NULL,
                        search = NULL,
-                       tor = NULL) {
+                       tor = NULL,
+                       recursion_limit = NULL) {
 
   # Use defaults from constants.R if not specified
   backend <- backend %||% .get_default_backend()
@@ -89,6 +93,7 @@ asa_config <- function(backend = NULL,
   # Validate proxy (NA = auto, NULL = disabled)
   .validate_proxy_url(proxy, "proxy")
   .validate_logical(use_browser, "use_browser")
+  .validate_recursion_limit(recursion_limit, "recursion_limit")
 
   # Validate temporal if provided
   if (!is.null(temporal) && !inherits(temporal, "asa_temporal")) {
@@ -134,6 +139,7 @@ asa_config <- function(backend = NULL,
       memory_folding = memory_folding,
       memory_threshold = as.integer(memory_threshold),
       memory_keep_recent = as.integer(memory_keep_recent),
+      recursion_limit = .normalize_recursion_limit(recursion_limit),
       temporal = temporal,
       search = search,
       tor = tor
@@ -162,6 +168,8 @@ print.asa_config <- function(x, ...) {
   cat("Workers:         ", x$workers, "\n", sep = "")
   cat("Timeout:         ", x$timeout, "s\n", sep = "")
   cat("Rate Limit:      ", x$rate_limit, " req/s\n", sep = "")
+  rec_limit <- .normalize_recursion_limit(x$recursion_limit %||% NULL)
+  cat("Recursion Limit: ", if (is.null(rec_limit)) "Auto" else rec_limit, "\n", sep = "")
   cat("Memory Folding:  ", if (x$memory_folding) "Enabled" else "Disabled", "\n", sep = "")
   if (x$memory_folding) {
     cat("  Threshold:     ", x$memory_threshold, " messages\n", sep = "")
@@ -633,6 +641,8 @@ print.asa_agent <- function(x, ...) {
     cat("  Threshold:    ", x$config$memory_threshold %||% "N/A", " messages\n", sep = "")
     cat("  Keep Recent:  ", x$config$memory_keep_recent %||% "N/A", " exchanges\n", sep = "")
   }
+  rec_limit <- .normalize_recursion_limit(x$config$recursion_limit %||% NULL)
+  cat("Recursion Limit:", if (is.null(rec_limit)) "Auto" else rec_limit, "\n", sep = " ")
   cat(
     "Proxy:          ",
     .format_proxy(x$config$proxy, mode = x$config$proxy_mode, source = x$config$proxy_source),

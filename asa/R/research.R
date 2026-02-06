@@ -298,6 +298,7 @@ asa_enumerate <- function(query,
         rate_limit = config_for_agent$rate_limit,
         timeout = config_for_agent$timeout,
         tor = config_for_agent$tor,
+        recursion_limit = config_for_agent$recursion_limit,
         verbose = verbose
       )
     }

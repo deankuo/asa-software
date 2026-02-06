@@ -213,6 +213,53 @@ test_that("run_task validation accepts recursion_limit", {
   expect_error(asa:::.validate_run_task("prompt", "text", NULL, FALSE, recursion_limit = 999L), "recursion_limit")
 })
 
+test_that("effective recursion_limit precedence is explicit > config > defaults", {
+  expect_equal(
+    asa:::.resolve_effective_recursion_limit(
+      recursion_limit = 12L,
+      config = list(recursion_limit = 77L),
+      use_memory_folding = TRUE
+    ),
+    12L
+  )
+
+  expect_equal(
+    asa:::.resolve_effective_recursion_limit(
+      recursion_limit = NULL,
+      config = list(recursion_limit = 77L),
+      use_memory_folding = FALSE
+    ),
+    77L
+  )
+
+  expect_equal(
+    asa:::.resolve_effective_recursion_limit(
+      recursion_limit = NULL,
+      config = list(),
+      use_memory_folding = TRUE
+    ),
+    ASA_RECURSION_LIMIT_FOLDING
+  )
+
+  expect_equal(
+    asa:::.resolve_effective_recursion_limit(
+      recursion_limit = NULL,
+      config = list(),
+      use_memory_folding = FALSE
+    ),
+    ASA_RECURSION_LIMIT_STANDARD
+  )
+
+  expect_error(
+    asa:::.resolve_effective_recursion_limit(
+      recursion_limit = NULL,
+      config = list(recursion_limit = 0L),
+      use_memory_folding = TRUE
+    ),
+    "agent\\$config\\$recursion_limit"
+  )
+})
+
 test_that("run_task_batch validation accepts 'raw' output_format", {
   expect_silent(
     asa:::.validate_run_task_batch(

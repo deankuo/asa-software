@@ -214,6 +214,40 @@ test_that(".validate_initialize_agent rejects invalid rate_limit", {
   )
 })
 
+test_that(".validate_initialize_agent validates recursion_limit", {
+  expect_silent(
+    .validate_initialize_agent(
+      backend = "openai", model = "gpt-4", conda_env = "asa_env",
+      proxy = NULL, use_browser = TRUE, use_memory_folding = TRUE,
+      memory_threshold = 4L, memory_keep_recent = 2L,
+      rate_limit = 0.2, timeout = 120L, recursion_limit = 50L,
+      verbose = TRUE
+    )
+  )
+
+  expect_error(
+    .validate_initialize_agent(
+      backend = "openai", model = "gpt-4", conda_env = "asa_env",
+      proxy = NULL, use_browser = TRUE, use_memory_folding = TRUE,
+      memory_threshold = 4L, memory_keep_recent = 2L,
+      rate_limit = 0.2, timeout = 120L, recursion_limit = 0L,
+      verbose = TRUE
+    ),
+    "recursion_limit"
+  )
+
+  expect_error(
+    .validate_initialize_agent(
+      backend = "openai", model = "gpt-4", conda_env = "asa_env",
+      proxy = NULL, use_browser = TRUE, use_memory_folding = TRUE,
+      memory_threshold = 4L, memory_keep_recent = 2L,
+      rate_limit = 0.2, timeout = 120L, recursion_limit = 501L,
+      verbose = TRUE
+    ),
+    "recursion_limit"
+  )
+})
+
 test_that(".validate_run_task accepts valid output_format values", {
   expect_silent(.validate_run_task("prompt", "text", NULL, FALSE))
   expect_silent(.validate_run_task("prompt", "json", NULL, FALSE))

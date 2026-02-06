@@ -18,7 +18,8 @@ asa_config(
   memory_keep_recent = NULL,
   temporal = NULL,
   search = NULL,
-  tor = NULL
+  tor = NULL,
+  recursion_limit = NULL
 )
 }
 \arguments{
@@ -47,6 +48,10 @@ auto-detect from environment variables (\code{ASA_PROXY}, \code{HTTP_PROXY},
 
 \item{memory_keep_recent}{Exchanges to preserve after folding. An exchange is
 a user turn plus the assistant response, including any tool calls and tool outputs.}
+
+\item{recursion_limit}{Optional default maximum number of agent steps.
+When NULL, mode-specific defaults are used at runtime unless overridden in
+\code{\link{run_task}}/\code{\link{run_task_batch}}.}
 
 \item{temporal}{Temporal filtering options (use \code{temporal_options()})}
 

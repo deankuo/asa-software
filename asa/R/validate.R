@@ -347,6 +347,21 @@
   invisible(TRUE)
 }
 
+#' Validate Optional Recursion Limit
+#' @param recursion_limit Optional recursion limit value
+#' @param param_name Parameter name for error messages
+#' @keywords internal
+.validate_recursion_limit <- function(recursion_limit, param_name = "recursion_limit") {
+  if (is.null(recursion_limit)) {
+    return(invisible(TRUE))
+  }
+
+  .validate_positive(recursion_limit, param_name, integer_only = TRUE)
+  .validate_range(recursion_limit, param_name, min = 1, max = 500)
+
+  invisible(TRUE)
+}
+
 #' Validate Logical Consistency Between Parameters
 #' @param condition Condition that must be TRUE
 #' @param message Error message if condition is FALSE
@@ -369,7 +384,8 @@
                                         use_browser, use_memory_folding,
                                         memory_threshold, memory_keep_recent,
                                         rate_limit, timeout, verbose,
-                                        tor = NULL) {
+                                        tor = NULL,
+                                        recursion_limit = NULL) {
   # backend is validated by match.arg() in the calling function
   .validate_string(model, "model")
   .validate_conda_env(conda_env, "conda_env")
@@ -380,6 +396,7 @@
   .validate_positive(memory_keep_recent, "memory_keep_recent", integer_only = TRUE)
   .validate_positive(rate_limit, "rate_limit")
   .validate_positive(timeout, "timeout", integer_only = TRUE)
+  .validate_recursion_limit(recursion_limit, "recursion_limit")
   .validate_logical(verbose, "verbose")
   .validate_tor_options(tor, "tor")
 
@@ -453,10 +470,7 @@
     }
   }
 
-  if (!is.null(recursion_limit)) {
-    .validate_positive(recursion_limit, "recursion_limit", integer_only = TRUE)
-    .validate_range(recursion_limit, "recursion_limit", min = 1, max = 500)
-  }
+  .validate_recursion_limit(recursion_limit, "recursion_limit")
 
   # allow_read_webpages: NULL or TRUE/FALSE
   if (!is.null(allow_read_webpages)) {
@@ -545,10 +559,7 @@
     .validate_s3_class(agent, "agent", "asa_agent")
   }
 
-  if (!is.null(recursion_limit)) {
-    .validate_positive(recursion_limit, "recursion_limit", integer_only = TRUE)
-    .validate_range(recursion_limit, "recursion_limit", min = 1, max = 500)
-  }
+  .validate_recursion_limit(recursion_limit, "recursion_limit")
 
   if (!is.null(expected_schema)) {
     is_py <- FALSE

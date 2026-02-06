@@ -16,7 +16,8 @@
   rate_limit,
   timeout,
   verbose,
-  tor = NULL
+  tor = NULL,
+  recursion_limit = NULL
 )
 }
 \description{

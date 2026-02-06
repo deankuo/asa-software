@@ -119,13 +119,20 @@ test_that("asa_config defaults and printing are consistent", {
   cfg <- asa_config()
   expect_s3_class(cfg, "asa_config")
   expect_true(isTRUE(is.na(cfg$proxy)))
+  expect_null(cfg$recursion_limit)
   output <- capture.output(print(cfg))
   expect_true(any(grepl("^Proxy:", output)))
   expect_true(any(grepl("Auto", output)))
+  expect_true(any(grepl("^Recursion Limit:", output)))
 
   cfg_off <- asa_config(proxy = NULL)
   output_off <- capture.output(print(cfg_off))
   expect_true(any(grepl("^Proxy:.*None", output_off)))
+
+  cfg_rl <- asa_config(recursion_limit = 42L)
+  expect_equal(cfg_rl$recursion_limit, 42L)
+  output_rl <- capture.output(print(cfg_rl))
+  expect_true(any(grepl("^Recursion Limit:.*42", output_rl)))
 })
 
 test_that("print methods produce expected headers", {

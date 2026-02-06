@@ -30,6 +30,11 @@
 #'   aggressively; higher values preserve more raw conversation.
 #' @param rate_limit Requests per second for rate limiting (default: 0.1)
 #' @param timeout Request timeout in seconds (default: 120)
+#' @param recursion_limit Optional default maximum number of agent steps to
+#'   store in the initialized agent. When \code{NULL} (default), step limits
+#'   fall back to mode-specific defaults at run time (memory folding: 100;
+#'   standard agent: 20). Per-call \code{run_task(..., recursion_limit = ...)}
+#'   overrides this value.
 #' @param tor Tor registry options from \code{\link{tor_options}}. Disable shared
 #'   tracking by setting \code{dirty_tor_exists = FALSE}.
 #' @param verbose Print status messages (default: TRUE)
@@ -111,7 +116,8 @@ initialize_agent <- function(backend = NULL,
                              rate_limit = ASA_DEFAULT_RATE_LIMIT,
                              timeout = ASA_DEFAULT_TIMEOUT,
                              tor = tor_options(),
-                             verbose = TRUE) {
+                             verbose = TRUE,
+                             recursion_limit = NULL) {
 
   # Apply defaults (option-aware where available)
   backend <- backend %||% .get_default_backend()
@@ -177,9 +183,12 @@ initialize_agent <- function(backend = NULL,
     memory_keep_recent = memory_keep_recent,
     rate_limit = rate_limit,
     timeout = timeout,
+    recursion_limit = recursion_limit,
     verbose = verbose,
     tor = tor
   )
+
+  recursion_limit <- .normalize_recursion_limit(recursion_limit)
 
   # Validate OpenRouter model format
   if (backend == "openrouter" && !grepl("/", model)) {
@@ -301,6 +310,7 @@ initialize_agent <- function(backend = NULL,
     use_browser = use_browser,
     rate_limit = rate_limit,
     timeout = timeout,
+    recursion_limit = recursion_limit,
     use_memory_folding = use_memory_folding,
     memory_folding = use_memory_folding,
     memory_threshold = memory_threshold,

@@ -81,8 +81,10 @@ One of: "auto" (default), "openai", "sentence_transformers".}
 defaults to "text-embedding-3-small". For sentence-transformers, use a
 local model name (e.g., "all-MiniLM-L6-v2").}
 
-\item{recursion_limit}{Optional maximum number of agent steps. When NULL
-(default), a backend-appropriate default is used.}
+\item{recursion_limit}{Optional maximum number of agent steps. Precedence is:
+per-call value (this argument), then configured default from
+\code{initialize_agent()} / \code{asa_config()}, then mode-specific fallback
+(memory folding: 100; standard agent: 20).}
 }
 \value{
 An \code{asa_result} object with:

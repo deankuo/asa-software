@@ -41,14 +41,13 @@
   config <- agent$config
   use_memory_folding <- (config$use_memory_folding %||% config$memory_folding) %||% TRUE
 
-  # Set recursion limit based on agent type
-  if (is.null(recursion_limit)) {
-    recursion_limit <- if (use_memory_folding) {
-      ASA_RECURSION_LIMIT_FOLDING
-    } else {
-      ASA_RECURSION_LIMIT_STANDARD
-    }
-  }
+  # Resolve recursion limit with precedence:
+  # run_task arg > agent/config default > mode-specific fallback.
+  recursion_limit <- .resolve_effective_recursion_limit(
+    recursion_limit = recursion_limit,
+    config = config,
+    use_memory_folding = use_memory_folding
+  )
 
   if (verbose) message("Running agent...")
   t0 <- Sys.time()

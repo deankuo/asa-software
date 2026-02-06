@@ -225,6 +225,59 @@
   as.character(proxy)
 }
 
+#' Normalize Optional Recursion Limit
+#' @param recursion_limit Optional recursion limit value
+#' @return Integer scalar or NULL
+#' @keywords internal
+.normalize_recursion_limit <- function(recursion_limit) {
+  if (is.null(recursion_limit) || length(recursion_limit) == 0) {
+    return(NULL)
+  }
+  value <- suppressWarnings(as.integer(recursion_limit)[1])
+  if (is.na(value)) {
+    return(NULL)
+  }
+  value
+}
+
+#' Default Recursion Limit for Agent Mode
+#' @param use_memory_folding Whether memory folding is enabled
+#' @return Integer recursion limit
+#' @keywords internal
+.default_recursion_limit <- function(use_memory_folding = TRUE) {
+  if (isTRUE(use_memory_folding)) {
+    as.integer(ASA_RECURSION_LIMIT_FOLDING)
+  } else {
+    as.integer(ASA_RECURSION_LIMIT_STANDARD)
+  }
+}
+
+#' Resolve Effective Recursion Limit
+#' @param recursion_limit Per-call override
+#' @param config Agent config list
+#' @param use_memory_folding Whether memory folding is enabled
+#' @return Integer recursion limit used for invocation
+#' @keywords internal
+.resolve_effective_recursion_limit <- function(recursion_limit = NULL,
+                                               config = NULL,
+                                               use_memory_folding = TRUE) {
+  if (!is.null(recursion_limit)) {
+    .validate_recursion_limit(recursion_limit, "recursion_limit")
+    return(as.integer(recursion_limit))
+  }
+
+  config_limit <- NULL
+  if (!is.null(config)) {
+    config_limit <- .normalize_recursion_limit(config$recursion_limit %||% NULL)
+  }
+  if (!is.null(config_limit)) {
+    .validate_recursion_limit(config_limit, "agent$config$recursion_limit")
+    return(config_limit)
+  }
+
+  .default_recursion_limit(use_memory_folding = use_memory_folding)
+}
+
 #' Check Whether an Agent Matches an asa_config
 #' @keywords internal
 .agent_matches_config <- function(agent, config) {
@@ -259,6 +312,10 @@
   same_keep <- identical(agent$config$memory_keep_recent, config$memory_keep_recent)
   same_rate <- identical(agent$config$rate_limit, config$rate_limit)
   same_timeout <- identical(agent$config$timeout, config$timeout)
+  same_recursion_limit <- identical(
+    .normalize_recursion_limit(agent$config$recursion_limit %||% NULL),
+    .normalize_recursion_limit(config$recursion_limit %||% NULL)
+  )
   same_tor <- identical(agent$config$tor, config$tor)
 
   # Some search settings affect tool construction (Wikipedia/Search snippet caps).
@@ -290,7 +347,8 @@
 
   isTRUE(same_backend && same_model && same_conda && same_proxy && same_browser &&
            same_folding && same_threshold && same_keep &&
-           same_rate && same_timeout && same_tor && same_search_tools)
+           same_rate && same_timeout && same_recursion_limit &&
+           same_tor && same_search_tools)
 }
 
 #' Clean Text for JSON Output

@@ -33,6 +33,47 @@ test_that("truncate_string works correctly", {
   expect_equal(nchar(truncate_string("very long text here", 10)), 10)
 })
 
+test_that(".agent_matches_config compares recursion_limit", {
+  cfg <- asa_config(
+    backend = "openai",
+    model = "gpt-4.1-mini",
+    conda_env = "asa_env",
+    proxy = NULL,
+    use_browser = FALSE,
+    memory_folding = TRUE,
+    memory_threshold = 10L,
+    memory_keep_recent = 4L,
+    rate_limit = 0.1,
+    timeout = 120L,
+    recursion_limit = 33L
+  )
+
+  agent <- asa_test_mock_agent(
+    backend = cfg$backend,
+    model = cfg$model,
+    config = list(
+      conda_env = cfg$conda_env,
+      proxy = cfg$proxy,
+      use_browser = cfg$use_browser,
+      use_memory_folding = cfg$memory_folding,
+      memory_folding = cfg$memory_folding,
+      memory_threshold = cfg$memory_threshold,
+      memory_keep_recent = cfg$memory_keep_recent,
+      rate_limit = cfg$rate_limit,
+      timeout = cfg$timeout,
+      recursion_limit = cfg$recursion_limit,
+      search = cfg$search,
+      tor = cfg$tor
+    )
+  )
+
+  expect_true(asa:::.agent_matches_config(agent, cfg))
+
+  cfg_diff <- cfg
+  cfg_diff$recursion_limit <- 34L
+  expect_false(asa:::.agent_matches_config(agent, cfg_diff))
+})
+
 test_that("format_duration formats time correctly", {
   expect_match(format_duration(0.5), "seconds")
   expect_match(format_duration(5), "minutes")

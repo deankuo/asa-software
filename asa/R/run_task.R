@@ -38,8 +38,10 @@
 #' @param thread_id Optional stable identifier for memory folding sessions.
 #'   When provided, the same thread ID is reused so folded summaries persist
 #'   across invocations. Defaults to NULL (new thread each call).
-#' @param recursion_limit Optional maximum number of agent steps. When NULL
-#'   (default), a backend-appropriate default is used.
+#' @param recursion_limit Optional maximum number of agent steps. Precedence is:
+#'   per-call value (this argument), then configured default from
+#'   \code{initialize_agent()} / \code{asa_config()}, then mode-specific fallback
+#'   (memory folding: 100; standard agent: 20).
 #' @param verbose Print progress messages (default: FALSE)
 #' @param allow_read_webpages If TRUE, allows the agent to open and read full
 #'   webpages (HTML/text) via the OpenWebpage tool. Disabled by default.
@@ -210,6 +212,7 @@ run_task <- function(prompt,
         rate_limit = config$rate_limit,
         timeout = config$timeout,
         tor = config$tor,
+        recursion_limit = config$recursion_limit,
         verbose = verbose
       )
     }
@@ -627,6 +630,7 @@ run_task_batch <- function(prompts,
       memory_folding = config_template$config$use_memory_folding,
       memory_threshold = config_template$config$memory_threshold,
       memory_keep_recent = config_template$config$memory_keep_recent,
+      recursion_limit = config_template$config$recursion_limit,
       search = config_template$config$search,
       tor = config_template$config$tor
     )
