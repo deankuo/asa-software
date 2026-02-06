@@ -929,3 +929,99 @@ test_that("archive entry fold_count label matches state fold_count", {
   expect_true(length(archive_entry$messages) >= 1L)
   expect_true(nchar(archive_entry$text) > 0L)
 })
+
+test_that("memory folding finalization respects inferred schema from CSV template", {
+  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
+  asa_test_skip_if_missing_python_modules(c(
+    "langchain_core",
+    "langgraph",
+    "langgraph.prebuilt",
+    "pydantic",
+    "bs4"
+  ), method = "import")
+
+  custom_ddg <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  msgs <- reticulate::import("langchain_core.messages", convert = TRUE)
+
+  pkg_root_from_python <- normalizePath(
+    file.path(python_path, "..", ".."),
+    winslash = "/",
+    mustWork = FALSE
+  )
+  csv_candidates <- c(
+    file.path(pkg_root_from_python, "tests", "example_task.csv"),
+    file.path(getwd(), "tests", "example_task.csv"),
+    file.path(getwd(), "asa", "tests", "example_task.csv"),
+    system.file("tests", "example_task.csv", package = "asa")
+  )
+  csv_candidates <- unique(csv_candidates[nzchar(csv_candidates)])
+  csv_path <- csv_candidates[file.exists(csv_candidates)][1]
+  skip_if(is.na(csv_path) || !nzchar(csv_path), "example_task.csv not found")
+
+  csv_df <- utils::read.csv(csv_path, stringsAsFactors = FALSE, check.names = FALSE)
+  prompt_col <- if ("x" %in% names(csv_df)) "x" else names(csv_df)[length(names(csv_df))]
+  template_prompt <- as.character(csv_df[[prompt_col]][1])
+  expect_true(nzchar(template_prompt))
+
+  asa_test_stub_multi_response_llm(
+    responses = list(
+      list(content = "{\"sex\":\"Female\"}"),
+      list(content = "FINALIZE_OUTPUT_NOT_JSON")
+    ),
+    var_name = "csv_template_llm"
+  )
+  asa_test_stub_summarizer(
+    summary_json = "{\"version\":1,\"facts\":[\"folded_csv_prompt\"],\"decisions\":[],\"open_questions\":[],\"sources\":[],\"warnings\":[]}",
+    var_name = "csv_template_summarizer"
+  )
+
+  agent <- custom_ddg$create_memory_folding_agent(
+    model = reticulate::py$csv_template_llm,
+    tools = list(),
+    checkpointer = NULL,
+    message_threshold = as.integer(2),
+    keep_recent = as.integer(1),
+    fold_char_budget = as.integer(500),
+    summarizer_model = reticulate::py$csv_template_summarizer,
+    debug = FALSE
+  )
+
+  history_user <- msgs$HumanMessage(content = "Earlier question about elite background")
+  history_ai <- msgs$AIMessage(content = "Earlier answer with provisional details")
+
+  final_state <- agent$invoke(
+    list(
+      messages = list(history_user, history_ai, msgs$HumanMessage(content = template_prompt)),
+      summary = "",
+      fold_stats = reticulate::dict(fold_count = 0L)
+    ),
+    config = list(
+      recursion_limit = as.integer(4),
+      configurable = list(thread_id = "test_csv_template_finalize")
+    )
+  )
+
+  expect_equal(final_state$stop_reason, "recursion_limit")
+  expect_equal(as.character(final_state$expected_schema_source), "inferred")
+  expect_true(as.integer(as.list(final_state$fold_stats)$fold_count) >= 1L)
+  expect_equal(as.integer(reticulate::py$csv_template_summarizer$calls), 1L)
+  expect_true(as.integer(reticulate::py$csv_template_llm$n) >= 2L)
+
+  response_text <- asa:::.extract_response_text(final_state, backend = "gemini")
+  parsed <- jsonlite::fromJSON(response_text)
+
+  inferred_schema <- reticulate::py_to_r(final_state$expected_schema)
+  schema_keys <- names(inferred_schema)
+  expect_true(is.list(parsed))
+  expect_true(length(schema_keys) >= 10L)
+  expect_true(all(schema_keys %in% names(parsed)))
+
+  repair_events <- reticulate::py_to_r(final_state$json_repair)
+  contexts <- character(0)
+  if (is.list(repair_events) && length(repair_events) > 0) {
+    contexts <- vapply(repair_events, function(ev) {
+      if (is.list(ev) && !is.null(ev$context)) as.character(ev$context) else NA_character_
+    }, character(1))
+  }
+  expect_true("finalize" %in% contexts)
+})

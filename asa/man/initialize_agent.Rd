@@ -61,16 +61,16 @@ aggressively; higher values preserve more raw conversation.}
 
 \item{timeout}{Request timeout in seconds (default: 120)}
 
+\item{tor}{Tor registry options from \code{\link{tor_options}}. Disable shared
+tracking by setting \code{dirty_tor_exists = FALSE}.}
+
+\item{verbose}{Print status messages (default: TRUE)}
+
 \item{recursion_limit}{Optional default maximum number of agent steps to
 store in the initialized agent. When \code{NULL} (default), step limits
 fall back to mode-specific defaults at run time (memory folding: 100;
 standard agent: 20). Per-call \code{run_task(..., recursion_limit = ...)}
 overrides this value.}
-
-\item{tor}{Tor registry options from \code{\link{tor_options}}. Disable shared
-tracking by setting \code{dirty_tor_exists = FALSE}.}
-
-\item{verbose}{Print status messages (default: TRUE)}
 }
 \value{
 An object of class \code{asa_agent} containing the initialized agent
