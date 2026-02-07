@@ -6,16 +6,16 @@
 backends <- list(
   list(backend = "openai", model = "gpt-4o-mini", env = "OPENAI_API_KEY"),
   list(backend = "groq", model = "llama-3.3-70b-versatile", env = "GROQ_API_KEY"),
-  list(backend = "xai", model = "grok-2-latest", env = "XAI_API_KEY"),
+  list(backend = "xai", model = "grok-3-mini", env = "XAI_API_KEY"),
   list(
     backend = "gemini",
     model = "gemini-3-flash-preview",
     env = c("GOOGLE_API_KEY", "GEMINI_API_KEY"),
     py_module = "langchain_google_genai"
   ),
-  list(backend = "openrouter", model = "google/gemini-2.0-flash-exp:free", env = "OPENROUTER_API_KEY"),
-  list(backend = "openrouter", model = "meta-llama/llama-3.3-70b-instruct:free", env = "OPENROUTER_API_KEY"),
-  list(backend = "openrouter", model = "deepseek/deepseek-r1:free", env = "OPENROUTER_API_KEY")
+  list(backend = "openrouter", model = "google/gemini-2.0-flash-001", env = "OPENROUTER_API_KEY"),
+  list(backend = "openrouter", model = "meta-llama/llama-3.3-70b-instruct", env = "OPENROUTER_API_KEY"),
+  list(backend = "openrouter", model = "deepseek/deepseek-r1", env = "OPENROUTER_API_KEY")
 )
 
 .with_backend_agent <- function(cfg, expr) {
@@ -58,8 +58,16 @@ for (cfg in backends) {
         output_format = "text",
         agent = agent
       )
-      # Collapse result to single string and check for "4" not adjacent to other digits
-      result_text <- paste(unlist(result), collapse = " ")
+      result_text <- if (is.null(result$message) || length(result$message) == 0 || is.na(result$message[1])) {
+        ""
+      } else {
+        as.character(result$message[1])
+      }
+      expect_identical(
+        result$status,
+        "success",
+        info = paste("Expected success status; got:", result$status, "message:", substr(result_text, 1, 200))
+      )
       expect_true(
         grepl("(?<![0-9])4(?![0-9])", result_text, perl = TRUE),
         info = paste("Expected '4' in response:", substr(result_text, 1, 200))

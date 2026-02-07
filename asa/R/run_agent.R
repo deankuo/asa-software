@@ -85,6 +85,7 @@
 
   # Extract response text
   response_text <- .extract_response_text(raw_response, config$backend)
+  invoke_exception_fallback <- .has_invoke_exception_fallback(raw_response)
 
   # Build trace
   trace <- .build_trace(raw_response)
@@ -113,7 +114,11 @@
   # Return response object
   asa_response(
     message = response_text,
-    status_code = if (is.na(response_text)) ASA_STATUS_ERROR else ASA_STATUS_SUCCESS,
+    status_code = if (is.na(response_text) || invoke_exception_fallback) {
+      ASA_STATUS_ERROR
+    } else {
+      ASA_STATUS_SUCCESS
+    },
     raw_response = raw_response,
     trace = trace,
     trace_json = trace_json,
@@ -126,6 +131,29 @@
 # NOTE: run_agent() has been removed from public API.
 # Use run_task(..., output_format = "raw") instead for full trace access.
 # The internal .run_agent() function above is used by run_task() internally.
+
+#' Detect Model Invoke Exception Fallback Events
+#' @keywords internal
+.has_invoke_exception_fallback <- function(raw_response) {
+  repair_events <- .try_or(raw_response$json_repair, NULL)
+  if (is.null(repair_events) || length(repair_events) == 0) {
+    return(FALSE)
+  }
+
+  repair_events <- .try_or(reticulate::py_to_r(repair_events), repair_events)
+  if (!is.list(repair_events) || length(repair_events) == 0) {
+    return(FALSE)
+  }
+
+  reasons <- vapply(repair_events, function(ev) {
+    if (!is.list(ev) || is.null(ev$repair_reason)) {
+      return(NA_character_)
+    }
+    as.character(ev$repair_reason)[1]
+  }, character(1))
+
+  any(!is.na(reasons) & reasons == "invoke_exception_fallback")
+}
 
 #' Invoke Memory Folding Agent
 #' @keywords internal

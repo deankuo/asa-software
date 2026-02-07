@@ -170,6 +170,20 @@ test_that("run_task accepts output_format = 'raw'", {
   expect_silent(asa:::.validate_run_task("test", "raw", NULL, FALSE))
 })
 
+test_that(".has_invoke_exception_fallback detects model invoke fallback repairs", {
+  expect_true(
+    asa:::.has_invoke_exception_fallback(
+      list(json_repair = list(list(repair_reason = "invoke_exception_fallback")))
+    )
+  )
+
+  expect_false(
+    asa:::.has_invoke_exception_fallback(
+      list(json_repair = list(list(repair_reason = "schema_normalization")))
+    )
+  )
+})
+
 test_that("run_task validation accepts all output_format options", {
   # Mock validation should pass for all valid formats
   expect_silent(asa:::.validate_run_task("prompt", "text", NULL, FALSE))
