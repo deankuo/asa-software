@@ -336,7 +336,7 @@ print.asa_temporal <- function(x, ...) {
 #' @param max_results Maximum number of search results to return per query.
 #'   Higher values provide more context but increase latency. Default: 10.
 #' @param timeout Timeout in seconds for individual search requests.
-#'   Applies to each tier attempt separately. Default: 15.
+#'   Applies to each tier attempt separately. Default: 30.
 #' @param max_retries Maximum number of retry attempts when a search tier fails.
 #'   After exhausting retries, the system falls back to the next tier. Default: 3.
 #' @param retry_delay Initial delay in seconds before the first retry.
@@ -456,7 +456,7 @@ search_options <- function(max_results = NULL,
   structure(
     list(
       max_results = max_results %||% ASA_DEFAULT_MAX_RESULTS,
-      timeout = timeout %||% 15.0,
+      timeout = timeout %||% ASA_DEFAULT_SEARCH_TIMEOUT,
       max_retries = max_retries %||% ASA_DEFAULT_MAX_RETRIES,
       retry_delay = retry_delay %||% 2.0,
       backoff_multiplier = backoff_multiplier %||% 1.5,
@@ -694,13 +694,21 @@ summary.asa_agent <- function(object, ...) {
 #'   \code{fold_compression_ratio}, \code{fold_parse_success}, and
 #'   \code{fold_summarizer_latency_m}.
 #' @param prompt The original prompt
+#' @param thread_id Resolved LangGraph thread identifier used for this run.
+#' @param stop_reason Terminal stop reason from agent state (when available).
+#' @param budget_state Tool-call budget state snapshot from agent state.
+#' @param field_status Per-field extraction status map from agent state.
+#' @param json_repair JSON repair/fallback events emitted during execution.
 #'
 #' @return An object of class \code{asa_response}
 #'
 #' @export
 asa_response <- function(message, status_code, raw_response, trace,
                          elapsed_time, prompt,
-                         trace_json = "", fold_stats = list()) {
+                         trace_json = "", fold_stats = list(),
+                         thread_id = NULL, stop_reason = NULL,
+                         budget_state = list(), field_status = list(),
+                         json_repair = list()) {
   structure(
     list(
       message = message,
@@ -710,7 +718,12 @@ asa_response <- function(message, status_code, raw_response, trace,
       trace_json = trace_json,
       elapsed_time = elapsed_time,
       fold_stats = fold_stats,
-      prompt = prompt
+      prompt = prompt,
+      thread_id = thread_id,
+      stop_reason = stop_reason,
+      budget_state = budget_state,
+      field_status = field_status,
+      json_repair = json_repair
     ),
     class = "asa_response"
   )
@@ -784,7 +797,11 @@ summary.asa_response <- function(object, show_trace = FALSE, ...) {
     message_length = nchar(object$message %||% ""),
     trace_length = nchar(object$trace %||% ""),
     fold_count = object$fold_stats$fold_count,
-    fold_stats = object$fold_stats
+    fold_stats = object$fold_stats,
+    thread_id = object$thread_id %||% NA_character_,
+    stop_reason = object$stop_reason %||% NA_character_,
+    budget_state = object$budget_state %||% list(),
+    field_status = object$field_status %||% list()
   ))
 }
 
@@ -804,6 +821,9 @@ summary.asa_response <- function(object, show_trace = FALSE, ...) {
 #' @param parsing_status List with JSON parsing validation info: valid (logical),
 #'   reason ("ok", "parsing_failed", "not_object", "missing_fields", "null_values",
 #'   "no_validation"), and missing (character vector of missing/invalid fields).
+#' @param execution Optional operational metadata list. Common fields include
+#'   \code{thread_id}, \code{stop_reason}, \code{status_code}, and tool budget
+#'   counters extracted from agent state.
 #'
 #' @return An object of class \code{asa_result}
 #'
@@ -811,11 +831,14 @@ summary.asa_response <- function(object, show_trace = FALSE, ...) {
 asa_result <- function(prompt, message, parsed, raw_output,
                        elapsed_time, status,
                        search_tier = "unknown", parsing_status = NULL,
-                       trace_json = "") {
+                       trace_json = "", execution = NULL) {
   # Default parsing_status if not provided
 
   if (is.null(parsing_status)) {
     parsing_status <- list(valid = TRUE, reason = "no_validation", missing = character(0))
+  }
+  if (is.null(execution) || !is.list(execution)) {
+    execution <- list()
   }
 
   structure(
@@ -828,7 +851,8 @@ asa_result <- function(prompt, message, parsed, raw_output,
       elapsed_time = elapsed_time,
       status = status,
       search_tier = search_tier,
-      parsing_status = parsing_status
+      parsing_status = parsing_status,
+      execution = execution
     ),
     class = "asa_result"
   )
@@ -850,6 +874,22 @@ print.asa_result <- function(x, ...) {
   cat("Time:    ", format_duration(x$elapsed_time), "\n", sep = "")
   if (!is.null(x$search_tier) && x$search_tier != "unknown") {
     cat("Search:  ", x$search_tier, "\n", sep = "")
+  }
+  stop_reason <- .try_or(as.character(x$execution$stop_reason), character(0))
+  if (length(stop_reason) > 0 && nzchar(stop_reason[[1]])) {
+    cat("Stop:    ", stop_reason[[1]], "\n", sep = "")
+  }
+  as_scalar_int <- function(value) {
+    cast <- .try_or(as.integer(value), integer(0))
+    if (length(cast) == 0 || is.na(cast[[1]])) {
+      return(NA_integer_)
+    }
+    cast[[1]]
+  }
+  tool_used <- as_scalar_int(x$execution$tool_calls_used)
+  tool_lim <- as_scalar_int(x$execution$tool_calls_limit)
+  if (!is.na(tool_used) && !is.na(tool_lim)) {
+    cat("Tools:   ", tool_used, "/", tool_lim, "\n", sep = "")
   }
   cat("\n")
   cat("Prompt:\n")
@@ -903,6 +943,15 @@ summary.asa_result <- function(object, ...) {
   cat("Status: ", object$status, "\n", sep = "")
   cat("Time: ", format_duration(object$elapsed_time), "\n", sep = "")
   cat("Response length: ", nchar(object$message %||% ""), " chars\n", sep = "")
+  stop_reason <- .try_or(as.character(object$execution$stop_reason), character(0))
+  stop_reason_val <- if (length(stop_reason) > 0 && nzchar(stop_reason[[1]])) {
+    stop_reason[[1]]
+  } else {
+    NA_character_
+  }
+  if (length(stop_reason) > 0 && nzchar(stop_reason[[1]])) {
+    cat("Stop reason: ", stop_reason[[1]], "\n", sep = "")
+  }
   if (!is.null(object$parsed)) {
     cat("Parsed fields: ", paste(names(object$parsed), collapse = ", "), "\n", sep = "")
   }
@@ -911,7 +960,13 @@ summary.asa_result <- function(object, ...) {
     status = object$status,
     elapsed_time = object$elapsed_time,
     message_length = nchar(object$message %||% ""),
-    parsed_fields = names(object$parsed)
+    parsed_fields = names(object$parsed),
+    stop_reason = stop_reason_val,
+    thread_id = object$execution$thread_id %||% NA_character_,
+    status_code = object$execution$status_code %||% NA_integer_,
+    tool_calls_used = object$execution$tool_calls_used %||% NA_integer_,
+    tool_calls_limit = object$execution$tool_calls_limit %||% NA_integer_,
+    tool_calls_remaining = object$execution$tool_calls_remaining %||% NA_integer_
   ))
 }
 
@@ -930,6 +985,13 @@ as.data.frame.asa_result <- function(x, ...) {
     message = x$message %||% NA_character_,
     status = x$status %||% NA_character_,
     elapsed_time = x$elapsed_time %||% NA_real_,
+    stop_reason = x$execution$stop_reason %||% NA_character_,
+    thread_id = x$execution$thread_id %||% NA_character_,
+    status_code = x$execution$status_code %||% NA_integer_,
+    tool_calls_used = x$execution$tool_calls_used %||% NA_integer_,
+    tool_calls_limit = x$execution$tool_calls_limit %||% NA_integer_,
+    tool_calls_remaining = x$execution$tool_calls_remaining %||% NA_integer_,
+    fold_count = x$execution$fold_count %||% NA_integer_,
     stringsAsFactors = FALSE
   )
 

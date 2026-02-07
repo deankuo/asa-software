@@ -94,8 +94,14 @@ ASA_DEFAULT_FOLD_CHAR_BUDGET <- 30000L
 ASA_DEFAULT_RATE_LIMIT <- 0.1
 
 #' Default Request Timeout (seconds)
+#' @description Overall agent operation timeout used for API clients/runtime wrappers.
 #' @keywords internal
 ASA_DEFAULT_TIMEOUT <- 120L
+
+#' Default Search Timeout (seconds)
+#' @description Per-search HTTP timeout used by search/network tools.
+#' @keywords internal
+ASA_DEFAULT_SEARCH_TIMEOUT <- 30.0
 
 #' Default Inter-Search Delay (seconds)
 #' @description Conservative default: 1.5 seconds between searches.
@@ -112,6 +118,24 @@ ASA_DEFAULT_CAPTCHA_BACKOFF_BASE <- 5.0
 #' Default Max Retries
 #' @keywords internal
 ASA_DEFAULT_MAX_RETRIES <- 3L
+
+#' Default Agent Invoke Retry Attempts
+#' @description Total attempts for transient model invoke failures.
+#' @keywords internal
+ASA_DEFAULT_INVOKE_MAX_ATTEMPTS <- 3L
+
+#' Default Agent Invoke Retry Delay (seconds)
+#' @keywords internal
+ASA_DEFAULT_INVOKE_RETRY_DELAY <- 1.0
+
+#' Default Agent Invoke Retry Backoff Multiplier
+#' @keywords internal
+ASA_DEFAULT_INVOKE_RETRY_BACKOFF <- 2.0
+
+#' Default Agent Invoke Retry Jitter Factor
+#' @description Fractional jitter applied to retry delays (0.25 = +/-25%).
+#' @keywords internal
+ASA_DEFAULT_INVOKE_RETRY_JITTER <- 0.25
 
 #' Rate Limit Wait Time (seconds)
 #' @keywords internal

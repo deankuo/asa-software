@@ -496,6 +496,11 @@
 .validate_run_task <- function(prompt, output_format, agent, verbose, thread_id = NULL,
                                expected_schema = NULL,
                                recursion_limit = NULL,
+                               field_status = NULL,
+                               budget_state = NULL,
+                               search_budget_limit = NULL,
+                               unknown_after_searches = NULL,
+                               finalize_on_all_fields_resolved = NULL,
                                allow_read_webpages = NULL,
                                webpage_relevance_mode = NULL,
                                webpage_embedding_provider = NULL,
@@ -524,8 +529,31 @@
     allow_empty_list = FALSE,
     invalid_fix = "Pass a nested list schema (e.g., list(status=\"complete|partial\", items=list(list(name=\"string\")))) or set expected_schema = NULL"
   )
+  .validate_expected_schema(
+    field_status,
+    param_name = "field_status",
+    allow_empty_list = TRUE,
+    invalid_fix = "Pass a named list or Python dict for field_status, or set field_status = NULL",
+    empty_fix = "Pass field_status = NULL or include at least one status entry"
+  )
+  .validate_expected_schema(
+    budget_state,
+    param_name = "budget_state",
+    allow_empty_list = TRUE,
+    invalid_fix = "Pass a named list or Python dict for budget_state, or set budget_state = NULL",
+    empty_fix = "Pass budget_state = NULL or include at least one budget key"
+  )
 
   .validate_recursion_limit(recursion_limit, "recursion_limit")
+  if (!is.null(search_budget_limit)) {
+    .validate_positive(search_budget_limit, "search_budget_limit", integer_only = TRUE)
+  }
+  if (!is.null(unknown_after_searches)) {
+    .validate_positive(unknown_after_searches, "unknown_after_searches", integer_only = TRUE)
+  }
+  if (!is.null(finalize_on_all_fields_resolved)) {
+    .validate_logical(finalize_on_all_fields_resolved, "finalize_on_all_fields_resolved")
+  }
 
   # allow_read_webpages: NULL or TRUE/FALSE
   if (!is.null(allow_read_webpages)) {
@@ -595,7 +623,12 @@
 
 #' Validate run_agent() Parameters
 #' @keywords internal
-.validate_run_agent <- function(prompt, agent, recursion_limit, verbose, thread_id = NULL, expected_schema = NULL) {
+.validate_run_agent <- function(prompt, agent, recursion_limit, verbose,
+                                thread_id = NULL, expected_schema = NULL,
+                                field_status = NULL, budget_state = NULL,
+                                search_budget_limit = NULL,
+                                unknown_after_searches = NULL,
+                                finalize_on_all_fields_resolved = NULL) {
   .validate_string(prompt, "prompt")
 
   if (!is.null(agent)) {
@@ -605,6 +638,18 @@
   .validate_recursion_limit(recursion_limit, "recursion_limit")
 
   .validate_expected_schema(expected_schema)
+  .validate_expected_schema(field_status, param_name = "field_status", allow_empty_list = TRUE)
+  .validate_expected_schema(budget_state, param_name = "budget_state", allow_empty_list = TRUE)
+
+  if (!is.null(search_budget_limit)) {
+    .validate_positive(search_budget_limit, "search_budget_limit", integer_only = TRUE)
+  }
+  if (!is.null(unknown_after_searches)) {
+    .validate_positive(unknown_after_searches, "unknown_after_searches", integer_only = TRUE)
+  }
+  if (!is.null(finalize_on_all_fields_resolved)) {
+    .validate_logical(finalize_on_all_fields_resolved, "finalize_on_all_fields_resolved")
+  }
 
   .validate_logical(verbose, "verbose")
 

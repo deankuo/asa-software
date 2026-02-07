@@ -958,9 +958,26 @@ def _build_research_result(
     """Build normalized research results from a completed state."""
     state = state or {}
     results = state.get("results", [])
+    provenance = []
+    for idx, row in enumerate(results):
+        if not isinstance(row, dict):
+            continue
+        row_id = row.get("row_id") or f"row_{idx}"
+        confidence_raw = row.get("confidence")
+        try:
+            confidence = float(confidence_raw) if confidence_raw is not None else None
+        except Exception:
+            confidence = None
+        provenance.append({
+            "row_id": row_id,
+            "source_url": row.get("source_url") or "",
+            "confidence": confidence,
+            "worker_id": row.get("worker_id") or "unknown",
+            "extraction_timestamp": row.get("extraction_timestamp"),
+        })
     return {
         "results": results,
-        "provenance": [],
+        "provenance": provenance,
         "metrics": {
             "round_number": state.get("round_number", 0),
             "queries_used": state.get("queries_used", 0),
@@ -982,9 +999,21 @@ def _build_research_error_result(
 ) -> Dict[str, Any]:
     """Build normalized failed research results."""
     state = state or {}
+    results = state.get("results", [])
+    provenance = []
+    for idx, row in enumerate(results):
+        if not isinstance(row, dict):
+            continue
+        provenance.append({
+            "row_id": row.get("row_id") or f"row_{idx}",
+            "source_url": row.get("source_url") or "",
+            "confidence": row.get("confidence"),
+            "worker_id": row.get("worker_id") or "unknown",
+            "extraction_timestamp": row.get("extraction_timestamp"),
+        })
     return {
-        "results": state.get("results", []),
-        "provenance": [],
+        "results": results,
+        "provenance": provenance,
         "metrics": {"time_elapsed": elapsed},
         "status": "failed",
         "stop_reason": f"execution_error: {str(error)}",

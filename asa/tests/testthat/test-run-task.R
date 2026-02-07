@@ -231,6 +231,34 @@ test_that("run_task validation accepts recursion_limit", {
   expect_error(asa:::.validate_run_task("prompt", "text", NULL, FALSE, recursion_limit = 999L), "recursion_limit")
 })
 
+test_that("run_task validation accepts budget and field-status controls", {
+  expect_silent(
+    asa:::.validate_run_task(
+      "prompt",
+      "text",
+      NULL,
+      FALSE,
+      field_status = list(name = list(status = "unknown")),
+      budget_state = list(tool_calls_used = 1L, tool_calls_limit = 4L),
+      search_budget_limit = 5L,
+      unknown_after_searches = 2L,
+      finalize_on_all_fields_resolved = TRUE
+    )
+  )
+  expect_error(
+    asa:::.validate_run_task("prompt", "text", NULL, FALSE, search_budget_limit = -1L),
+    "search_budget_limit"
+  )
+  expect_error(
+    asa:::.validate_run_task("prompt", "text", NULL, FALSE, unknown_after_searches = 0L),
+    "unknown_after_searches"
+  )
+  expect_error(
+    asa:::.validate_run_task("prompt", "text", NULL, FALSE, finalize_on_all_fields_resolved = "yes"),
+    "finalize_on_all_fields_resolved"
+  )
+})
+
 test_that("run_task rejects non-asa_config config", {
   expect_error(
     run_task("test prompt", config = list(foo = "bar")),

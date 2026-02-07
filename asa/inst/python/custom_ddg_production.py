@@ -57,7 +57,7 @@ class SearchConfig:
 
     Attributes:
         max_results: Maximum number of search results to return (default: 10)
-        timeout: HTTP request timeout in seconds (default: 15.0)
+        timeout: HTTP request timeout in seconds (default: 30.0)
         max_retries: Maximum retry attempts on failure (default: 3)
         retry_delay: Initial delay between retries in seconds (default: 2.0)
         backoff_multiplier: Multiplier for exponential backoff (default: 1.5)
@@ -70,7 +70,7 @@ class SearchConfig:
             WARNING: Enabling this defeats anonymity - only use if you don't need Tor protection
     """
     max_results: int = 10
-    timeout: float = 15.0
+    timeout: float = 30.0
     max_retries: int = 3
     retry_delay: float = 2.0
     backoff_multiplier: float = 1.5
@@ -4655,6 +4655,104 @@ def _exception_fallback_text(
     return f"Unable to complete the {context} step due to an internal error."
 
 
+def _parse_retry_setting(raw_value: Any, cast_fn: Callable[[Any], Any], default_value: Any) -> Any:
+    """Best-effort parse for retry config fields."""
+    if raw_value is None:
+        return default_value
+    try:
+        return cast_fn(raw_value)
+    except Exception:
+        return default_value
+
+
+def _invoke_retry_config(retry_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Resolve invoke retry policy from explicit config, env, and defaults."""
+    retry_config = retry_config or {}
+    max_attempts = _parse_retry_setting(
+        retry_config.get("max_attempts", os.environ.get("ASA_INVOKE_MAX_ATTEMPTS", 3)),
+        int,
+        3,
+    )
+    retry_delay = _parse_retry_setting(
+        retry_config.get("retry_delay", os.environ.get("ASA_INVOKE_RETRY_DELAY", 1.0)),
+        float,
+        1.0,
+    )
+    retry_backoff = _parse_retry_setting(
+        retry_config.get("retry_backoff", os.environ.get("ASA_INVOKE_RETRY_BACKOFF", 2.0)),
+        float,
+        2.0,
+    )
+    retry_jitter = _parse_retry_setting(
+        retry_config.get("retry_jitter", os.environ.get("ASA_INVOKE_RETRY_JITTER", 0.25)),
+        float,
+        0.25,
+    )
+    return {
+        "max_attempts": max(1, int(max_attempts)),
+        "retry_delay": max(0.0, float(retry_delay)),
+        "retry_backoff": max(1.0, float(retry_backoff)),
+        "retry_jitter": max(0.0, float(retry_jitter)),
+    }
+
+
+def _is_retryable_invoke_exception(exc: Exception) -> bool:
+    """Classify transient model invocation failures that merit retry."""
+    msg = str(exc or "").lower()
+    exc_name = type(exc).__name__.lower()
+
+    # Fast deny-list for permanent failures.
+    non_retryable_tokens = (
+        "authentication",
+        "invalid api key",
+        "unauthorized",
+        "forbidden",
+        "permission",
+        "validation",
+        "bad request",
+        "unsupported",
+        "not found",
+        "recursion",
+    )
+    if any(tok in msg for tok in non_retryable_tokens):
+        return False
+    if any(tok in exc_name for tok in ("authentication", "permission", "validation")):
+        return False
+
+    if isinstance(exc, (TimeoutError, ConnectionError)):
+        return True
+
+    retryable_patterns = (
+        "timeout",
+        "timed out",
+        "rate limit",
+        "too many requests",
+        "429",
+        "connection reset",
+        "connection aborted",
+        "connection error",
+        "temporar",
+        "service unavailable",
+        "502",
+        "503",
+        "504",
+        "gateway",
+    )
+    if any(tok in msg for tok in retryable_patterns):
+        return True
+
+    retryable_exc_tokens = (
+        "timeout",
+        "ratelimit",
+        "apitimeout",
+        "apiconnection",
+        "serviceunavailable",
+        "internalserver",
+        "connection",
+    )
+    return any(tok in exc_name for tok in retryable_exc_tokens)
+
+
 def _invoke_model_with_fallback(
     invoke_fn: Callable[[], Any],
     *,
@@ -4664,38 +4762,76 @@ def _invoke_model_with_fallback(
     context: str = "agent",
     messages: Optional[list] = None,
     debug: bool = False,
+    retry_config: Optional[Dict[str, Any]] = None,
 ) -> tuple[Any, Optional[Dict[str, Any]]]:
-    """Invoke model callable and convert exceptions into terminal AI responses."""
-    try:
-        return invoke_fn(), None
-    except Exception as exc:
-        if debug:
-            logger.exception("Model invoke failed in %s", context)
-        fallback_text = _exception_fallback_text(
-            expected_schema,
-            context=context,
-            messages=messages,
-            field_status=field_status,
-        )
-        try:
-            from langchain_core.messages import AIMessage
-            response = AIMessage(content=fallback_text)
-        except Exception:
-            response = {"role": "assistant", "content": fallback_text}
+    """Invoke model callable with retry, then convert terminal failures."""
+    policy = _invoke_retry_config(retry_config)
+    max_attempts = int(policy["max_attempts"])
+    retry_delay = float(policy["retry_delay"])
+    retry_backoff = float(policy["retry_backoff"])
+    retry_jitter = float(policy["retry_jitter"])
+    last_exc: Optional[Exception] = None
+    last_retryable = False
+    attempts_used = 0
 
-        event = {
-            "repair_applied": True,
-            "repair_reason": "invoke_exception_fallback",
-            "missing_keys_count": 0,
-            "missing_keys_sample": [],
-            "fallback_on_failure": True,
-            "schema_source": schema_source,
-            "context": context,
-            "error_type": type(exc).__name__,
-        }
-        if debug or str(os.environ.get("ASA_LOG_JSON_REPAIR", "")).lower() in {"1", "true", "yes"}:
-            logger.info("json_repair=%s", event)
-        return response, event
+    for attempt in range(1, max_attempts + 1):
+        attempts_used = attempt
+        try:
+            return invoke_fn(), None
+        except Exception as exc:
+            last_exc = exc
+            last_retryable = _is_retryable_invoke_exception(exc)
+            if (not last_retryable) or attempt >= max_attempts:
+                break
+            wait_for = retry_delay * (retry_backoff ** (attempt - 1))
+            if retry_jitter > 0 and wait_for > 0:
+                jitter_low = max(0.0, 1.0 - retry_jitter)
+                jitter_high = 1.0 + retry_jitter
+                wait_for *= random.uniform(jitter_low, jitter_high)
+            if debug:
+                logger.warning(
+                    "Model invoke transient failure in %s (attempt %d/%d): %s; retrying in %.2fs",
+                    context,
+                    attempt,
+                    max_attempts,
+                    type(exc).__name__,
+                    wait_for,
+                )
+            if wait_for > 0:
+                time.sleep(wait_for)
+
+    exc = last_exc if last_exc is not None else RuntimeError("Unknown model invoke failure")
+    if debug:
+        logger.exception("Model invoke failed in %s", context)
+    fallback_text = _exception_fallback_text(
+        expected_schema,
+        context=context,
+        messages=messages,
+        field_status=field_status,
+    )
+    try:
+        from langchain_core.messages import AIMessage
+        response = AIMessage(content=fallback_text)
+    except Exception:
+        response = {"role": "assistant", "content": fallback_text}
+
+    event = {
+        "repair_applied": True,
+        "repair_reason": "invoke_exception_fallback",
+        "missing_keys_count": 0,
+        "missing_keys_sample": [],
+        "fallback_on_failure": True,
+        "schema_source": schema_source,
+        "context": context,
+        "error_type": type(exc).__name__,
+        "retry_attempts": int(attempts_used),
+        "retry_max_attempts": int(max_attempts),
+        "retryable_error": bool(last_retryable),
+        "retry_exhausted": bool(last_retryable and attempts_used >= max_attempts),
+    }
+    if debug or str(os.environ.get("ASA_LOG_JSON_REPAIR", "")).lower() in {"1", "true", "yes"}:
+        logger.info("json_repair=%s", event)
+    return response, event
 
 
 def _tool_node_error_result(

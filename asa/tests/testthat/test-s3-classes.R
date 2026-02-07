@@ -115,6 +115,35 @@ test_that("as.data.frame.asa_result works", {
   expect_equal(df$age, "30")
 })
 
+test_that("asa_result stores execution metadata", {
+  result <- asa_result(
+    prompt = "Test query",
+    message = "Test answer",
+    parsed = NULL,
+    raw_output = "trace",
+    elapsed_time = 1.0,
+    status = "success",
+    execution = list(
+      thread_id = "thread-123",
+      stop_reason = "recursion_limit",
+      status_code = 200L,
+      tool_calls_used = 2L,
+      tool_calls_limit = 5L,
+      tool_calls_remaining = 3L,
+      fold_count = 1L
+    )
+  )
+
+  expect_equal(result$execution$thread_id, "thread-123")
+  expect_equal(result$execution$tool_calls_used, 2L)
+
+  df <- as.data.frame(result)
+  expect_equal(df$thread_id, "thread-123")
+  expect_equal(df$stop_reason, "recursion_limit")
+  expect_equal(df$tool_calls_limit, 5L)
+  expect_equal(df$fold_count, 1L)
+})
+
 test_that("asa_config defaults and printing are consistent", {
   cfg <- asa_config()
   expect_s3_class(cfg, "asa_config")

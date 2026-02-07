@@ -16,6 +16,11 @@
                        recursion_limit = NULL,
                        expected_schema = NULL,
                        thread_id = NULL,
+                       field_status = NULL,
+                       budget_state = NULL,
+                       search_budget_limit = NULL,
+                       unknown_after_searches = NULL,
+                       finalize_on_all_fields_resolved = NULL,
                        verbose = FALSE) {
 
   # Validate inputs
@@ -24,6 +29,11 @@
     agent = agent,
     recursion_limit = recursion_limit,
     expected_schema = expected_schema,
+    field_status = field_status,
+    budget_state = budget_state,
+    search_budget_limit = search_budget_limit,
+    unknown_after_searches = unknown_after_searches,
+    finalize_on_all_fields_resolved = finalize_on_all_fields_resolved,
     verbose = verbose,
     thread_id = thread_id
   )
@@ -51,17 +61,58 @@
 
   if (verbose) message("Running agent...")
   t0 <- Sys.time()
+  resolved_thread_id <- .resolve_thread_id(thread_id)
+  invoke_max_attempts <- as.integer(config$invoke_max_attempts %||% ASA_DEFAULT_INVOKE_MAX_ATTEMPTS)
+  invoke_retry_delay <- as.numeric(config$invoke_retry_delay %||% ASA_DEFAULT_INVOKE_RETRY_DELAY)
+  invoke_retry_backoff <- as.numeric(config$invoke_retry_backoff %||% ASA_DEFAULT_INVOKE_RETRY_BACKOFF)
+  invoke_retry_jitter <- as.numeric(config$invoke_retry_jitter %||% ASA_DEFAULT_INVOKE_RETRY_JITTER)
+  invoke_max_attempts <- max(1L, invoke_max_attempts)
 
   # Build initial state and invoke agent
-  raw_response <- tryCatch({
-    if (use_memory_folding) {
-      .invoke_memory_folding_agent(agent$python_agent, prompt, recursion_limit, expected_schema, thread_id)
-    } else {
-      .invoke_standard_agent(agent$python_agent, prompt, recursion_limit, expected_schema, thread_id)
-    }
+  invoke_output <- tryCatch({
+    .invoke_agent_with_retry(
+      invoke_fn = function() {
+        if (use_memory_folding) {
+          .invoke_memory_folding_agent(
+            python_agent = agent$python_agent,
+            prompt = prompt,
+            recursion_limit = recursion_limit,
+            expected_schema = expected_schema,
+            thread_id = resolved_thread_id,
+            field_status = field_status,
+            budget_state = budget_state,
+            search_budget_limit = search_budget_limit,
+            unknown_after_searches = unknown_after_searches,
+            finalize_on_all_fields_resolved = finalize_on_all_fields_resolved
+          )
+        } else {
+          .invoke_standard_agent(
+            python_agent = agent$python_agent,
+            prompt = prompt,
+            recursion_limit = recursion_limit,
+            expected_schema = expected_schema,
+            thread_id = resolved_thread_id,
+            field_status = field_status,
+            budget_state = budget_state,
+            search_budget_limit = search_budget_limit,
+            unknown_after_searches = unknown_after_searches,
+            finalize_on_all_fields_resolved = finalize_on_all_fields_resolved
+          )
+        }
+      },
+      max_attempts = invoke_max_attempts,
+      retry_delay = invoke_retry_delay,
+      retry_backoff = invoke_retry_backoff,
+      retry_jitter = invoke_retry_jitter,
+      verbose = verbose
+    )
   }, error = function(e) {
-    structure(list(error = e$message), class = "asa_error")
+    structure(list(error = e$message, thread_id = resolved_thread_id), class = "asa_error")
   })
+  raw_response <- if (inherits(invoke_output, "asa_error")) invoke_output else invoke_output$response
+  if (!inherits(invoke_output, "asa_error")) {
+    resolved_thread_id <- invoke_output$thread_id %||% resolved_thread_id
+  }
 
   elapsed <- as.numeric(difftime(Sys.time(), t0, units = "mins"))
   if (verbose) message(sprintf("  Agent completed in %.2f minutes", elapsed))
@@ -79,7 +130,12 @@
       trace = raw_response$error,
       elapsed_time = elapsed,
       fold_stats = error_fold_stats,
-      prompt = prompt
+      prompt = prompt,
+      thread_id = raw_response$thread_id %||% resolved_thread_id,
+      stop_reason = NA_character_,
+      budget_state = list(),
+      field_status = list(),
+      json_repair = list()
     ))
   }
 
@@ -93,6 +149,10 @@
 
   # Handle rate limiting and timeouts
   .handle_response_issues(trace, verbose)
+  stop_reason <- .extract_stop_reason(raw_response)
+  budget_state_out <- .coerce_py_list(raw_response$budget_state)
+  field_status_out <- .coerce_py_list(raw_response$field_status)
+  json_repair <- .coerce_py_list(raw_response$json_repair)
 
   # Extract memory folding stats (fold_count lives inside fold_stats)
   fold_stats <- list()
@@ -124,13 +184,125 @@
     trace_json = trace_json,
     elapsed_time = elapsed,
     fold_stats = fold_stats,
-    prompt = prompt
+    prompt = prompt,
+    thread_id = resolved_thread_id,
+    stop_reason = stop_reason,
+    budget_state = budget_state_out,
+    field_status = field_status_out,
+    json_repair = json_repair
   )
 }
 
 # NOTE: run_agent() has been removed from public API.
 # Use run_task(..., output_format = "raw") instead for full trace access.
 # The internal .run_agent() function above is used by run_task() internally.
+
+#' Resolve Thread ID for Agent Invocation
+#' @keywords internal
+.resolve_thread_id <- function(thread_id = NULL) {
+  if (!is.null(thread_id)) {
+    return(thread_id)
+  }
+  paste0("asa_", substr(rlang::hash(list(Sys.time(), runif(1))), 1, 16))
+}
+
+#' Coerce Python Dict/List to Native R List
+#' @keywords internal
+.coerce_py_list <- function(value) {
+  if (is.null(value)) {
+    return(list())
+  }
+  converted <- .try_or(reticulate::py_to_r(value), value)
+  if (is.null(converted)) {
+    return(list())
+  }
+  if (is.list(converted)) {
+    return(converted)
+  }
+  list(value = converted)
+}
+
+#' Extract Stop Reason from Raw Response
+#' @keywords internal
+.extract_stop_reason <- function(raw_response) {
+  stop_reason <- .try_or(as.character(raw_response$stop_reason), character(0))
+  if (length(stop_reason) == 0 || !nzchar(stop_reason[[1]])) {
+    return(NA_character_)
+  }
+  stop_reason[[1]]
+}
+
+#' Determine Whether Agent Invoke Error Is Retryable
+#' @keywords internal
+.is_retryable_invoke_error <- function(err) {
+  msg <- tolower(conditionMessage(err) %||% "")
+  if (!nzchar(msg)) {
+    return(FALSE)
+  }
+
+  # Permanent failures we should not retry.
+  if (grepl(
+    "invalid api key|authentication|unauthoriz|forbidden|permission|validation|bad request|unsupported|not found",
+    msg
+  )) {
+    return(FALSE)
+  }
+
+  grepl(
+    "timeout|timed out|rate.?limit|too many requests|\\b429\\b|connection reset|connection aborted|connection error|temporary|service unavailable|\\b502\\b|\\b503\\b|\\b504\\b|gateway",
+    msg
+  )
+}
+
+#' Invoke Agent with Retry for Transient Failures
+#' @keywords internal
+.invoke_agent_with_retry <- function(invoke_fn,
+                                     max_attempts = ASA_DEFAULT_INVOKE_MAX_ATTEMPTS,
+                                     retry_delay = ASA_DEFAULT_INVOKE_RETRY_DELAY,
+                                     retry_backoff = ASA_DEFAULT_INVOKE_RETRY_BACKOFF,
+                                     retry_jitter = ASA_DEFAULT_INVOKE_RETRY_JITTER,
+                                     verbose = FALSE) {
+  attempts <- max(1L, as.integer(max_attempts %||% 1L))
+  delay <- max(0, as.numeric(retry_delay %||% 0))
+  backoff <- max(1, as.numeric(retry_backoff %||% 1))
+  jitter <- max(0, as.numeric(retry_jitter %||% 0))
+
+  for (attempt in seq_len(attempts)) {
+    result <- tryCatch(invoke_fn(), error = function(e) e)
+    if (!inherits(result, "error")) {
+      return(result)
+    }
+
+    retryable <- .is_retryable_invoke_error(result)
+    is_last <- attempt >= attempts
+    if (!retryable || is_last) {
+      stop(result)
+    }
+
+    wait_for <- delay * (backoff ^ (attempt - 1L))
+    if (jitter > 0 && wait_for > 0) {
+      low <- max(0, wait_for * (1 - jitter))
+      high <- wait_for * (1 + jitter)
+      wait_for <- stats::runif(1, low, high)
+    }
+    if (verbose) {
+      message(
+        sprintf(
+          "  Invoke attempt %d/%d failed (%s). Retrying in %.2fs...",
+          attempt,
+          attempts,
+          conditionMessage(result),
+          wait_for
+        )
+      )
+    }
+    if (wait_for > 0) {
+      Sys.sleep(wait_for)
+    }
+  }
+
+  stop("Unexpected invoke retry state reached.", call. = FALSE)
+}
 
 #' Detect Model Invoke Exception Fallback Events
 #' @keywords internal
@@ -157,10 +329,16 @@
 
 #' Invoke Memory Folding Agent
 #' @keywords internal
-.invoke_memory_folding_agent <- function(python_agent, prompt, recursion_limit, expected_schema = NULL, thread_id = NULL) {
+.invoke_memory_folding_agent <- function(python_agent, prompt, recursion_limit,
+                                         expected_schema = NULL, thread_id = NULL,
+                                         field_status = NULL, budget_state = NULL,
+                                         search_budget_limit = NULL,
+                                         unknown_after_searches = NULL,
+                                         finalize_on_all_fields_resolved = NULL) {
   # Import message type
   from_schema <- reticulate::import("langchain_core.messages")
   initial_message <- from_schema$HumanMessage(content = prompt)
+  resolved_thread_id <- .resolve_thread_id(thread_id)
 
   initial_state <- list(messages = list(initial_message))
   # Reset terminal markers for this invocation so checkpointed threads do not
@@ -171,6 +349,21 @@
     initial_state$expected_schema <- expected_schema
     initial_state$expected_schema_source <- "explicit"
   }
+  if (!is.null(field_status)) {
+    initial_state$field_status <- field_status
+  }
+  if (!is.null(budget_state)) {
+    initial_state$budget_state <- budget_state
+  }
+  if (!is.null(search_budget_limit)) {
+    initial_state$search_budget_limit <- as.integer(search_budget_limit)
+  }
+  if (!is.null(unknown_after_searches)) {
+    initial_state$unknown_after_searches <- as.integer(unknown_after_searches)
+  }
+  if (!is.null(finalize_on_all_fields_resolved)) {
+    initial_state$finalize_on_all_fields_resolved <- isTRUE(finalize_on_all_fields_resolved)
+  }
 
   # Only seed summary/fold_stats when starting a fresh (ephemeral) thread.
   if (is.null(thread_id)) {
@@ -179,18 +372,25 @@
     initial_state$fold_stats <- reticulate::dict(fold_count = 0L)
   }
 
-  python_agent$invoke(
+  response <- python_agent$invoke(
     initial_state,
     config = list(
-      configurable = list(thread_id = thread_id %||% rlang::hash(Sys.time())),
+      configurable = list(thread_id = resolved_thread_id),
       recursion_limit = as.integer(recursion_limit)
     )
   )
+  list(response = response, thread_id = resolved_thread_id)
 }
 
 #' Invoke Standard Agent
 #' @keywords internal
-.invoke_standard_agent <- function(python_agent, prompt, recursion_limit, expected_schema = NULL, thread_id = NULL) {
+.invoke_standard_agent <- function(python_agent, prompt, recursion_limit,
+                                   expected_schema = NULL, thread_id = NULL,
+                                   field_status = NULL, budget_state = NULL,
+                                   search_budget_limit = NULL,
+                                   unknown_after_searches = NULL,
+                                   finalize_on_all_fields_resolved = NULL) {
+  resolved_thread_id <- .resolve_thread_id(thread_id)
   initial_state <- list(
     messages = list(list(role = "user", content = prompt)),
     stop_reason = NULL
@@ -199,14 +399,30 @@
     initial_state$expected_schema <- expected_schema
     initial_state$expected_schema_source <- "explicit"
   }
+  if (!is.null(field_status)) {
+    initial_state$field_status <- field_status
+  }
+  if (!is.null(budget_state)) {
+    initial_state$budget_state <- budget_state
+  }
+  if (!is.null(search_budget_limit)) {
+    initial_state$search_budget_limit <- as.integer(search_budget_limit)
+  }
+  if (!is.null(unknown_after_searches)) {
+    initial_state$unknown_after_searches <- as.integer(unknown_after_searches)
+  }
+  if (!is.null(finalize_on_all_fields_resolved)) {
+    initial_state$finalize_on_all_fields_resolved <- isTRUE(finalize_on_all_fields_resolved)
+  }
 
-  python_agent$invoke(
+  response <- python_agent$invoke(
     initial_state,
     config = list(
-      configurable = list(thread_id = thread_id %||% rlang::hash(Sys.time())),
+      configurable = list(thread_id = resolved_thread_id),
       recursion_limit = as.integer(recursion_limit)
     )
   )
+  list(response = response, thread_id = resolved_thread_id)
 }
 
 #' Extract Response Text from Raw Response

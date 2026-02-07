@@ -697,18 +697,34 @@ asa_enumerate <- function(query,
   # Handle provenance
   provenance_df <- NULL
   if (include_provenance) {
-    prov_rows <- lapply(seq_along(results), function(i) {
-      r <- results[[i]]
-      data.frame(
-        row_id = i,
-        source_url = r$source_url %||% "",
-        confidence = r$confidence %||% 0.5,
-        worker_id = r$worker_id %||% "unknown",
-        timestamp = r$extraction_timestamp %||% NA,
-        stringsAsFactors = FALSE
-      )
-    })
-    provenance_df <- do.call(rbind, prov_rows)
+    provenance_items <- .try_or(reticulate::py_to_r(result$provenance), result$provenance)
+    if (is.list(provenance_items) && length(provenance_items) > 0) {
+      prov_rows <- lapply(seq_along(provenance_items), function(i) {
+        p <- provenance_items[[i]]
+        data.frame(
+          row_id = p$row_id %||% i,
+          source_url = p$source_url %||% "",
+          confidence = p$confidence %||% 0.5,
+          worker_id = p$worker_id %||% "unknown",
+          timestamp = p$extraction_timestamp %||% p$timestamp %||% NA,
+          stringsAsFactors = FALSE
+        )
+      })
+      provenance_df <- do.call(rbind, prov_rows)
+    } else {
+      prov_rows <- lapply(seq_along(results), function(i) {
+        r <- results[[i]]
+        data.frame(
+          row_id = r$row_id %||% i,
+          source_url = r$source_url %||% "",
+          confidence = r$confidence %||% 0.5,
+          worker_id = r$worker_id %||% "unknown",
+          timestamp = r$extraction_timestamp %||% NA,
+          stringsAsFactors = FALSE
+        )
+      })
+      provenance_df <- do.call(rbind, prov_rows)
+    }
   }
 
   list(data = df, provenance = provenance_df)

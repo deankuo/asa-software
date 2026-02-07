@@ -256,6 +256,40 @@ test_that("as.data.frame.asa_enumerate_result returns data", {
   expect_equal(extracted_df, original_df)
 })
 
+test_that(".process_research_results prefers top-level provenance when available", {
+  input <- list(
+    results = list(
+      list(
+        row_id = "wd_0",
+        fields = list(name = "Alice", state = "CA"),
+        source_url = "https://fallback.example/a",
+        confidence = 0.7,
+        worker_id = "web_search",
+        extraction_timestamp = 1700000000
+      )
+    ),
+    provenance = list(
+      list(
+        row_id = "wd_0",
+        source_url = "https://wikidata.org/wiki/Q1",
+        confidence = 0.95,
+        worker_id = "wikidata",
+        extraction_timestamp = 1700000001
+      )
+    )
+  )
+  out <- asa:::.process_research_results(
+    result = input,
+    schema_dict = list(name = "character", state = "character"),
+    include_provenance = TRUE
+  )
+
+  expect_equal(nrow(out$data), 1)
+  expect_equal(nrow(out$provenance), 1)
+  expect_equal(out$provenance$source_url[[1]], "https://wikidata.org/wiki/Q1")
+  expect_equal(out$provenance$worker_id[[1]], "wikidata")
+})
+
 test_that("asa_enumerate_result handles empty data", {
   result <- asa_test_mock_enumerate_result(
     data = data.frame(),

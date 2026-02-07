@@ -42,6 +42,15 @@
 #'   per-call value (this argument), then configured default from
 #'   \code{initialize_agent()} / \code{asa_config()}, then mode-specific fallback
 #'   (memory folding: 100; standard agent: 20).
+#' @param field_status Optional per-field extraction ledger seed passed into the
+#'   LangGraph state. Useful for resuming partially resolved schemas.
+#' @param budget_state Optional tool budget state seed passed into the LangGraph
+#'   state (e.g., to resume prior progress).
+#' @param search_budget_limit Optional integer tool-call budget limit for this run.
+#' @param unknown_after_searches Optional integer threshold after which unresolved
+#'   fields may be marked as unknown.
+#' @param finalize_on_all_fields_resolved Optional logical flag. When TRUE, the
+#'   agent finalizes once all required fields are resolved.
 #' @param verbose Print progress messages (default: FALSE)
 #' @param allow_read_webpages If TRUE, allows the agent to open and read full
 #'   webpages (HTML/text) via the OpenWebpage tool. Disabled by default.
@@ -66,12 +75,10 @@
 #'     \item status: "success" or "error"
 #'     \item search_tier: Which search tier was used ("primp", "selenium", etc.)
 #'     \item parsing_status: Validation result (if expected_fields provided)
+#'     \item execution: Operational metadata (thread_id, stop_reason, status_code,
+#'       tool budget counters, fold_count)
+#'     \item fold_stats: Memory folding diagnostics list
 #'     \item trace: Full execution trace (for "raw" output_format)
-#'     \item fold_stats: Memory folding diagnostics list (for "raw" output_format).
-#'       Includes fold_count, fold_messages_removed, fold_total_messages_removed,
-#'       fold_chars_input, fold_summary_chars, fold_trigger_reason,
-#'       fold_safe_boundary_idx, fold_compression_ratio, fold_parse_success,
-#'       and fold_summarizer_latency_m.
 #'   }
 #'
 #' @details
@@ -153,6 +160,11 @@ run_task <- function(prompt,
                      expected_fields = NULL,
                      expected_schema = NULL,
                      thread_id = NULL,
+                     field_status = NULL,
+                     budget_state = NULL,
+                     search_budget_limit = NULL,
+                     unknown_after_searches = NULL,
+                     finalize_on_all_fields_resolved = NULL,
                      verbose = FALSE,
                      allow_read_webpages = NULL,
                      webpage_relevance_mode = NULL,
@@ -184,6 +196,11 @@ run_task <- function(prompt,
     verbose = verbose,
     thread_id = thread_id,
     expected_schema = expected_schema,
+    field_status = field_status,
+    budget_state = budget_state,
+    search_budget_limit = search_budget_limit,
+    unknown_after_searches = unknown_after_searches,
+    finalize_on_all_fields_resolved = finalize_on_all_fields_resolved,
     allow_read_webpages = allow_read_webpages,
     webpage_relevance_mode = webpage_relevance_mode,
     webpage_embedding_provider = webpage_embedding_provider,
@@ -246,6 +263,11 @@ run_task <- function(prompt,
       recursion_limit = recursion_limit,
       expected_schema = expected_schema,
       thread_id = thread_id,
+      field_status = field_status,
+      budget_state = budget_state,
+      search_budget_limit = search_budget_limit,
+      unknown_after_searches = unknown_after_searches,
+      finalize_on_all_fields_resolved = finalize_on_all_fields_resolved,
       verbose = verbose
     )
   })
@@ -283,6 +305,37 @@ run_task <- function(prompt,
 
   # Extract search tier from trace (if search was used)
   search_tier <- .extract_search_tier(response$trace)
+  budget_state_out <- response$budget_state %||% list()
+  as_scalar_int <- function(value) {
+    cast <- .try_or(as.integer(value), integer(0))
+    if (length(cast) == 0 || is.na(cast[[1]])) {
+      return(NA_integer_)
+    }
+    cast[[1]]
+  }
+  tool_calls_used <- as_scalar_int(budget_state_out$tool_calls_used)
+  tool_calls_limit <- as_scalar_int(budget_state_out$tool_calls_limit)
+  tool_calls_remaining <- as_scalar_int(budget_state_out$tool_calls_remaining)
+  fold_count <- as_scalar_int(response$fold_stats$fold_count)
+  stop_reason <- .try_or(as.character(response$stop_reason), character(0))
+  stop_reason <- if (length(stop_reason) > 0 && nzchar(stop_reason[[1]])) {
+    stop_reason[[1]]
+  } else {
+    NA_character_
+  }
+  execution <- list(
+    thread_id = response$thread_id %||% thread_id %||% NA_character_,
+    stop_reason = stop_reason,
+    status_code = response$status_code %||% NA_integer_,
+    tool_calls_used = tool_calls_used,
+    tool_calls_limit = tool_calls_limit,
+    tool_calls_remaining = tool_calls_remaining,
+    fold_count = fold_count,
+    fold_stats = response$fold_stats %||% list(),
+    budget_state = budget_state_out,
+    field_status = response$field_status %||% list(),
+    json_repair = response$json_repair %||% list()
+  )
 
   # Build result object - always return asa_result for consistent API
   result <- asa_result(
@@ -294,14 +347,15 @@ run_task <- function(prompt,
     elapsed_time = elapsed,
     status = status,
     search_tier = search_tier,
-    parsing_status = parsing_status
+    parsing_status = parsing_status,
+    execution = execution
   )
+  result$fold_stats <- response$fold_stats %||% list()
+  result$status_code <- response$status_code %||% NA_integer_
 
   # For "raw" format, add additional fields for debugging
   if (identical(output_format, "raw")) {
     result$trace <- response$trace
-    result$fold_stats <- response$fold_stats
-    result$status_code <- response$status_code
     result$raw_response <- response$raw_response
   }
 
@@ -551,6 +605,11 @@ run_task_batch <- function(prompts,
                            progress = TRUE,
                            circuit_breaker = TRUE,
                            abort_on_trip = FALSE,
+                           field_status = NULL,
+                           budget_state = NULL,
+                           search_budget_limit = NULL,
+                           unknown_after_searches = NULL,
+                           finalize_on_all_fields_resolved = NULL,
                            allow_read_webpages = NULL,
                            webpage_relevance_mode = NULL,
                            webpage_embedding_provider = NULL,
@@ -652,6 +711,11 @@ run_task_batch <- function(prompts,
       temporal = temporal,
       config = effective_config,
       agent = agent,
+      field_status = field_status,
+      budget_state = budget_state,
+      search_budget_limit = search_budget_limit,
+      unknown_after_searches = unknown_after_searches,
+      finalize_on_all_fields_resolved = finalize_on_all_fields_resolved,
       allow_read_webpages = allow_read_webpages,
       webpage_relevance_mode = webpage_relevance_mode,
       webpage_embedding_provider = webpage_embedding_provider,

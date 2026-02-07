@@ -1729,7 +1729,7 @@ configure_temporal <- function(time_filter = NULL) {
 #' These values control timeouts, retry behavior, and result limits.
 #'
 #' @param max_results Maximum number of search results to return (default: 10)
-#' @param timeout HTTP request timeout in seconds (default: 15)
+#' @param timeout HTTP request timeout in seconds (default: 30)
 #' @param max_retries Maximum retry attempts on failure (default: 3)
 #' @param retry_delay Initial delay between retries in seconds (default: 2)
 #' @param backoff_multiplier Multiplier for exponential backoff (default: 1.5)
