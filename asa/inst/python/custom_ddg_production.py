@@ -3414,27 +3414,40 @@ def _message_content_to_text(content: Any) -> str:
 
 def _extract_response_tool_calls(response: Any) -> list:
     """Best-effort extraction of tool calls from an LLM response object."""
+    def _normalize_calls(value: Any) -> list:
+        if not value:
+            return []
+        return list(value) if isinstance(value, list) else [value]
+
     if response is None:
         return []
+    extracted: List[Any] = []
     try:
         if isinstance(response, dict):
-            tc = response.get("tool_calls")
-            if tc:
-                return list(tc) if isinstance(tc, list) else [tc]
+            for key in ("tool_calls", "invalid_tool_calls", "function_call"):
+                extracted.extend(_normalize_calls(response.get(key)))
+            extra = response.get("additional_kwargs")
+            if isinstance(extra, dict):
+                for key in ("tool_calls", "invalid_tool_calls", "function_call"):
+                    extracted.extend(_normalize_calls(extra.get(key)))
+            if extracted:
+                return extracted
     except Exception:
         pass
     try:
-        tc = getattr(response, "tool_calls", None)
-        if tc:
-            return list(tc) if isinstance(tc, list) else [tc]
+        for key in ("tool_calls", "invalid_tool_calls", "function_call"):
+            extracted.extend(_normalize_calls(getattr(response, key, None)))
+        if extracted:
+            return extracted
     except Exception:
         pass
     try:
         extra = getattr(response, "additional_kwargs", None)
         if isinstance(extra, dict):
-            tc = extra.get("tool_calls")
-            if tc:
-                return list(tc) if isinstance(tc, list) else [tc]
+            for key in ("tool_calls", "invalid_tool_calls", "function_call"):
+                extracted.extend(_normalize_calls(extra.get(key)))
+            if extracted:
+                return extracted
     except Exception:
         pass
     return []
@@ -3449,13 +3462,19 @@ def _strip_response_tool_calls(response: Any) -> Any:
         try:
             if "tool_calls" in response:
                 response["tool_calls"] = []
+            if "invalid_tool_calls" in response:
+                response["invalid_tool_calls"] = []
+            if "function_call" in response:
+                response["function_call"] = None
         except Exception:
             pass
         try:
             extra = response.get("additional_kwargs")
-            if isinstance(extra, dict) and "tool_calls" in extra:
+            if isinstance(extra, dict):
                 cleaned = dict(extra)
                 cleaned.pop("tool_calls", None)
+                cleaned.pop("invalid_tool_calls", None)
+                cleaned.pop("function_call", None)
                 response["additional_kwargs"] = cleaned
         except Exception:
             pass
@@ -3470,10 +3489,16 @@ def _strip_response_tool_calls(response: Any) -> Any:
     except Exception:
         pass
     try:
+        response.function_call = None
+    except Exception:
+        pass
+    try:
         extra = getattr(response, "additional_kwargs", None)
-        if isinstance(extra, dict) and "tool_calls" in extra:
+        if isinstance(extra, dict):
             cleaned = dict(extra)
             cleaned.pop("tool_calls", None)
+            cleaned.pop("invalid_tool_calls", None)
+            cleaned.pop("function_call", None)
             response.additional_kwargs = cleaned
     except Exception:
         pass
@@ -4063,10 +4088,9 @@ def _route_after_agent_step(
     if _has_pending_tool_calls(last_message):
         if _can_route_tools_safely(remaining):
             return "tools"
-        if remaining is not None and remaining <= 0:
-            return "end"
         if _can_end_on_recursion_stop(state, messages, remaining):
             return "end"
+        # Never end with unresolved tool calls; finalize sanitizes to terminal text.
         return "finalize"
 
     if _should_force_finalize(state):

@@ -1400,6 +1400,10 @@ test_that("shared router prioritizes pending tool calls when budget allows", {
     "route_state_budget_low = {\n",
     "    'messages': [AIMessage(content='calling tool', tool_calls=[{'name':'Search','args':{'query':'ada'},'id':'edge_call_1'}])],\n",
     "    'remaining_steps': 1,\n",
+    "}\n",
+    "route_state_budget_zero = {\n",
+    "    'messages': [AIMessage(content='calling tool', tool_calls=[{'name':'Search','args':{'query':'ada'},'id':'edge_call_1'}])],\n",
+    "    'remaining_steps': 0,\n",
     "}\n"
   ))
 
@@ -1409,9 +1413,13 @@ test_that("shared router prioritizes pending tool calls when budget allows", {
   route_low <- prod$`_route_after_agent_step`(
     reticulate::py$route_state_budget_low
   )
+  route_zero <- prod$`_route_after_agent_step`(
+    reticulate::py$route_state_budget_zero
+  )
 
   expect_equal(as.character(route_ok), "tools")
   expect_equal(as.character(route_low), "finalize")
+  expect_equal(as.character(route_zero), "finalize")
 })
 
 test_that("tool exceptions produce terminal fallback instead of hard error (standard)", {
@@ -2141,6 +2149,55 @@ test_that("sanitize_finalize_response fills dict content fallback when residual 
   expect_true(is.null(cleaned$tool_calls) || length(cleaned$tool_calls) == 0L)
   expect_true(is.character(cleaned$content))
   expect_true(nzchar(trimws(cleaned$content)))
+
+  expect_true(is.list(event))
+  expect_equal(as.character(event$repair_reason), "residual_tool_calls_no_content_no_schema")
+})
+
+test_that("sanitize_finalize_response strips invalid tool calls and legacy function_call metadata", {
+  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
+  asa_test_skip_if_missing_python_modules(c(
+    "langchain_core",
+    "langgraph",
+    "langgraph.prebuilt",
+    "pydantic",
+    "requests"
+  ), method = "import")
+
+  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+
+  raw_response <- list(
+    role = "assistant",
+    content = "",
+    invalid_tool_calls = list(list(
+      name = "save_finding",
+      args = list(finding = "X", category = "fact"),
+      id = "bad_1"
+    )),
+    function_call = list(name = "save_finding", arguments = "{}"),
+    additional_kwargs = list(
+      invalid_tool_calls = list(list(name = "save_finding")),
+      function_call = list(name = "save_finding", arguments = "{}")
+    )
+  )
+
+  sanitize_out <- prod$`_sanitize_finalize_response`(
+    raw_response,
+    NULL,
+    context = "unit_test_invalid_calls",
+    debug = FALSE
+  )
+
+  cleaned <- sanitize_out[[1]]
+  event <- sanitize_out[[2]]
+
+  expect_true(is.list(cleaned))
+  expect_true(is.null(cleaned$invalid_tool_calls) || length(cleaned$invalid_tool_calls) == 0L)
+  expect_true(is.null(cleaned$function_call) || length(cleaned$function_call) == 0L)
+  expect_true(is.character(cleaned$content))
+  expect_true(nzchar(trimws(cleaned$content)))
+  expect_false("invalid_tool_calls" %in% names(cleaned$additional_kwargs))
+  expect_false("function_call" %in% names(cleaned$additional_kwargs))
 
   expect_true(is.list(event))
   expect_equal(as.character(event$repair_reason), "residual_tool_calls_no_content_no_schema")
