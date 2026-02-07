@@ -38,7 +38,7 @@ search_options(
 Higher values provide more context but increase latency. Default: 10.}
 
 \item{timeout}{Timeout in seconds for individual search requests.
-Applies to each tier attempt separately. Default: 15.}
+Applies to each tier attempt separately. Default: 30.}
 
 \item{max_retries}{Maximum number of retry attempts when a search tier fails.
 After exhausting retries, the system falls back to the next tier. Default: 3.}

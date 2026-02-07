@@ -13,7 +13,8 @@ asa_result(
   status,
   search_tier = "unknown",
   parsing_status = NULL,
-  trace_json = ""
+  trace_json = "",
+  execution = NULL
 )
 }
 \arguments{
@@ -37,6 +38,10 @@ reason ("ok", "parsing_failed", "not_object", "missing_fields", "null_values",
 "no_validation"), and missing (character vector of missing/invalid fields).}
 
 \item{trace_json}{Structured JSON trace (when available)}
+
+\item{execution}{Optional operational metadata list. Common fields include
+\code{thread_id}, \code{stop_reason}, \code{status_code}, and tool budget
+counters extracted from agent state.}
 }
 \value{
 An object of class \code{asa_result}

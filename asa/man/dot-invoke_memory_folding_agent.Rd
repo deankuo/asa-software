@@ -9,7 +9,12 @@
   prompt,
   recursion_limit,
   expected_schema = NULL,
-  thread_id = NULL
+  thread_id = NULL,
+  field_status = NULL,
+  budget_state = NULL,
+  search_budget_limit = NULL,
+  unknown_after_searches = NULL,
+  finalize_on_all_fields_resolved = NULL
 )
 }
 \description{

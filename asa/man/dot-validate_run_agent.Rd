@@ -10,7 +10,12 @@
   recursion_limit,
   verbose,
   thread_id = NULL,
-  expected_schema = NULL
+  expected_schema = NULL,
+  field_status = NULL,
+  budget_state = NULL,
+  search_budget_limit = NULL,
+  unknown_after_searches = NULL,
+  finalize_on_all_fields_resolved = NULL
 )
 }
 \description{

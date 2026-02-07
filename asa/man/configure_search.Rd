@@ -19,7 +19,7 @@ configure_search(
 \arguments{
 \item{max_results}{Maximum number of search results to return (default: 10)}
 
-\item{timeout}{HTTP request timeout in seconds (default: 15)}
+\item{timeout}{HTTP request timeout in seconds (default: 30)}
 
 \item{max_retries}{Maximum retry attempts on failure (default: 3)}
 

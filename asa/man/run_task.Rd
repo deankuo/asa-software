@@ -13,6 +13,11 @@ run_task(
   expected_fields = NULL,
   expected_schema = NULL,
   thread_id = NULL,
+  field_status = NULL,
+  budget_state = NULL,
+  search_budget_limit = NULL,
+  unknown_after_searches = NULL,
+  finalize_on_all_fields_resolved = NULL,
   verbose = FALSE,
   allow_read_webpages = NULL,
   webpage_relevance_mode = NULL,
@@ -64,6 +69,20 @@ this bypasses prompt-based schema inference.}
 When provided, the same thread ID is reused so folded summaries persist
 across invocations. Defaults to NULL (new thread each call).}
 
+\item{field_status}{Optional per-field extraction ledger seed passed into the
+LangGraph state. Useful for resuming partially resolved schemas.}
+
+\item{budget_state}{Optional tool budget state seed passed into the LangGraph
+state (e.g., to resume prior progress).}
+
+\item{search_budget_limit}{Optional integer tool-call budget limit for this run.}
+
+\item{unknown_after_searches}{Optional integer threshold after which unresolved
+fields may be marked as unknown.}
+
+\item{finalize_on_all_fields_resolved}{Optional logical flag. When TRUE, the
+agent finalizes once all required fields are resolved.}
+
 \item{verbose}{Print progress messages (default: FALSE)}
 
 \item{allow_read_webpages}{If TRUE, allows the agent to open and read full
@@ -98,12 +117,10 @@ An \code{asa_result} object with:
     \item status: "success" or "error"
     \item search_tier: Which search tier was used ("primp", "selenium", etc.)
     \item parsing_status: Validation result (if expected_fields provided)
+    \item execution: Operational metadata (thread_id, stop_reason, status_code,
+      tool budget counters, fold_count)
+    \item fold_stats: Memory folding diagnostics list
     \item trace: Full execution trace (for "raw" output_format)
-    \item fold_stats: Memory folding diagnostics list (for "raw" output_format).
-      Includes fold_count, fold_messages_removed, fold_total_messages_removed,
-      fold_chars_input, fold_summary_chars, fold_trigger_reason,
-      fold_safe_boundary_idx, fold_compression_ratio, fold_parse_success,
-      and fold_summarizer_latency_m.
   }
 }
 \description{

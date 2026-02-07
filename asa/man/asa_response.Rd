@@ -12,7 +12,12 @@ asa_response(
   elapsed_time,
   prompt,
   trace_json = "",
-  fold_stats = list()
+  fold_stats = list(),
+  thread_id = NULL,
+  stop_reason = NULL,
+  budget_state = list(),
+  field_status = list(),
+  json_repair = list()
 )
 }
 \arguments{
@@ -37,6 +42,16 @@ Includes \code{fold_count} (integer or error message string),
 \code{fold_trigger_reason}, \code{fold_safe_boundary_idx},
 \code{fold_compression_ratio}, \code{fold_parse_success}, and
 \code{fold_summarizer_latency_m}.}
+
+\item{thread_id}{Resolved LangGraph thread identifier used for this run.}
+
+\item{stop_reason}{Terminal stop reason from agent state (when available).}
+
+\item{budget_state}{Tool-call budget state snapshot from agent state.}
+
+\item{field_status}{Per-field extraction status map from agent state.}
+
+\item{json_repair}{JSON repair/fallback events emitted during execution.}
 }
 \value{
 An object of class \code{asa_response}
