@@ -2909,6 +2909,145 @@ test_that("finalize canonical guard overrides fabricated terminal values from fi
   expect_true(grepl("field_status_canonical", json_repair_text, fixed = TRUE))
 })
 
+test_that("canonical payload derives class background and fills confidence/justification", {
+  prod <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
+
+  reticulate::py_run_string(paste0(
+    "from langchain_core.messages import AIMessage\n",
+    "from langchain_core.tools import Tool\n\n",
+    "def _class_derivation_tool(query: str) -> str:\n",
+    "    return '__START_OF_SOURCE 1__ <CONTENT> {\"prior_occupation\":\"Indigenous community member\",\"prior_occupation_source\":\"https://example.com/profile/\"} </CONTENT> <URL> https://example.com/profile/ </URL> __END_OF_SOURCE 1__'\n\n",
+    "class_derivation_tool = Tool(\n",
+    "    name='Search',\n",
+    "    description='Returns source-backed prior occupation facts',\n",
+    "    func=_class_derivation_tool,\n",
+    ")\n\n",
+    "class _ClassDerivationLLM:\n",
+    "    def __init__(self):\n",
+    "        self.calls = 0\n",
+    "    def bind_tools(self, tools):\n",
+    "        return self\n",
+    "    def invoke(self, messages):\n",
+    "        self.calls += 1\n",
+    "        if self.calls == 1:\n",
+    "            return AIMessage(content='search', tool_calls=[{'name':'Search','args':{'query':'person'},'id':'call_1'}])\n",
+    "        return AIMessage(content='{\"prior_occupation\":\"Unknown\",\"class_background\":\"Unknown\",\"prior_occupation_source\":null,\"confidence\":null,\"justification\":null}')\n\n",
+    "class_derivation_llm = _ClassDerivationLLM()\n"
+  ))
+
+  expected_schema <- list(
+    prior_occupation = "string|Unknown",
+    class_background = "Working class|Middle class/professional|Upper/elite|Unknown",
+    prior_occupation_source = "string|null",
+    confidence = "Low|Medium|High",
+    justification = "string"
+  )
+
+  agent <- prod$create_standard_agent(
+    model = reticulate::py$class_derivation_llm,
+    tools = list(reticulate::py$class_derivation_tool)
+  )
+
+  invoke <- asa_test_invoke_json_agent(
+    agent = agent,
+    expected_schema = expected_schema,
+    expected_schema_source = "explicit",
+    input_state = list(
+      messages = list(list(
+        role = "user",
+        content = "Return strict JSON."
+      )),
+      search_budget_limit = 4L,
+      unknown_after_searches = 1L,
+      finalize_on_all_fields_resolved = TRUE
+    ),
+    config = list(
+      recursion_limit = 12L,
+      configurable = list(thread_id = "test_class_background_derivation")
+    ),
+    backend = "gemini"
+  )
+
+  parsed <- invoke$parsed
+  expect_true(is.list(parsed))
+  expect_equal(as.character(parsed$prior_occupation), "Indigenous community member")
+  expect_equal(as.character(parsed$class_background), "Working class")
+  expect_equal(as.character(parsed$prior_occupation_source), "https://example.com/profile")
+  expect_true(as.character(parsed$confidence) %in% c("Low", "Medium", "High"))
+  expect_true(nchar(as.character(parsed$justification)) > 10L)
+
+  final_state <- invoke$final_state
+  field_status <- tryCatch(reticulate::py_to_r(final_state$field_status), error = function(e) final_state$field_status)
+  expect_equal(as.character(field_status$class_background$status), "found")
+  expect_equal(as.character(field_status$class_background$value), "Working class")
+})
+
+test_that("terminal promotion requires source text support for non-source values", {
+  prod <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
+
+  reticulate::py_run_string(paste0(
+    "from langchain_core.messages import AIMessage\n",
+    "from langchain_core.tools import Tool\n\n",
+    "def _source_support_gate_tool(query: str) -> str:\n",
+    "    return '__START_OF_SOURCE 1__ <CONTENT> {\"birth_place\":\"TIPNIS, Beni\",\"birth_place_source\":\"https://example.com/place\"} </CONTENT> <URL> https://example.com/place </URL> __END_OF_SOURCE 1__ __START_OF_SOURCE 2__ <CONTENT> Candidate profile lists constituency and election results only. </CONTENT> <URL> https://example.com/profile </URL> __END_OF_SOURCE 2__'\n\n",
+    "source_support_gate_tool = Tool(\n",
+    "    name='Search',\n",
+    "    description='Returns one structured fact and one unrelated source block',\n",
+    "    func=_source_support_gate_tool,\n",
+    ")\n\n",
+    "class _SourceSupportGateLLM:\n",
+    "    def __init__(self):\n",
+    "        self.calls = 0\n",
+    "    def bind_tools(self, tools):\n",
+    "        return self\n",
+    "    def invoke(self, messages):\n",
+    "        self.calls += 1\n",
+    "        if self.calls == 1:\n",
+    "            return AIMessage(content='search', tool_calls=[{'name':'Search','args':{'query':'person'},'id':'call_1'}])\n",
+    "        return AIMessage(content='{\"prior_occupation\":\"astronaut\",\"prior_occupation_source\":\"https://example.com/profile\",\"birth_place\":\"Unknown\",\"birth_place_source\":null}')\n\n",
+    "source_support_gate_llm = _SourceSupportGateLLM()\n"
+  ))
+
+  expected_schema <- list(
+    prior_occupation = "string|Unknown",
+    prior_occupation_source = "string|null",
+    birth_place = "string|Unknown",
+    birth_place_source = "string|null"
+  )
+
+  agent <- prod$create_standard_agent(
+    model = reticulate::py$source_support_gate_llm,
+    tools = list(reticulate::py$source_support_gate_tool)
+  )
+
+  invoke <- asa_test_invoke_json_agent(
+    agent = agent,
+    expected_schema = expected_schema,
+    expected_schema_source = "explicit",
+    input_state = list(
+      messages = list(list(
+        role = "user",
+        content = "Return strict JSON."
+      )),
+      search_budget_limit = 4L,
+      unknown_after_searches = 1L,
+      finalize_on_all_fields_resolved = TRUE
+    ),
+    config = list(
+      recursion_limit = 12L,
+      configurable = list(thread_id = "test_source_support_gate")
+    ),
+    backend = "gemini"
+  )
+
+  parsed <- invoke$parsed
+  expect_true(is.list(parsed))
+  expect_equal(as.character(parsed$birth_place), "TIPNIS, Beni")
+  expect_equal(as.character(parsed$birth_place_source), "https://example.com/place")
+  expect_equal(as.character(parsed$prior_occupation), "Unknown")
+  expect_true(is.null(parsed$prior_occupation_source) || is.na(parsed$prior_occupation_source))
+})
+
 test_that(".extract_response_text returns tool output under recursion_limit when available", {
   python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
   asa_test_skip_if_missing_python_modules(c("langchain_core"), method = "import")

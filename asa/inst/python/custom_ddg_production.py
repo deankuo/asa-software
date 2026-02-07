@@ -24,7 +24,8 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
-from urllib.parse import quote, urlencode
+from urllib.parse import parse_qs, parse_qsl, quote, unquote, urlencode, urlparse
+import unicodedata
 
 from bs4 import BeautifulSoup
 from ddgs import ddgs  # ddgs.DDGS is a class, ddgs.ddgs is a module
@@ -2257,6 +2258,9 @@ def _browser_search(
                     parse_qs(urlparse(raw_href).query)
                     .get("uddg", [raw_href])[0]
                     )
+                real_url = _canonicalize_url(real_url) or real_url
+                if _is_noise_source_url(real_url):
+                    continue
                 snippet = (
                     result_snippets[idx].get_text(strip=True)
                     if idx < len(result_snippets)
@@ -2481,6 +2485,9 @@ def _requests_scrape(
     soup = BeautifulSoup(resp.text, "html.parser")
     results: List[Dict[str, str]] = []
     for i, a in enumerate(soup.select("a.result__a")[:max_results], 1):
+        href = _canonicalize_url(a.get("href", "")) or a.get("href", "")
+        if _is_noise_source_url(href):
+            continue
         # Extract snippet body from the result container
         body = ""
         result_container = a.find_parent(class_="result")
@@ -2493,7 +2500,7 @@ def _requests_scrape(
             parent = a.find_parent()
             if parent:
                 body = parent.get_text(strip=True)[:300]
-        results.append({"id": i, "title": a.get_text(strip=True), "href": a["href"], "body": body, "_tier": "requests"})
+        results.append({"id": i, "title": a.get_text(strip=True), "href": href, "body": body, "_tier": "requests"})
     if results:
         _mark_exit_good(proxy)
     return results
@@ -2710,6 +2717,9 @@ class PatchedDuckDuckGoSearchAPIWrapper(DuckDuckGoSearchAPIWrapper):
                             _raw = a.get("href", "")
                             _parsed = urlparse(_raw)
                             _real = unquote(parse_qs(_parsed.query).get("uddg", [_raw])[0])
+                            _real = _canonicalize_url(_real) or _real
+                            if _is_noise_source_url(_real):
+                                continue
 
                             _snip = ""
                             if i - 1 < len(_snips):
@@ -3358,8 +3368,7 @@ def _normalize_field_status_map(field_status: Any, expected_schema: Any) -> Dict
             except Exception:
                 attempts = 0
             source_url = entry.get("source_url")
-            if source_url is not None:
-                source_url = str(source_url)
+            source_url = _normalize_url_match(source_url)
             evidence = entry.get("evidence")
             if evidence is not None:
                 evidence = str(evidence)
@@ -3414,6 +3423,113 @@ def _is_unknown_marker(value: Any) -> bool:
     }
 
 
+_TRACKING_QUERY_KEYS = {
+    "fbclid",
+    "gclid",
+    "mc_cid",
+    "mc_eid",
+    "ref",
+    "ref_src",
+    "source",
+    "spm",
+    "utm_campaign",
+    "utm_content",
+    "utm_id",
+    "utm_medium",
+    "utm_name",
+    "utm_source",
+    "utm_term",
+}
+
+
+def _canonicalize_url(raw_url: Any) -> Optional[str]:
+    """Normalize and unwrap common redirect URLs into stable canonical links."""
+    if not isinstance(raw_url, str):
+        return None
+    url = str(raw_url).strip().strip("<>").strip("\"'").rstrip(".,;)")
+    if not url.startswith("http"):
+        return None
+
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return None
+
+    scheme = str(parsed.scheme or "").lower()
+    host = str(parsed.hostname or "").strip().lower()
+    if scheme not in {"http", "https"} or not host:
+        return None
+
+    query_map = parse_qs(parsed.query, keep_blank_values=False)
+    # Unwrap common redirect wrappers first.
+    if "duckduckgo.com" in host:
+        redirected = query_map.get("uddg", [None])[0] or query_map.get("rut", [None])[0]
+        if isinstance(redirected, str) and redirected.strip():
+            unwrapped = unquote(redirected).strip()
+            if unwrapped and unwrapped != url:
+                return _canonicalize_url(unwrapped)
+    if host.endswith("google.com") and parsed.path == "/url":
+        redirected = query_map.get("url", [None])[0] or query_map.get("q", [None])[0]
+        if isinstance(redirected, str) and redirected.strip():
+            unwrapped = unquote(redirected).strip()
+            if unwrapped and unwrapped != url:
+                return _canonicalize_url(unwrapped)
+
+    kept_query = []
+    for key, val in parse_qsl(parsed.query, keep_blank_values=True):
+        key_lower = str(key).lower()
+        if key_lower.startswith("utm_") or key_lower in _TRACKING_QUERY_KEYS:
+            continue
+        kept_query.append((key, val))
+
+    path = re.sub(r"/{2,}", "/", parsed.path or "")
+    try:
+        port = parsed.port
+    except Exception:
+        port = None
+    netloc = host
+    if port is not None:
+        default_port = 80 if scheme == "http" else 443
+        if int(port) != int(default_port):
+            netloc = f"{host}:{int(port)}"
+
+    normalized = parsed._replace(
+        scheme=scheme,
+        netloc=netloc,
+        path=path or "",
+        query=urlencode(kept_query, doseq=True),
+        fragment="",
+    ).geturl()
+    if normalized.endswith("/"):
+        normalized = normalized.rstrip("/")
+    return normalized or None
+
+
+def _is_noise_source_url(url: Any) -> bool:
+    """Filter clearly non-evidentiary ad/redirect URLs."""
+    normalized = _canonicalize_url(url)
+    if not normalized:
+        return True
+    try:
+        parsed = urlparse(normalized)
+    except Exception:
+        return True
+    host = str(parsed.hostname or "").lower()
+    path = str(parsed.path or "").lower()
+
+    if not host:
+        return True
+    if host.endswith("duckduckgo.com") and (path.startswith("/y.js") or path.startswith("/l/")):
+        return True
+    if "googleadservices.com" in host or "doubleclick.net" in host:
+        return True
+    if host.startswith("ads.") and "amazon." in host:
+        return True
+    if "amazon." in host and "slredirect" in path:
+        return True
+    return False
+
+
 def _extract_url_candidates(text: str, *, max_urls: int = 8) -> list:
     if not text:
         return []
@@ -3421,8 +3537,8 @@ def _extract_url_candidates(text: str, *, max_urls: int = 8) -> list:
     out = []
     seen = set()
     for raw in urls:
-        url = str(raw).rstrip(".,;)")
-        if not url or url in seen:
+        url = _canonicalize_url(raw)
+        if not url or _is_noise_source_url(url) or url in seen:
             continue
         seen.add(url)
         out.append(url)
@@ -3499,6 +3615,9 @@ def _parse_source_blocks(text: str, *, max_blocks: int = 64) -> list:
             urls = _extract_url_candidates(block, max_urls=1)
             if urls:
                 url = urls[0]
+        url = _normalize_url_match(url)
+        if _is_noise_source_url(url):
+            url = None
 
         parsed_id = None
         try:
@@ -3590,8 +3709,8 @@ def _tool_message_payloads(tool_messages: Any) -> list:
             parsed = None
         urls = _extract_url_candidates(text)
         for block in source_blocks:
-            block_url = block.get("url")
-            if isinstance(block_url, str) and block_url.startswith("http") and block_url not in urls:
+            block_url = _normalize_url_match(block.get("url"))
+            if block_url and not _is_noise_source_url(block_url) and block_url not in urls:
                 urls.append(block_url)
         payloads.append({
             "tool_name": tool_name,
@@ -3603,6 +3722,176 @@ def _tool_message_payloads(tool_messages: Any) -> list:
             "urls": urls,
         })
     return payloads
+
+
+_SEMANTIC_TOKEN_ALIASES = {
+    "indigenous": {"indigenous", "indigena", "indigena", "originario"},
+    "community": {"community", "comunidad", "comunitaria", "comunitario"},
+    "member": {"member", "miembro", "habitante", "representante"},
+    "leader": {"leader", "dirigente", "lider", "lidera"},
+}
+
+_CLASS_BACKGROUND_HINTS = {
+    "Working class": (
+        "agricult",
+        "artisan",
+        "campesin",
+        "clerical",
+        "clerk",
+        "community member",
+        "driver",
+        "farmer",
+        "fisher",
+        "indigenous",
+        "labor",
+        "manual",
+        "peasant",
+        "service worker",
+        "trade",
+        "vendor",
+    ),
+    "Middle class/professional": (
+        "academic",
+        "accountant",
+        "attorney",
+        "civil servant",
+        "doctor",
+        "economist",
+        "engineer",
+        "journalist",
+        "lawyer",
+        "manager",
+        "nurse",
+        "professor",
+        "teacher",
+    ),
+    "Upper/elite": (
+        "aristocrat",
+        "ceo",
+        "chairman",
+        "executive",
+        "industrialist",
+        "landowner",
+        "magnate",
+        "owner",
+        "tycoon",
+    ),
+}
+
+
+def _normalize_match_text(text: Any) -> str:
+    if text is None:
+        return ""
+    value = str(text).strip().lower()
+    if not value:
+        return ""
+    folded = unicodedata.normalize("NFKD", value)
+    folded = "".join(ch for ch in folded if not unicodedata.combining(ch))
+    folded = re.sub(r"\s+", " ", folded)
+    return folded.strip()
+
+
+def _token_variants(token: str) -> set:
+    token_norm = _normalize_match_text(token)
+    variants = {token_norm}
+    for base, alias_set in _SEMANTIC_TOKEN_ALIASES.items():
+        normalized_aliases = {_normalize_match_text(v) for v in alias_set}
+        normalized_aliases.add(_normalize_match_text(base))
+        if token_norm in normalized_aliases:
+            variants.update(normalized_aliases)
+    return {v for v in variants if v}
+
+
+def _source_supports_value(value: Any, source_text: Any) -> bool:
+    if _is_empty_like(value):
+        return False
+    source_norm = _normalize_match_text(source_text)
+    if not source_norm:
+        return False
+
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return str(value) in source_norm
+
+    if isinstance(value, str):
+        value_norm = _normalize_match_text(value)
+        if not value_norm:
+            return False
+        if value_norm in source_norm:
+            return True
+        value_tokens = [t for t in re.findall(r"[a-z0-9]+", value_norm) if len(t) >= 3]
+        if not value_tokens:
+            return False
+        source_tokens = set(re.findall(r"[a-z0-9]+", source_norm))
+        significant = 0
+        matched = 0
+        for token in value_tokens:
+            if token in {"unknown", "none", "null"}:
+                continue
+            significant += 1
+            variants = _token_variants(token)
+            if any((variant in source_tokens) or (variant and variant in source_norm) for variant in variants):
+                matched += 1
+        if significant <= 1:
+            return matched >= 1
+        if significant <= 3:
+            return matched >= 1
+        if significant <= 6:
+            return matched >= 2
+        return matched >= 3
+
+    if isinstance(value, list):
+        return any(_source_supports_value(item, source_text) for item in value if not _is_empty_like(item))
+    if isinstance(value, dict):
+        return any(_source_supports_value(v, source_text) for v in value.values() if not _is_empty_like(v))
+    return False
+
+
+def _derive_class_background_from_prior_occupation(prior_occupation: Any) -> Optional[str]:
+    if _is_empty_like(prior_occupation) or _is_unknown_marker(prior_occupation):
+        return None
+    text = _normalize_match_text(prior_occupation)
+    if not text:
+        return None
+
+    for label in ("Upper/elite", "Middle class/professional", "Working class"):
+        for hint in _CLASS_BACKGROUND_HINTS.get(label, ()):
+            if _normalize_match_text(hint) in text:
+                return label
+    return None
+
+
+def _apply_field_status_derivations(field_status: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """Populate deterministic derived fields from already found canonical values."""
+    if not isinstance(field_status, dict):
+        return field_status
+
+    prior_entry = field_status.get("prior_occupation")
+    class_entry = field_status.get("class_background")
+    if not isinstance(prior_entry, dict) or not isinstance(class_entry, dict):
+        return field_status
+
+    class_status = str(class_entry.get("status") or "").lower()
+    class_value = class_entry.get("value")
+    if class_status == _FIELD_STATUS_FOUND and not _is_empty_like(class_value):
+        return field_status
+
+    prior_status = str(prior_entry.get("status") or "").lower()
+    prior_value = prior_entry.get("value")
+    if prior_status != _FIELD_STATUS_FOUND or _is_empty_like(prior_value) or _is_unknown_marker(prior_value):
+        return field_status
+
+    derived = _derive_class_background_from_prior_occupation(prior_value)
+    if not derived:
+        return field_status
+
+    class_entry["status"] = _FIELD_STATUS_FOUND
+    class_entry["value"] = derived
+    prior_source = _normalize_url_match(prior_entry.get("source_url"))
+    if prior_source:
+        class_entry["source_url"] = prior_source
+    class_entry["evidence"] = "derived_from_prior_occupation"
+    field_status["class_background"] = class_entry
+    return field_status
 
 
 def _extract_field_status_updates(
@@ -3684,23 +3973,30 @@ def _extract_field_status_updates(
                     for alias in aliases:
                         source_key = f"{alias}_source"
                         source_val = _lookup_key_recursive(candidate_payload, source_key)
-                        if isinstance(source_val, str) and source_val.startswith("http"):
-                            found_source = source_val
+                        source_norm = _normalize_url_match(source_val)
+                        if source_norm:
+                            found_source = source_norm
                             break
-                if found_source is None and isinstance(found_value, str) and found_value.startswith("http"):
-                    found_source = found_value
+                if found_source is None and isinstance(found_value, str):
+                    source_norm = _normalize_url_match(found_value)
+                    if source_norm:
+                        found_source = source_norm
                 if found_source is None and urls:
-                    found_source = urls[0]
+                    found_source = _normalize_url_match(urls[0])
                 break
 
             if not _is_empty_like(found_value):
                 break
 
         if not _is_empty_like(found_value):
+            if key.endswith("_source") and isinstance(found_value, str):
+                normalized_value = _normalize_url_match(found_value)
+                if normalized_value:
+                    found_value = normalized_value
             entry["status"] = _FIELD_STATUS_FOUND
             entry["value"] = found_value
             if found_source:
-                entry["source_url"] = str(found_source)
+                entry["source_url"] = _normalize_url_match(found_source)
             if found_evidence:
                 entry["evidence"] = found_evidence
             field_status[key] = entry
@@ -3714,6 +4010,7 @@ def _extract_field_status_updates(
                     entry["value"] = None
             field_status[key] = entry
 
+    field_status = _apply_field_status_derivations(field_status)
     return field_status
 
 
@@ -3722,23 +4019,64 @@ def _collect_tool_urls_from_messages(messages: Any, *, max_urls: int = 256) -> s
     urls = set()
     for payload_item in _tool_message_payloads(messages):
         for url in payload_item.get("urls") or []:
-            if not isinstance(url, str):
-                continue
-            cleaned = url.strip()
-            if cleaned.startswith("http"):
-                urls.add(cleaned.rstrip("/"))
+            normalized = _normalize_url_match(url)
+            if normalized and not _is_noise_source_url(normalized):
+                urls.add(normalized)
             if len(urls) >= max(1, int(max_urls)):
                 return urls
     return urls
 
 
+def _collect_tool_source_text_index(
+    messages: Any,
+    *,
+    max_sources: int = 512,
+    max_chars_per_source: int = 8000,
+) -> Dict[str, str]:
+    """Map canonical source URLs to combined snippet text from tool messages."""
+    index: Dict[str, str] = {}
+    for payload_item in _tool_message_payloads(messages):
+        payload_text = str(payload_item.get("text") or "").strip()
+        payload_text = re.sub(r"\s+", " ", payload_text)
+        for block in payload_item.get("source_blocks") or []:
+            normalized_url = _normalize_url_match(block.get("url"))
+            if not normalized_url or _is_noise_source_url(normalized_url):
+                continue
+            content = str(block.get("content") or block.get("raw") or "").strip()
+            content = re.sub(r"\s+", " ", content)
+            if not content:
+                continue
+            existing = index.get(normalized_url, "")
+            if content in existing:
+                continue
+            merged = f"{existing} {content}".strip() if existing else content
+            index[normalized_url] = merged[: max(128, int(max_chars_per_source))]
+            if len(index) >= max(1, int(max_sources)):
+                return index
+        if payload_text:
+            for raw_url in payload_item.get("urls") or []:
+                normalized_url = _normalize_url_match(raw_url)
+                if not normalized_url or _is_noise_source_url(normalized_url):
+                    continue
+                if normalized_url in index:
+                    continue
+                existing = index.get(normalized_url, "")
+                if payload_text in existing:
+                    continue
+                merged = f"{existing} {payload_text}".strip() if existing else payload_text
+                index[normalized_url] = merged[: max(128, int(max_chars_per_source))]
+                if len(index) >= max(1, int(max_sources)):
+                    return index
+    return index
+
+
 def _normalize_url_match(url: Any) -> Optional[str]:
-    if not isinstance(url, str):
+    normalized = _canonicalize_url(url)
+    if not normalized:
         return None
-    cleaned = url.strip()
-    if not cleaned.startswith("http"):
+    if _is_noise_source_url(normalized):
         return None
-    return cleaned.rstrip("/")
+    return normalized
 
 
 def _promote_terminal_payload_into_field_status(
@@ -3747,6 +4085,7 @@ def _promote_terminal_payload_into_field_status(
     field_status: Any,
     expected_schema: Any,
     allowed_source_urls: Any = None,
+    source_text_index: Any = None,
 ) -> Dict[str, Dict[str, Any]]:
     """Promote source-backed terminal JSON values into canonical field_status."""
     normalized = _normalize_field_status_map(field_status, expected_schema)
@@ -3793,27 +4132,57 @@ def _promote_terminal_payload_into_field_status(
             for alias in aliases:
                 source_key = f"{alias}_source"
                 source_val = _lookup_key_recursive(parsed, source_key)
-                if isinstance(source_val, str) and source_val.startswith("http"):
-                    source_url = source_val
+                source_norm = _normalize_url_match(source_val)
+                if source_norm:
+                    source_url = source_norm
                     break
-            if source_url is None and key.endswith("_source") and isinstance(value, str) and value.startswith("http"):
-                source_url = value
+            if source_url is None and key.endswith("_source"):
+                source_norm = _normalize_url_match(value)
+                if source_norm:
+                    source_url = source_norm
 
         normalized_source = _normalize_url_match(source_url)
-        # Enforce provenance for non-source fields.
-        if not key.endswith("_source"):
+        if key.endswith("_source"):
             if normalized_source is None:
                 continue
             if allowed and normalized_source not in allowed:
                 continue
+            base_key = key[:-7]
+            base_entry = normalized.get(base_key)
+            base_found = (
+                isinstance(base_entry, dict)
+                and str(base_entry.get("status") or "").lower() == _FIELD_STATUS_FOUND
+                and not _is_empty_like(base_entry.get("value"))
+                and not _is_unknown_marker(base_entry.get("value"))
+            )
+            if not base_found:
+                continue
+        else:
+            # Enforce provenance for non-source fields.
+            if normalized_source is None:
+                continue
+            if allowed and normalized_source not in allowed:
+                continue
+            source_text = None
+            if isinstance(source_text_index, dict):
+                source_text = source_text_index.get(normalized_source)
+            if not isinstance(source_text, str) or not source_text.strip():
+                continue
+            source_token_count = len(re.findall(r"[a-z0-9]+", _normalize_match_text(source_text)))
+            if source_token_count >= 8 and not _source_supports_value(value, source_text):
+                continue
 
         entry["status"] = _FIELD_STATUS_FOUND
-        entry["value"] = value
+        if key.endswith("_source") and normalized_source:
+            entry["value"] = normalized_source
+        else:
+            entry["value"] = value
         if normalized_source:
             entry["source_url"] = normalized_source
         entry["evidence"] = "terminal_payload_source_backed"
         normalized[key] = entry
 
+    normalized = _apply_field_status_derivations(normalized)
     return normalized
 
 
@@ -3973,6 +4342,9 @@ def _unknown_value_for_descriptor(descriptor: Any) -> Any:
             clean = part.strip().strip("\"'")
             if clean.lower() == "null":
                 return None
+        if parts:
+            first = parts[0].strip().strip("\"'")
+            return first if first else None
 
     if re.search(r"\bunknown\b", text, flags=re.IGNORECASE):
         return "Unknown"
@@ -3985,6 +4357,68 @@ def _unknown_value_for_descriptor(descriptor: Any) -> Any:
     if "object" in lower:
         return {}
     return None
+
+
+def _derive_confidence_from_field_status(normalized_field_status: Dict[str, Dict[str, Any]]) -> str:
+    progress = _field_status_progress(normalized_field_status)
+    resolved = int(progress.get("resolved_fields", 0) or 0)
+    unknown = int(progress.get("unknown_fields", 0) or 0)
+    found = max(0, resolved - unknown)
+    if found >= 6 and unknown <= 4:
+        return "High"
+    if found >= 3:
+        return "Medium"
+    return "Low"
+
+
+def _derive_justification_from_field_status(normalized_field_status: Dict[str, Dict[str, Any]]) -> str:
+    found_fields = []
+    unknown_fields = []
+    for key, entry in (normalized_field_status or {}).items():
+        if not isinstance(entry, dict):
+            continue
+        status = str(entry.get("status") or "").lower()
+        value = entry.get("value")
+        if status == _FIELD_STATUS_FOUND and not _is_empty_like(value):
+            found_fields.append(str(key))
+        elif status in {_FIELD_STATUS_UNKNOWN, _FIELD_STATUS_PENDING}:
+            unknown_fields.append(str(key))
+
+    if found_fields:
+        sample = ", ".join(found_fields[:3])
+        return (
+            f"Source-backed searches resolved {len(found_fields)} fields (including {sample}), "
+            f"while {len(unknown_fields)} fields remain unknown due to limited verifiable evidence."
+        )
+    return "Searches did not find reliable, source-backed evidence for the required fields."
+
+
+def _apply_canonical_payload_derivations(
+    payload: Any,
+    normalized_field_status: Dict[str, Dict[str, Any]],
+) -> Any:
+    if not isinstance(payload, dict):
+        return payload
+
+    if "class_background" in payload:
+        prior_occupation = payload.get("prior_occupation")
+        class_background = payload.get("class_background")
+        if _is_empty_like(class_background) or _is_unknown_marker(class_background):
+            derived = _derive_class_background_from_prior_occupation(prior_occupation)
+            if derived:
+                payload["class_background"] = derived
+
+    if "confidence" in payload:
+        confidence = payload.get("confidence")
+        if _is_empty_like(confidence) or _is_unknown_marker(confidence):
+            payload["confidence"] = _derive_confidence_from_field_status(normalized_field_status)
+
+    if "justification" in payload:
+        justification = payload.get("justification")
+        if _is_empty_like(justification) or _is_unknown_marker(justification):
+            payload["justification"] = _derive_justification_from_field_status(normalized_field_status)
+
+    return payload
 
 
 def _field_status_entry_for_path(
@@ -4023,6 +4457,7 @@ def _canonical_payload_from_field_status(expected_schema: Any, field_status: Any
     if expected_schema is None:
         return None
     normalized = _normalize_field_status_map(field_status, expected_schema)
+    normalized = _apply_field_status_derivations(normalized)
     if not normalized:
         return None
     progress = _field_status_progress(normalized)
@@ -4104,6 +4539,7 @@ def _canonical_payload_from_field_status(expected_schema: Any, field_status: Any
                 payload_node[base_key] = _unknown_value_for_descriptor(schema_node.get(base_key))
 
     enforce_source_requirements(expected_schema, payload)
+    payload = _apply_canonical_payload_derivations(payload, normalized)
     return payload
 
 
@@ -5811,11 +6247,14 @@ def create_memory_folding_agent(
                 context="agent",
                 debug=debug,
             )
+            allowed_source_urls = _collect_tool_urls_from_messages(messages)
+            source_text_index = _collect_tool_source_text_index(messages)
             field_status = _promote_terminal_payload_into_field_status(
                 response=response,
                 field_status=field_status,
                 expected_schema=expected_schema,
-                allowed_source_urls=_collect_tool_urls_from_messages(messages),
+                allowed_source_urls=allowed_source_urls,
+                source_text_index=source_text_index,
             )
             budget_state.update(_field_status_progress(field_status))
             if force_fallback:
@@ -5907,11 +6346,14 @@ def create_memory_folding_agent(
             context="finalize",
             debug=debug,
         )
+        allowed_source_urls = _collect_tool_urls_from_messages(messages)
+        source_text_index = _collect_tool_source_text_index(messages)
         field_status = _promote_terminal_payload_into_field_status(
             response=response,
             field_status=field_status,
             expected_schema=expected_schema,
-            allowed_source_urls=_collect_tool_urls_from_messages(messages),
+            allowed_source_urls=allowed_source_urls,
+            source_text_index=source_text_index,
         )
         budget_state.update(_field_status_progress(field_status))
         response, canonical_event = _apply_field_status_terminal_guard(
@@ -6618,11 +7060,14 @@ def create_standard_agent(
                 context="agent",
                 debug=debug,
             )
+            allowed_source_urls = _collect_tool_urls_from_messages(messages)
+            source_text_index = _collect_tool_source_text_index(messages)
             field_status = _promote_terminal_payload_into_field_status(
                 response=response,
                 field_status=field_status,
                 expected_schema=expected_schema,
-                allowed_source_urls=_collect_tool_urls_from_messages(messages),
+                allowed_source_urls=allowed_source_urls,
+                source_text_index=source_text_index,
             )
             budget_state.update(_field_status_progress(field_status))
             if force_fallback:
@@ -6709,11 +7154,14 @@ def create_standard_agent(
             context="finalize",
             debug=debug,
         )
+        allowed_source_urls = _collect_tool_urls_from_messages(messages)
+        source_text_index = _collect_tool_source_text_index(messages)
         field_status = _promote_terminal_payload_into_field_status(
             response=response,
             field_status=field_status,
             expected_schema=expected_schema,
-            allowed_source_urls=_collect_tool_urls_from_messages(messages),
+            allowed_source_urls=allowed_source_urls,
+            source_text_index=source_text_index,
         )
         budget_state.update(_field_status_progress(field_status))
         response, canonical_event = _apply_field_status_terminal_guard(
