@@ -3087,6 +3087,38 @@ test_that(".extract_response_text returns tool output under recursion_limit when
   expect_equal(response_text, "tool output")
 })
 
+test_that(".extract_response_text prefers AI JSON over tool trace payload under recursion_limit", {
+  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
+  asa_test_skip_if_missing_python_modules(c("langchain_core"), method = "import")
+  msgs <- reticulate::import("langchain_core.messages", convert = TRUE)
+
+  raw_response <- list(
+    messages = list(
+      msgs$AIMessage(
+        content = "{\"country\":\"Vietnam\",\"count\":63}",
+        tool_calls = list(list(name = "Search", args = list(query = "vietnam"), id = "call_1"))
+      ),
+      msgs$ToolMessage(
+        content = paste0(
+          "__START_OF_SOURCE 1__\n",
+          "<URL>https://example.com/vietnam-admin</URL>\n",
+          "<CONTENT>Reference page with province table.</CONTENT>\n",
+          "__END_OF_SOURCE 1__\n",
+          "{\"_tier\":\"ddgs\"}"
+        ),
+        tool_call_id = "call_1"
+      )
+    ),
+    stop_reason = "recursion_limit"
+  )
+
+  response_text <- asa:::.extract_response_text(raw_response, backend = "gemini")
+  expect_equal(response_text, "{\"country\":\"Vietnam\",\"count\":63}")
+  parsed <- asa:::.parse_json_response(response_text)
+  expect_equal(parsed$country, "Vietnam")
+  expect_equal(as.integer(parsed$count), 63L)
+})
+
 test_that(".extract_response_text returns recursion fallback when only tool-call AI content exists", {
   python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
   asa_test_skip_if_missing_python_modules(c("langchain_core"), method = "import")

@@ -519,6 +519,7 @@
       }
 
       text_parts <- character(0)
+      tool_call_ai_candidates <- list()
       # Prefer the most recent assistant message. Under recursion limits, skip
       # assistant turns that still contain tool calls (non-terminal).
       for (i in rev(seq_along(messages))) {
@@ -527,12 +528,31 @@
           next
         }
         if (is_recursion_limit && has_tool_calls(msg)) {
+          # Preserve best-effort assistant JSON emitted alongside tool calls.
+          text <- get_message_content(msg)
+          candidate_parts <- extract_text_blocks(text)
+          if (length(candidate_parts) > 0) {
+            tool_call_ai_candidates <- c(tool_call_ai_candidates, list(candidate_parts))
+          }
           next
         }
         text <- get_message_content(msg)
         text_parts <- extract_text_blocks(text)
         if (length(text_parts) > 0) {
           break
+        }
+      }
+
+      # Recursion-limited best-effort fallback: if an assistant turn with tool
+      # calls already contains valid JSON, prefer that over raw tool payloads.
+      if (length(text_parts) == 0 && is_recursion_limit && length(tool_call_ai_candidates) > 0) {
+        for (candidate_parts in tool_call_ai_candidates) {
+          candidate_text <- paste(candidate_parts, collapse = "\n")
+          candidate_json <- .try_or(.parse_json_response(candidate_text))
+          if (!is.null(candidate_json)) {
+            text_parts <- candidate_parts
+            break
+          }
         }
       }
 
