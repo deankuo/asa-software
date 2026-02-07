@@ -7,6 +7,7 @@
 #   • smart retries and a final pure‑Requests HTML fallback
 #
 import contextlib
+import copy
 import json
 import logging
 import os
@@ -3508,22 +3509,31 @@ def _sanitize_finalize_response(
     if not text:
         fallback_text = None
         if expected_schema is not None:
-            seed = "{}" if isinstance(expected_schema, dict) else "[]"
-            fallback_text = repair_json_output_to_schema(seed, expected_schema, fallback_on_failure=True)
+            seed = "[]" if isinstance(expected_schema, list) else "{}"
+            try:
+                fallback_text = repair_json_output_to_schema(seed, expected_schema, fallback_on_failure=True)
+            except Exception:
+                fallback_text = None
+            # Defensive fallback: even if schema repair fails, emit a valid JSON shell.
+            if not _message_content_to_text(fallback_text):
+                fallback_text = seed
         else:
             # Ensure a terminal, non-empty response even when no schema is available.
             fallback_text = "Unable to provide a complete answer with available information."
 
         if fallback_text:
             repaired = True
-            try:
-                response.content = fallback_text
-            except Exception:
+            if isinstance(response, dict):
+                response["content"] = fallback_text
+            else:
                 try:
-                    from langchain_core.messages import AIMessage
-                    response = AIMessage(content=fallback_text)
+                    response.content = fallback_text
                 except Exception:
-                    pass
+                    try:
+                        from langchain_core.messages import AIMessage
+                        response = AIMessage(content=fallback_text)
+                    except Exception:
+                        pass
 
     if repaired and not text and expected_schema is None:
         repair_reason = "residual_tool_calls_no_content_no_schema"
@@ -3598,6 +3608,10 @@ def _copy_message(msg: Any) -> Any:
     try:
         if hasattr(msg, "copy"):
             return msg.copy(deep=True)
+    except Exception:
+        pass
+    try:
+        return copy.deepcopy(msg)
     except Exception:
         pass
     return msg
@@ -4150,6 +4164,23 @@ def create_memory_folding_agent(
         current_summary = state.get("summary", "")
         current_fold_stats = state.get("fold_stats", {})
         fold_count = current_fold_stats.get("fold_count", 0)
+        remaining_before_fold = remaining_steps_value(state)
+        terminal_response_present = _reusable_terminal_finalize_response(messages) is not None
+        near_finalize_edge = (
+            remaining_before_fold is not None
+            and remaining_before_fold <= (FINALIZE_WHEN_REMAINING_STEPS_LTE + 1)
+        )
+        # If summarization consumes the step that would otherwise force finalize,
+        # keep at least one recent exchange so terminal content is reusable.
+        preserve_terminal_exchange = terminal_response_present and near_finalize_edge
+        summarize_recursion_marker = "recursion_limit" if preserve_terminal_exchange else state.get("stop_reason")
+
+        def _summarize_result(payload: Optional[Dict[str, Any]] = None) -> dict:
+            out = dict(payload or {})
+            if summarize_recursion_marker and out.get("stop_reason") is None:
+                out["stop_reason"] = summarize_recursion_marker
+            return out
+
         total_chars_pre = sum(
             len(_message_content_to_text(getattr(m, "content", "")) or "")
             for m in messages
@@ -4200,6 +4231,8 @@ def create_memory_folding_agent(
             return n - boundary_idx
 
         keep_recent_exchanges = keep_recent
+        if preserve_terminal_exchange and keep_recent_exchanges < 1:
+            keep_recent_exchanges = 1
         effective_keep_recent_messages = _compute_effective_keep_recent_messages(
             messages, keep_recent_exchanges
         )
@@ -4210,7 +4243,7 @@ def create_memory_folding_agent(
             )
 
         if len(messages) <= effective_keep_recent_messages:
-            return {}  # Nothing to fold
+            return _summarize_result()  # Nothing to fold
 
         # IMPORTANT: Never fold away the initial HumanMessage. Some providers
         # (notably Gemini function calling) require tool-call turns to follow a
@@ -4248,16 +4281,16 @@ def create_memory_folding_agent(
         if safe_fold_idx == 0:
             if debug:
                 logger.info("No safe fold boundary found, skipping fold")
-            return {}
+            return _summarize_result()
 
         messages_to_fold = messages[:safe_fold_idx]
         if not messages_to_fold:
-            return {}
+            return _summarize_result()
 
         # Exclude the preserved initial user message from both summary input and removal.
         summary_candidates = messages_to_fold[1:] if preserve_first_user else messages_to_fold
         if not summary_candidates:
-            return {}
+            return _summarize_result()
 
         if debug:
             logger.info(
@@ -4395,7 +4428,7 @@ def create_memory_folding_agent(
 
         fold_text = "\n".join(fold_text_parts).strip()
         if not fold_text:
-            return {}
+            return _summarize_result()
 
         current_memory = _sanitize_memory_dict(_coerce_memory_summary(current_summary))
         current_memory_json = json.dumps(current_memory, ensure_ascii=True, sort_keys=True)
@@ -4449,7 +4482,7 @@ def create_memory_folding_agent(
                 remove_messages.append(RemoveMessage(id=msg_id))
 
         if not remove_messages:
-            return {}
+            return _summarize_result()
 
         # Compute fold diagnostics
         fold_messages_removed = len(remove_messages)
@@ -4464,7 +4497,7 @@ def create_memory_folding_agent(
             current_fold_stats.get("fold_total_messages_removed", 0) + fold_messages_removed
         )
 
-        return {
+        return _summarize_result({
             "summary": new_memory,
             "archive": [archive_entry],
             "messages": remove_messages,
@@ -4480,7 +4513,7 @@ def create_memory_folding_agent(
                 "fold_parse_success": fold_parse_success,
                 "fold_summarizer_latency_m": fold_summarizer_latency_m,
             },
-        }
+        })
 
     def should_continue(state: MemoryFoldingAgentState) -> str:
         """
@@ -4568,6 +4601,9 @@ def create_memory_folding_agent(
         """
         messages = state.get("messages", [])
         if not messages:
+            return "end"
+
+        if state.get("stop_reason") == "recursion_limit":
             return "end"
 
         remaining = remaining_steps_value(state)

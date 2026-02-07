@@ -1159,6 +1159,112 @@ test_that("memory finalize reuses terminal response after no-op summarize near l
   expect_equal(as.character(parsed$notes), "FIRST")
 })
 
+test_that("memory summarize near recursion edge preserves terminal response when keep_recent=0", {
+  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
+  asa_test_skip_if_missing_python_modules(c(
+    "langchain_core",
+    "langgraph",
+    "langgraph.prebuilt",
+    "pydantic",
+    "requests"
+  ), method = "import")
+
+  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  msgs <- reticulate::import("langchain_core.messages", convert = TRUE)
+
+  asa_test_stub_multi_response_llm(
+    responses = list(
+      list(content = "{\"status\":\"complete\",\"items\":[],\"missing\":[],\"notes\":\"FIRST\"}"),
+      list(content = "{\"status\":\"complete\",\"items\":[],\"missing\":[],\"notes\":\"SECOND\"}")
+    ),
+    var_name = "memory_keep0_edge_llm"
+  )
+  asa_test_stub_summarizer(var_name = "memory_keep0_edge_summarizer")
+
+  agent <- prod$create_memory_folding_agent(
+    model = reticulate::py$memory_keep0_edge_llm,
+    tools = list(),
+    checkpointer = NULL,
+    message_threshold = as.integer(1),
+    keep_recent = as.integer(0),
+    fold_char_budget = as.integer(99999),
+    summarizer_model = reticulate::py$memory_keep0_edge_summarizer,
+    debug = FALSE
+  )
+
+  history_user <- msgs$HumanMessage(content = "Earlier question")
+  history_ai <- msgs$AIMessage(content = "Earlier answer")
+  current_user <- msgs$HumanMessage(content = "Return JSON")
+
+  final_state <- agent$invoke(
+    list(
+      messages = list(history_user, history_ai, current_user),
+      summary = "",
+      archive = list(),
+      fold_stats = reticulate::dict(fold_count = 0L),
+      expected_schema = list(status = "string", items = "array", missing = "array", notes = "string"),
+      expected_schema_source = "explicit"
+    ),
+    config = list(
+      recursion_limit = as.integer(4),
+      configurable = list(thread_id = "test_memory_keep0_terminal_preserved")
+    )
+  )
+
+  expect_equal(final_state$stop_reason, "recursion_limit")
+  expect_equal(as.integer(reticulate::py$memory_keep0_edge_llm$n), 1L)
+  expect_equal(as.integer(reticulate::py$memory_keep0_edge_summarizer$calls), 1L)
+
+  response_text <- asa:::.extract_response_text(final_state, backend = "gemini")
+  parsed <- jsonlite::fromJSON(response_text)
+  expect_true(is.list(parsed))
+  expect_equal(as.character(parsed$notes), "FIRST")
+})
+
+test_that("reused finalize response does not mutate original non-copyable message", {
+  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
+  asa_test_skip_if_missing_python_modules(c(
+    "langchain_core",
+    "langgraph",
+    "langgraph.prebuilt",
+    "pydantic",
+    "requests"
+  ), method = "import")
+
+  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  py <- reticulate::py
+  py$prod_module_copy_test <- prod
+
+  reticulate::py_run_string(paste0(
+    "class AIMessage:\n",
+    "    def __init__(self, content):\n",
+    "        self.content = content\n",
+    "        self.tool_calls = []\n",
+    "        self.type = 'ai'\n\n",
+    "orig_msg = AIMessage('{\"status\":\"partial\"}')\n",
+    "reused_msg = prod_module_copy_test._reusable_terminal_finalize_response([orig_msg])\n",
+    "reused_msg, _ = prod_module_copy_test._repair_best_effort_json(\n",
+    "    {'status': 'string', 'missing': 'array'},\n",
+    "    reused_msg,\n",
+    "    fallback_on_failure=True,\n",
+    "    schema_source='explicit',\n",
+    "    context='finalize',\n",
+    "    debug=False,\n",
+    ")\n",
+    "copy_test_same_object = reused_msg is orig_msg\n",
+    "copy_test_orig_content = orig_msg.content\n",
+    "copy_test_reused_content = reused_msg.content\n"
+  ))
+
+  expect_false(isTRUE(reticulate::py$copy_test_same_object))
+  expect_equal(as.character(reticulate::py$copy_test_orig_content), "{\"status\":\"partial\"}")
+  expect_true(nzchar(trimws(as.character(reticulate::py$copy_test_reused_content))))
+  expect_false(identical(
+    as.character(reticulate::py$copy_test_orig_content),
+    as.character(reticulate::py$copy_test_reused_content)
+  ))
+})
+
 test_that("finalize strips residual tool calls and returns terminal JSON (standard)", {
   python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
   asa_test_skip_if_missing_python_modules(c(
@@ -1221,6 +1327,87 @@ test_that("finalize strips residual tool calls and returns terminal JSON (standa
   expect_true(all(c("status", "items", "missing", "notes") %in% names(parsed)))
 })
 
+test_that("finalize stays non-empty when first schema repair attempt fails (standard)", {
+  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
+  asa_test_skip_if_missing_python_modules(c(
+    "langchain_core",
+    "langgraph",
+    "langgraph.prebuilt",
+    "pydantic",
+    "requests"
+  ), method = "import")
+
+  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  py <- reticulate::py
+  py$prod_module_for_test <- prod
+
+  reticulate::py_run_string(paste0(
+    "_asa_repair_calls = {'n': 0}\n",
+    "_asa_orig_repair = prod_module_for_test.repair_json_output_to_schema\n",
+    "def _asa_flaky_repair(text, schema, fallback_on_failure=False):\n",
+    "    _asa_repair_calls['n'] += 1\n",
+    "    if _asa_repair_calls['n'] == 1:\n",
+    "        return None\n",
+    "    return _asa_orig_repair(text, schema, fallback_on_failure=fallback_on_failure)\n",
+    "prod_module_for_test.repair_json_output_to_schema = _asa_flaky_repair\n"
+  ))
+  on.exit(
+    reticulate::py_run_string(
+      "prod_module_for_test.repair_json_output_to_schema = _asa_orig_repair"
+    ),
+    add = TRUE
+  )
+
+  reticulate::py_run_string(paste0(
+    "from langchain_core.messages import AIMessage\n\n",
+    "class _RepairFailThenRecoverLLM:\n",
+    "    def __init__(self):\n",
+    "        self.calls = 0\n",
+    "    def bind_tools(self, tools):\n",
+    "        return self\n",
+    "    def invoke(self, messages):\n",
+    "        self.calls += 1\n",
+    "        return AIMessage(\n",
+    "            content='',\n",
+    "            tool_calls=[{'name':'save_finding','args':{'finding':'X','category':'fact'},'id':'call_1'}]\n",
+    "        )\n\n",
+    "repair_fail_then_recover_llm = _RepairFailThenRecoverLLM()\n"
+  ))
+
+  expected_schema <- list(
+    status = "string",
+    items = "array",
+    missing = "array",
+    notes = "string"
+  )
+
+  agent <- prod$create_standard_agent(
+    model = reticulate::py$repair_fail_then_recover_llm,
+    tools = list()
+  )
+
+  final_state <- agent$invoke(
+    list(
+      messages = list(list(role = "user", content = "Return JSON")),
+      expected_schema = expected_schema,
+      expected_schema_source = "explicit"
+    ),
+    config = list(recursion_limit = 2L)
+  )
+
+  expect_equal(final_state$stop_reason, "recursion_limit")
+  response_text <- asa:::.extract_response_text(final_state, backend = "gemini")
+  expect_true(is.character(response_text))
+  expect_true(nzchar(trimws(response_text)))
+
+  parsed <- jsonlite::fromJSON(response_text)
+  expect_true(is.list(parsed))
+  expect_true(all(c("status", "items", "missing", "notes") %in% names(parsed)))
+
+  repair_calls <- reticulate::py_to_r(reticulate::py_eval("_asa_repair_calls"))
+  expect_true(as.integer(repair_calls$n) >= 2L)
+})
+
 test_that("finalize strips residual tool calls and returns non-empty text when no schema (standard)", {
   python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
   asa_test_skip_if_missing_python_modules(c(
@@ -1270,6 +1457,50 @@ test_that("finalize strips residual tool calls and returns non-empty text when n
   response_text <- asa:::.extract_response_text(final_state, backend = "gemini")
   expect_true(is.character(response_text))
   expect_true(nzchar(trimws(response_text)))
+})
+
+test_that("sanitize_finalize_response fills dict content fallback when residual tool calls are stripped", {
+  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
+  asa_test_skip_if_missing_python_modules(c(
+    "langchain_core",
+    "langgraph",
+    "langgraph.prebuilt",
+    "pydantic",
+    "requests"
+  ), method = "import")
+
+  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+
+  raw_response <- list(
+    role = "assistant",
+    content = "",
+    tool_calls = list(list(
+      name = "save_finding",
+      args = list(finding = "X", category = "fact"),
+      id = "call_1"
+    )),
+    additional_kwargs = list(
+      tool_calls = list(list(name = "save_finding"))
+    )
+  )
+
+  sanitize_out <- prod$`_sanitize_finalize_response`(
+    raw_response,
+    NULL,
+    context = "unit_test",
+    debug = FALSE
+  )
+
+  cleaned <- sanitize_out[[1]]
+  event <- sanitize_out[[2]]
+
+  expect_true(is.list(cleaned))
+  expect_true(is.null(cleaned$tool_calls) || length(cleaned$tool_calls) == 0L)
+  expect_true(is.character(cleaned$content))
+  expect_true(nzchar(trimws(cleaned$content)))
+
+  expect_true(is.list(event))
+  expect_equal(as.character(event$repair_reason), "residual_tool_calls_no_content_no_schema")
 })
 
 test_that("finalize_answer node sanitizes residual tool calls after tools (standard)", {
