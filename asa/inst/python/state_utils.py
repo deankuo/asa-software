@@ -5,8 +5,18 @@
 #
 import hashlib
 import json
+import pathlib
 import re
+import sys
 from typing import Any, Dict, List, Optional, Tuple
+
+try:
+    from message_utils import message_text_from_message
+except ImportError:
+    _module_dir = pathlib.Path(__file__).resolve().parent
+    if str(_module_dir) not in sys.path:
+        sys.path.insert(0, str(_module_dir))
+    from message_utils import message_text_from_message
 
 
 def remaining_steps_value(state: Any) -> Optional[int]:
@@ -457,22 +467,7 @@ def _message_role(msg: Any) -> str:
 
 def _message_content(msg: Any) -> str:
     """Best-effort extraction of message content as text."""
-    try:
-        if isinstance(msg, dict):
-            content = msg.get("content", "")
-            if content is None:
-                return ""
-            return str(content)
-    except Exception:
-        pass
-
-    try:
-        content = getattr(msg, "content", "")
-        if content is None:
-            return ""
-        return str(content)
-    except Exception:
-        return ""
+    return message_text_from_message(msg, list_mode="stringify")
 
 
 def infer_required_json_schema_from_messages(messages: Any) -> Optional[Any]:

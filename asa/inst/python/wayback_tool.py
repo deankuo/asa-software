@@ -197,6 +197,33 @@ def get_snapshot_content(
         return None
 
 
+def _parse_wayback_date(date_value: Optional[str], *, required: bool = False) -> Optional[str]:
+    """Parse YYYY-MM-DD input and return YYYYMMDD for CDX queries."""
+    if date_value is None:
+        if required:
+            raise ValueError("missing required date")
+        return None
+
+    text = str(date_value).strip()
+    if not text:
+        if required:
+            raise ValueError("empty date")
+        return None
+
+    dt = datetime.strptime(text, "%Y-%m-%d")
+    return dt.strftime("%Y%m%d")
+
+
+def _normalize_wayback_range(
+    after_date: Optional[str] = None,
+    before_date: Optional[str] = None,
+) -> Tuple[Optional[str], Optional[str]]:
+    """Normalize optional ISO dates into CDX from/to date strings."""
+    from_date = _parse_wayback_date(after_date, required=False)
+    to_date = _parse_wayback_date(before_date, required=False)
+    return from_date, to_date
+
+
 def find_snapshots_before(
     url: str,
     before_date: str,
@@ -214,10 +241,8 @@ def find_snapshots_before(
     Returns:
         List of snapshot records, newest first
     """
-    # Convert ISO date to Wayback format (YYYYMMDD)
     try:
-        dt = datetime.strptime(before_date, "%Y-%m-%d")
-        to_date = dt.strftime("%Y%m%d")
+        to_date = _parse_wayback_date(before_date, required=True)
     except ValueError:
         logger.error(f"Invalid date format: {before_date}")
         return []
@@ -254,16 +279,8 @@ def find_snapshots_in_range(
     Returns:
         List of snapshot records
     """
-    from_date = None
-    to_date = None
-
     try:
-        if after_date:
-            dt = datetime.strptime(after_date, "%Y-%m-%d")
-            from_date = dt.strftime("%Y%m%d")
-        if before_date:
-            dt = datetime.strptime(before_date, "%Y-%m-%d")
-            to_date = dt.strftime("%Y%m%d")
+        from_date, to_date = _normalize_wayback_range(after_date, before_date)
     except ValueError as e:
         logger.error(f"Invalid date format: {e}")
         return []

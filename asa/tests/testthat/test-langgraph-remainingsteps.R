@@ -1,10 +1,7 @@
 # Tests for RemainingSteps-based recursion_limit handling in LangGraph graphs.
 
 test_that("research graph stops with stop_reason='recursion_limit' (RemainingSteps)", {
-  python_path <- asa_test_skip_if_no_python(required_files = "research_graph.py")
-  asa_test_require_langgraph_stack()
-
-  research <- reticulate::import_from_path("research_graph", path = python_path)
+  research <- asa_test_import_langgraph_module("research_graph", required_files = "research_graph.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
 
   # Stub LLM for planner node: returns minimal valid JSON.
   reticulate::py_run_string(paste0(
@@ -75,10 +72,7 @@ test_that("research graph stops with stop_reason='recursion_limit' (RemainingSte
 })
 
 test_that("run_research forwards recursion_limit into graph config", {
-  python_path <- asa_test_skip_if_no_python(required_files = "research_graph.py")
-  asa_test_require_langgraph_stack()
-
-  research <- reticulate::import_from_path("research_graph", path = python_path)
+  research <- asa_test_import_langgraph_module("research_graph", required_files = "research_graph.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
 
   reticulate::py_run_string(paste0(
     "class _ConfigCaptureInvokeGraph:\n",
@@ -107,10 +101,7 @@ test_that("run_research forwards recursion_limit into graph config", {
 })
 
 test_that("stream_research forwards recursion_limit into graph config", {
-  python_path <- asa_test_skip_if_no_python(required_files = "research_graph.py")
-  asa_test_require_langgraph_stack()
-
-  research <- reticulate::import_from_path("research_graph", path = python_path)
+  research <- asa_test_import_langgraph_module("research_graph", required_files = "research_graph.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
 
   reticulate::py_run_string(paste0(
     "class _ConfigCaptureStreamGraph:\n",
@@ -142,10 +133,7 @@ test_that("stream_research forwards recursion_limit into graph config", {
 })
 
 test_that("run_research rejects recursion_limit outside [4, 500]", {
-  python_path <- asa_test_skip_if_no_python(required_files = "research_graph.py")
-  asa_test_require_langgraph_stack()
-
-  research <- reticulate::import_from_path("research_graph", path = python_path)
+  research <- asa_test_import_langgraph_module("research_graph", required_files = "research_graph.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
 
   reticulate::py_run_string(paste0(
     "class _NoopInvokeGraph:\n",
@@ -201,10 +189,7 @@ test_that("run_research rejects recursion_limit outside [4, 500]", {
 })
 
 test_that("stream_research rejects recursion_limit outside [4, 500]", {
-  python_path <- asa_test_skip_if_no_python(required_files = "research_graph.py")
-  asa_test_require_langgraph_stack()
-
-  research <- reticulate::import_from_path("research_graph", path = python_path)
+  research <- asa_test_import_langgraph_module("research_graph", required_files = "research_graph.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
 
   reticulate::py_run_string(paste0(
     "class _NoopStreamGraph:\n",
@@ -260,10 +245,7 @@ test_that("stream_research rejects recursion_limit outside [4, 500]", {
 })
 
 test_that("run_research with recursion_limit=4 executes at least one search round", {
-  python_path <- asa_test_skip_if_no_python(required_files = "research_graph.py")
-  asa_test_require_langgraph_stack()
-
-  research <- reticulate::import_from_path("research_graph", path = python_path)
+  research <- asa_test_import_langgraph_module("research_graph", required_files = "research_graph.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
 
   reticulate::py_run_string(paste0(
     "class _StubResponse:\n",
@@ -324,10 +306,7 @@ test_that("run_research with recursion_limit=4 executes at least one search roun
 })
 
 test_that("best-effort recursion_limit output populates required JSON fields (stubbed)", {
-  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
-  asa_test_require_langgraph_stack()
-
-  custom_ddg <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  custom_ddg <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
 
   # Stub LLM: returns intentionally incomplete JSON so the recursion-limit
   # "best effort" path must populate schema-required keys.
@@ -355,19 +334,19 @@ test_that("best-effort recursion_limit output populates required JSON fields (st
     notes = "string"
   )
 
-  final_state <- agent$invoke(
-    list(
-      messages = list(list(role = "user", content = "Return JSON only.")),
-      expected_schema = expected_schema
-    ),
-    config = list(recursion_limit = as.integer(3))
+  invoke <- asa_test_invoke_json_agent(
+    agent = agent,
+    expected_schema = expected_schema,
+    prompt = "Return JSON only.",
+    config = list(recursion_limit = as.integer(3)),
+    backend = "gemini"
   )
+  final_state <- invoke$final_state
+  response_text <- invoke$response_text
+  parsed <- invoke$parsed
 
   expect_equal(final_state$stop_reason, "recursion_limit")
   expect_equal(final_state$expected_schema_source, "explicit")
-
-  response_text <- asa:::.extract_response_text(final_state, backend = "gemini")
-  parsed <- jsonlite::fromJSON(response_text)
 
   expect_true(is.list(parsed))
   expect_true(all(c("status", "items", "missing", "notes") %in% names(parsed)))
@@ -382,10 +361,7 @@ test_that("best-effort recursion_limit output populates required JSON fields (st
 })
 
 test_that("JSON repair populates nested required keys (explicit schema)", {
-  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
-  asa_test_require_langgraph_stack()
-
-  custom_ddg <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  custom_ddg <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
 
   asa_test_stub_llm(
     mode = "json_response",
@@ -411,16 +387,16 @@ test_that("JSON repair populates nested required keys (explicit schema)", {
     ))
   )
 
-  final_state <- agent$invoke(
-    list(
-      messages = list(list(role = "user", content = "Return JSON only.")),
-      expected_schema = expected_schema
-    ),
-    config = list(recursion_limit = as.integer(3))
+  invoke <- asa_test_invoke_json_agent(
+    agent = agent,
+    expected_schema = expected_schema,
+    prompt = "Return JSON only.",
+    config = list(recursion_limit = as.integer(3)),
+    backend = "gemini"
   )
-
-  response_text <- asa:::.extract_response_text(final_state, backend = "gemini")
-  parsed <- jsonlite::fromJSON(response_text)
+  final_state <- invoke$final_state
+  response_text <- invoke$response_text
+  parsed <- invoke$parsed
 
   expect_true(is.list(parsed))
   expect_true(all(c("status", "meta", "items") %in% names(parsed)))
@@ -716,10 +692,7 @@ test_that("Gemini 3 Flash multi-step folding preserves semantic correctness acro
 })
 
 test_that("run_task passes expected_schema into LangGraph state (explicit schema)", {
-  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
-  asa_test_require_langgraph_stack()
-
-  custom_ddg <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  custom_ddg <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
 
   # Stub LLM: returns incomplete JSON; run_task(expected_schema=...) should
   # trigger best-effort repair even without prompt-based schema inference.
@@ -1385,8 +1358,9 @@ test_that("memory folding finalization respects inferred schema from CSV templat
   # Finalize may now reuse an already-terminal response instead of re-invoking the LLM.
   expect_true(as.integer(reticulate::py$csv_template_llm$n) >= 1L)
 
-  response_text <- asa:::.extract_response_text(final_state, backend = "gemini")
-  parsed <- jsonlite::fromJSON(response_text)
+  parsed_payload <- asa_test_parse_agent_json(final_state, backend = "gemini")
+  response_text <- parsed_payload$response_text
+  parsed <- parsed_payload$parsed
 
   inferred_schema <- reticulate::py_to_r(final_state$expected_schema)
   schema_keys <- names(inferred_schema)
@@ -1405,10 +1379,7 @@ test_that("memory folding finalization respects inferred schema from CSV templat
 })
 
 test_that("recursion_limit=2 completes without error (no double finalize)", {
-  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
-  asa_test_require_langgraph_stack()
-
-  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  prod <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
 
   # Stub LLM that returns a direct JSON answer (no tool calls) and tracks call_count.
   reticulate::py_run_string(paste0(
@@ -1493,10 +1464,7 @@ test_that("shared router prioritizes pending tool calls when budget allows", {
 })
 
 test_that("tool exceptions produce terminal fallback instead of hard error (standard)", {
-  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
-  asa_test_require_langgraph_stack()
-
-  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  prod <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
 
   reticulate::py_run_string(paste0(
     "from langchain_core.messages import AIMessage\n",
@@ -1542,10 +1510,7 @@ test_that("tool exceptions produce terminal fallback instead of hard error (stan
 })
 
 test_that("model invoke exceptions return schema fallback instead of hard error (standard)", {
-  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
-  asa_test_require_langgraph_stack()
-
-  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  prod <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
 
   reticulate::py_run_string(paste0(
     "class _ModelExceptionLLM:\n",
@@ -1580,8 +1545,9 @@ test_that("model invoke exceptions return schema fallback instead of hard error 
     )
   })
 
-  response_text <- asa:::.extract_response_text(final_state, backend = "gemini")
-  parsed <- jsonlite::fromJSON(response_text)
+  parsed_payload <- asa_test_parse_agent_json(final_state, backend = "gemini")
+  response_text <- parsed_payload$response_text
+  parsed <- parsed_payload$parsed
   expect_true(is.list(parsed))
   expect_true(all(c("status", "items", "missing", "notes") %in% names(parsed)))
 
@@ -1699,10 +1665,7 @@ test_that("reused thread_id does not let stale recursion stop_reason skip tools"
 })
 
 test_that("memory finalize reuses terminal response after no-op summarize near limit", {
-  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
-  asa_test_require_langgraph_stack()
-
-  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  prod <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
 
   asa_test_stub_multi_response_llm(
     responses = list(
@@ -1742,17 +1705,15 @@ test_that("memory finalize reuses terminal response after no-op summarize near l
   expect_equal(final_state$stop_reason, "recursion_limit")
   expect_equal(as.integer(reticulate::py$memory_reuse_finalize_llm$n), 1L)
 
-  response_text <- asa:::.extract_response_text(final_state, backend = "gemini")
-  parsed <- jsonlite::fromJSON(response_text)
+  parsed_payload <- asa_test_parse_agent_json(final_state, backend = "gemini")
+  response_text <- parsed_payload$response_text
+  parsed <- parsed_payload$parsed
   expect_true(is.list(parsed))
   expect_equal(as.character(parsed$notes), "FIRST")
 })
 
 test_that("memory summarize near recursion edge preserves terminal response when keep_recent=0", {
-  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
-  asa_test_require_langgraph_stack()
-
-  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  prod <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
   msgs <- reticulate::import("langchain_core.messages", convert = TRUE)
 
   asa_test_stub_multi_response_llm(
@@ -1798,17 +1759,15 @@ test_that("memory summarize near recursion edge preserves terminal response when
   expect_equal(as.integer(reticulate::py$memory_keep0_edge_llm$n), 1L)
   expect_equal(as.integer(reticulate::py$memory_keep0_edge_summarizer$calls), 1L)
 
-  response_text <- asa:::.extract_response_text(final_state, backend = "gemini")
-  parsed <- jsonlite::fromJSON(response_text)
+  parsed_payload <- asa_test_parse_agent_json(final_state, backend = "gemini")
+  response_text <- parsed_payload$response_text
+  parsed <- parsed_payload$parsed
   expect_true(is.list(parsed))
   expect_equal(as.character(parsed$notes), "FIRST")
 })
 
 test_that("summarize stamps recursion stop_reason when budget is exhausted", {
-  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
-  asa_test_require_langgraph_stack()
-
-  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  prod <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
   msgs <- reticulate::import("langchain_core.messages", convert = TRUE)
 
   asa_test_stub_llm(mode = "simple", response_content = "")
@@ -1841,10 +1800,7 @@ test_that("summarize stamps recursion stop_reason when budget is exhausted", {
 })
 
 test_that("summarize near edge does not stamp recursion stop_reason prematurely", {
-  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
-  asa_test_require_langgraph_stack()
-
-  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  prod <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
   msgs <- reticulate::import("langchain_core.messages", convert = TRUE)
 
   asa_test_stub_llm(mode = "simple", response_content = "")
@@ -1877,10 +1833,7 @@ test_that("summarize near edge does not stamp recursion stop_reason prematurely"
 })
 
 test_that("reused finalize response does not mutate original non-copyable message", {
-  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
-  asa_test_require_langgraph_stack()
-
-  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  prod <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
   py <- reticulate::py
   py$prod_module_copy_test <- prod
 
@@ -1915,10 +1868,7 @@ test_that("reused finalize response does not mutate original non-copyable messag
 })
 
 test_that("reused finalize response gets a fresh message id", {
-  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
-  asa_test_require_langgraph_stack()
-
-  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  prod <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
   py <- reticulate::py
   py$prod_module_id_test <- prod
 
@@ -1939,10 +1889,7 @@ test_that("reused finalize response gets a fresh message id", {
 })
 
 test_that("finalize strips residual tool calls and returns terminal JSON (standard)", {
-  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
-  asa_test_require_langgraph_stack()
-
-  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  prod <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
 
   # Simulates finalize-time bad behavior: model emits a tool call with empty content.
   reticulate::py_run_string(paste0(
@@ -1973,14 +1920,17 @@ test_that("finalize strips residual tool calls and returns terminal JSON (standa
     tools = list()
   )
 
-  final_state <- agent$invoke(
-    list(
-      messages = list(list(role = "user", content = "Return JSON")),
-      expected_schema = expected_schema,
-      expected_schema_source = "explicit"
-    ),
-    config = list(recursion_limit = 2L)
+  invoke <- asa_test_invoke_json_agent(
+    agent = agent,
+    expected_schema = expected_schema,
+    prompt = "Return JSON",
+    expected_schema_source = "explicit",
+    config = list(recursion_limit = 2L),
+    backend = "gemini"
   )
+  final_state <- invoke$final_state
+  response_text <- invoke$response_text
+  parsed <- invoke$parsed
 
   expect_equal(final_state$stop_reason, "recursion_limit")
 
@@ -1988,17 +1938,12 @@ test_that("finalize strips residual tool calls and returns terminal JSON (standa
   tool_calls <- tryCatch(last_msg$tool_calls, error = function(e) NULL)
   expect_true(is.null(tool_calls) || length(tool_calls) == 0L)
 
-  response_text <- asa:::.extract_response_text(final_state, backend = "gemini")
-  parsed <- jsonlite::fromJSON(response_text)
   expect_true(is.list(parsed))
   expect_true(all(c("status", "items", "missing", "notes") %in% names(parsed)))
 })
 
 test_that("finalize stays non-empty when first schema repair attempt fails (standard)", {
-  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
-  asa_test_require_langgraph_stack()
-
-  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  prod <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
   py <- reticulate::py
   py$prod_module_for_test <- prod
 
@@ -2047,21 +1992,21 @@ test_that("finalize stays non-empty when first schema repair attempt fails (stan
     tools = list()
   )
 
-  final_state <- agent$invoke(
-    list(
-      messages = list(list(role = "user", content = "Return JSON")),
-      expected_schema = expected_schema,
-      expected_schema_source = "explicit"
-    ),
-    config = list(recursion_limit = 2L)
+  invoke <- asa_test_invoke_json_agent(
+    agent = agent,
+    expected_schema = expected_schema,
+    prompt = "Return JSON",
+    expected_schema_source = "explicit",
+    config = list(recursion_limit = 2L),
+    backend = "gemini"
   )
+  final_state <- invoke$final_state
+  response_text <- invoke$response_text
+  parsed <- invoke$parsed
 
   expect_equal(final_state$stop_reason, "recursion_limit")
-  response_text <- asa:::.extract_response_text(final_state, backend = "gemini")
   expect_true(is.character(response_text))
   expect_true(nzchar(trimws(response_text)))
-
-  parsed <- jsonlite::fromJSON(response_text)
   expect_true(is.list(parsed))
   expect_true(all(c("status", "items", "missing", "notes") %in% names(parsed)))
 
@@ -2070,10 +2015,7 @@ test_that("finalize stays non-empty when first schema repair attempt fails (stan
 })
 
 test_that("finalize strips residual tool calls and returns non-empty text when no schema (standard)", {
-  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
-  asa_test_require_langgraph_stack()
-
-  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  prod <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
 
   reticulate::py_run_string(paste0(
     "from langchain_core.messages import AIMessage\n\n",
@@ -2115,10 +2057,7 @@ test_that("finalize strips residual tool calls and returns non-empty text when n
 })
 
 test_that("sanitize_finalize_response fills dict content fallback when residual tool calls are stripped", {
-  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
-  asa_test_require_langgraph_stack()
-
-  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  prod <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
 
   raw_response <- list(
     role = "assistant",
@@ -2153,10 +2092,7 @@ test_that("sanitize_finalize_response fills dict content fallback when residual 
 })
 
 test_that("sanitize_finalize_response strips invalid tool calls and legacy function_call metadata", {
-  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
-  asa_test_require_langgraph_stack()
-
-  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  prod <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
 
   raw_response <- list(
     role = "assistant",
@@ -2196,10 +2132,7 @@ test_that("sanitize_finalize_response strips invalid tool calls and legacy funct
 })
 
 test_that("finalize_answer node sanitizes residual tool calls after tools (standard)", {
-  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
-  asa_test_require_langgraph_stack()
-
-  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  prod <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
 
   reticulate::py_run_string(paste0(
     "from langchain_core.messages import AIMessage\n",
@@ -2242,14 +2175,17 @@ test_that("finalize_answer node sanitizes residual tool calls after tools (stand
     tools = list(reticulate::py$search_tool_finalize_path)
   )
 
-  final_state <- agent$invoke(
-    list(
-      messages = list(list(role = "user", content = "Return JSON")),
-      expected_schema = expected_schema,
-      expected_schema_source = "explicit"
-    ),
-    config = list(recursion_limit = 4L)
+  invoke <- asa_test_invoke_json_agent(
+    agent = agent,
+    expected_schema = expected_schema,
+    prompt = "Return JSON",
+    expected_schema_source = "explicit",
+    config = list(recursion_limit = 4L),
+    backend = "gemini"
   )
+  final_state <- invoke$final_state
+  response_text <- invoke$response_text
+  parsed <- invoke$parsed
 
   expect_equal(final_state$stop_reason, "recursion_limit")
   expect_equal(as.integer(reticulate::py$finalize_node_path_llm$calls), 2L)
@@ -2267,17 +2203,12 @@ test_that("finalize_answer node sanitizes residual tool calls after tools (stand
   tool_calls <- tryCatch(last_msg$tool_calls, error = function(e) NULL)
   expect_true(is.null(tool_calls) || length(tool_calls) == 0L)
 
-  response_text <- asa:::.extract_response_text(final_state, backend = "gemini")
-  parsed <- jsonlite::fromJSON(response_text)
   expect_true(is.list(parsed))
   expect_true(all(c("status", "items", "missing", "notes") %in% names(parsed)))
 })
 
 test_that("explicit schema does not rewrite intermediate tool-call turns (standard)", {
-  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
-  asa_test_require_langgraph_stack()
-
-  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  prod <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
 
   reticulate::py_run_string(paste0(
     "from langchain_core.messages import AIMessage\n",
@@ -2317,14 +2248,17 @@ test_that("explicit schema does not rewrite intermediate tool-call turns (standa
     tools = list(reticulate::py$search_tool_for_rewrite)
   )
 
-  final_state <- agent$invoke(
-    list(
-      messages = list(list(role = "user", content = "Return JSON")),
-      expected_schema = expected_schema,
-      expected_schema_source = "explicit"
-    ),
-    config = list(recursion_limit = 10L)
+  invoke <- asa_test_invoke_json_agent(
+    agent = agent,
+    expected_schema = expected_schema,
+    prompt = "Return JSON",
+    expected_schema_source = "explicit",
+    config = list(recursion_limit = 10L),
+    backend = "gemini"
   )
+  final_state <- invoke$final_state
+  response_text <- invoke$response_text
+  parsed <- invoke$parsed
 
   tool_turn <- NULL
   for (msg in final_state$messages) {
@@ -2337,17 +2271,12 @@ test_that("explicit schema does not rewrite intermediate tool-call turns (standa
   expect_false(is.null(tool_turn))
   expect_equal(as.character(tool_turn$content), "calling tool")
 
-  response_text <- asa:::.extract_response_text(final_state, backend = "gemini")
-  parsed <- jsonlite::fromJSON(response_text)
   expect_true(is.list(parsed))
   expect_true(all(c("status", "items", "missing", "notes") %in% names(parsed)))
 })
 
 test_that("finalize strips residual tool calls and returns terminal JSON (memory folding)", {
-  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
-  asa_test_require_langgraph_stack()
-
-  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  prod <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
 
   reticulate::py_run_string(paste0(
     "from langchain_core.messages import AIMessage\n\n",
@@ -2379,20 +2308,25 @@ test_that("finalize strips residual tool calls and returns terminal JSON (memory
     debug = FALSE
   )
 
-  final_state <- agent$invoke(
-    list(
+  invoke <- asa_test_invoke_json_agent(
+    agent = agent,
+    expected_schema = expected_schema,
+    expected_schema_source = "explicit",
+    input_state = list(
       messages = list(list(role = "user", content = "Return JSON")),
       summary = "",
       archive = list(),
-      fold_stats = reticulate::dict(fold_count = 0L),
-      expected_schema = expected_schema,
-      expected_schema_source = "explicit"
+      fold_stats = reticulate::dict(fold_count = 0L)
     ),
     config = list(
       recursion_limit = 2L,
       configurable = list(thread_id = "test_residual_finalize_memory")
-    )
+    ),
+    backend = "gemini"
   )
+  final_state <- invoke$final_state
+  response_text <- invoke$response_text
+  parsed <- invoke$parsed
 
   expect_equal(final_state$stop_reason, "recursion_limit")
 
@@ -2400,17 +2334,12 @@ test_that("finalize strips residual tool calls and returns terminal JSON (memory
   tool_calls <- tryCatch(last_msg$tool_calls, error = function(e) NULL)
   expect_true(is.null(tool_calls) || length(tool_calls) == 0L)
 
-  response_text <- asa:::.extract_response_text(final_state, backend = "gemini")
-  parsed <- jsonlite::fromJSON(response_text)
   expect_true(is.list(parsed))
   expect_true(all(c("status", "items", "missing", "notes") %in% names(parsed)))
 })
 
 test_that("finalize strips residual tool calls and returns non-empty text when no schema (memory folding)", {
-  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
-  asa_test_require_langgraph_stack()
-
-  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  prod <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
 
   reticulate::py_run_string(paste0(
     "from langchain_core.messages import AIMessage\n\n",
@@ -2464,10 +2393,7 @@ test_that("finalize strips residual tool calls and returns non-empty text when n
 })
 
 test_that("recursion-limit finalize preserves earlier tool-derived facts (standard)", {
-  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
-  asa_test_require_langgraph_stack()
-
-  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  prod <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
 
   reticulate::py_run_string(paste0(
     "from langchain_core.messages import AIMessage\n",
@@ -2509,22 +2435,22 @@ test_that("recursion-limit finalize preserves earlier tool-derived facts (standa
     tools = list(reticulate::py$fact_search_tool)
   )
 
-  final_state <- agent$invoke(
-    list(
-      messages = list(list(role = "user", content = "Return strict JSON with prior_occupation and prior_occupation_source.")),
-      expected_schema = expected_schema,
-      expected_schema_source = "explicit"
-    ),
+  invoke <- asa_test_invoke_json_agent(
+    agent = agent,
+    expected_schema = expected_schema,
+    prompt = "Return strict JSON with prior_occupation and prior_occupation_source.",
+    expected_schema_source = "explicit",
     config = list(
       recursion_limit = 4L,
       configurable = list(thread_id = "test_recursion_semantic_preserve_standard")
-    )
+    ),
+    backend = "gemini"
   )
+  final_state <- invoke$final_state
+  response_text <- invoke$response_text
+  parsed <- invoke$parsed
 
   expect_equal(final_state$stop_reason, "recursion_limit")
-
-  response_text <- asa:::.extract_response_text(final_state, backend = "gemini")
-  parsed <- jsonlite::fromJSON(response_text)
   expect_true(is.list(parsed))
   expect_equal(as.character(parsed$prior_occupation), "teacher")
   expect_equal(as.character(parsed$prior_occupation_source), "https://example.com/profile")
@@ -2536,10 +2462,7 @@ test_that("recursion-limit finalize preserves earlier tool-derived facts (standa
 })
 
 test_that("recursion-limit finalize preserves earlier tool-derived facts (memory folding)", {
-  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
-  asa_test_require_langgraph_stack()
-
-  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  prod <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
 
   reticulate::py_run_string(paste0(
     "from langchain_core.messages import AIMessage\n",
@@ -2586,25 +2509,30 @@ test_that("recursion-limit finalize preserves earlier tool-derived facts (memory
     debug = FALSE
   )
 
-  final_state <- agent$invoke(
-    list(
-      messages = list(list(role = "user", content = "Return strict JSON with prior_occupation and prior_occupation_source.")),
+  invoke <- asa_test_invoke_json_agent(
+    agent = agent,
+    expected_schema = expected_schema,
+    expected_schema_source = "explicit",
+    input_state = list(
+      messages = list(list(
+        role = "user",
+        content = "Return strict JSON with prior_occupation and prior_occupation_source."
+      )),
       summary = "",
       archive = list(),
-      fold_stats = reticulate::dict(fold_count = 0L),
-      expected_schema = expected_schema,
-      expected_schema_source = "explicit"
+      fold_stats = reticulate::dict(fold_count = 0L)
     ),
     config = list(
       recursion_limit = 4L,
       configurable = list(thread_id = "test_recursion_semantic_preserve_memory")
-    )
+    ),
+    backend = "gemini"
   )
+  final_state <- invoke$final_state
+  response_text <- invoke$response_text
+  parsed <- invoke$parsed
 
   expect_equal(final_state$stop_reason, "recursion_limit")
-
-  response_text <- asa:::.extract_response_text(final_state, backend = "gemini")
-  parsed <- jsonlite::fromJSON(response_text)
   expect_true(is.list(parsed))
   expect_equal(as.character(parsed$prior_occupation), "teacher")
   expect_equal(as.character(parsed$prior_occupation_source), "https://example.com/profile")
@@ -2616,10 +2544,7 @@ test_that("recursion-limit finalize preserves earlier tool-derived facts (memory
 })
 
 test_that("field_status is canonical vs scratchpad and is injected into finalize prompts (standard)", {
-  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
-  asa_test_require_langgraph_stack()
-
-  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  prod <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
 
   reticulate::py_run_string(paste0(
     "from langchain_core.messages import AIMessage\n",
@@ -2666,23 +2591,20 @@ test_that("field_status is canonical vs scratchpad and is injected into finalize
     tools = list(reticulate::py$canonical_fact_tool)
   )
 
-  final_state <- agent$invoke(
-    list(
-      messages = list(list(
-        role = "user",
-        content = "Return strict JSON with prior_occupation and prior_occupation_source."
-      )),
-      expected_schema = expected_schema,
-      expected_schema_source = "explicit"
-    ),
+  invoke <- asa_test_invoke_json_agent(
+    agent = agent,
+    expected_schema = expected_schema,
+    prompt = "Return strict JSON with prior_occupation and prior_occupation_source.",
+    expected_schema_source = "explicit",
     config = list(
       recursion_limit = 4L,
       configurable = list(thread_id = "test_field_status_canonical_standard")
-    )
+    ),
+    backend = "gemini"
   )
-
-  response_text <- asa:::.extract_response_text(final_state, backend = "gemini")
-  parsed <- jsonlite::fromJSON(response_text)
+  final_state <- invoke$final_state
+  response_text <- invoke$response_text
+  parsed <- invoke$parsed
   expect_equal(as.character(parsed$prior_occupation), "teacher")
   expect_equal(as.character(parsed$prior_occupation_source), "https://example.com/profile")
 
@@ -2700,10 +2622,7 @@ test_that("field_status is canonical vs scratchpad and is injected into finalize
 })
 
 test_that("field_status unknown-after threshold triggers semantic finalize with unknowns", {
-  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
-  asa_test_require_langgraph_stack()
-
-  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  prod <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
 
   reticulate::py_run_string(paste0(
     "from langchain_core.messages import AIMessage\n",
@@ -2741,14 +2660,15 @@ test_that("field_status unknown-after threshold triggers semantic finalize with 
     tools = list(reticulate::py$unknown_budget_tool)
   )
 
-  final_state <- agent$invoke(
-    list(
+  invoke <- asa_test_invoke_json_agent(
+    agent = agent,
+    expected_schema = expected_schema,
+    expected_schema_source = "explicit",
+    input_state = list(
       messages = list(list(
         role = "user",
         content = "Return strict JSON with birth_year and birth_place."
       )),
-      expected_schema = expected_schema,
-      expected_schema_source = "explicit",
       search_budget_limit = 8L,
       unknown_after_searches = 3L,
       finalize_on_all_fields_resolved = TRUE
@@ -2756,8 +2676,12 @@ test_that("field_status unknown-after threshold triggers semantic finalize with 
     config = list(
       recursion_limit = 30L,
       configurable = list(thread_id = "test_field_status_unknown_finalize")
-    )
+    ),
+    backend = "gemini"
   )
+  final_state <- invoke$final_state
+  response_text <- invoke$response_text
+  parsed <- invoke$parsed
 
   field_status <- tryCatch(reticulate::py_to_r(final_state$field_status), error = function(e) final_state$field_status)
   expect_true(is.list(field_status))
@@ -2771,8 +2695,6 @@ test_that("field_status unknown-after threshold triggers semantic finalize with 
   expect_true(isTRUE(as.logical(budget_state$all_resolved)))
   expect_true(as.integer(budget_state$tool_calls_used) <= 4L)
 
-  response_text <- asa:::.extract_response_text(final_state, backend = "gemini")
-  parsed <- jsonlite::fromJSON(response_text)
   expect_true(is.list(parsed))
   expect_true(all(c("birth_year", "birth_place") %in% names(parsed)))
   expect_true(is.null(parsed$birth_year) || is.na(parsed$birth_year))
@@ -2822,10 +2744,7 @@ test_that(".extract_response_text returns recursion fallback when only tool-call
 })
 
 test_that("large-prompt recursion-limit finalize preserves earlier tool facts across many rounds (standard)", {
-  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
-  asa_test_require_langgraph_stack()
-
-  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  prod <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
 
   reticulate::py_run_string(paste0(
     "from langchain_core.messages import AIMessage\n",
@@ -2875,39 +2794,38 @@ test_that("large-prompt recursion-limit finalize preserves earlier tool facts ac
     tools = list(reticulate::py$fact_search_tool_large)
   )
 
-  final_state <- agent$invoke(
-    list(
+  invoke <- asa_test_invoke_json_agent(
+    agent = agent,
+    expected_schema = expected_schema,
+    expected_schema_source = "explicit",
+    input_state = list(
       messages = list(list(
         role = "user",
         content = paste0(
           large_prompt,
           "\nReturn strict JSON with prior_occupation and prior_occupation_source."
         )
-      )),
-      expected_schema = expected_schema,
-      expected_schema_source = "explicit"
+      ))
     ),
     config = list(
       recursion_limit = 20L,
       configurable = list(thread_id = "test_large_prompt_recursion_preserve_standard")
-    )
+    ),
+    backend = "gemini"
   )
+  final_state <- invoke$final_state
+  response_text <- invoke$response_text
+  parsed <- invoke$parsed
 
   expect_equal(final_state$stop_reason, "recursion_limit")
   expect_gt(as.integer(reticulate::py$tool_call_counter_large[["n"]]), 6L)
-
-  response_text <- asa:::.extract_response_text(final_state, backend = "gemini")
-  parsed <- jsonlite::fromJSON(response_text)
   expect_true(is.list(parsed))
   expect_equal(as.character(parsed$prior_occupation), "teacher")
   expect_equal(as.character(parsed$prior_occupation_source), "https://example.com/profile")
 })
 
 test_that("invoke-exception fallback at recursion edge preserves earlier tool facts (standard)", {
-  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
-  asa_test_require_langgraph_stack()
-
-  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  prod <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
 
   reticulate::py_run_string(paste0(
     "from langchain_core.messages import AIMessage\n",
@@ -2948,25 +2866,22 @@ test_that("invoke-exception fallback at recursion edge preserves earlier tool fa
     tools = list(reticulate::py$fact_search_tool_exception)
   )
 
-  final_state <- agent$invoke(
-    list(
-      messages = list(list(
-        role = "user",
-        content = "Return strict JSON with prior_occupation and prior_occupation_source."
-      )),
-      expected_schema = expected_schema,
-      expected_schema_source = "explicit"
-    ),
+  invoke <- asa_test_invoke_json_agent(
+    agent = agent,
+    expected_schema = expected_schema,
+    prompt = "Return strict JSON with prior_occupation and prior_occupation_source.",
+    expected_schema_source = "explicit",
     config = list(
       recursion_limit = 4L,
       configurable = list(thread_id = "test_invoke_exception_preserve_standard")
-    )
+    ),
+    backend = "gemini"
   )
+  final_state <- invoke$final_state
+  response_text <- invoke$response_text
+  parsed <- invoke$parsed
 
   expect_equal(final_state$stop_reason, "recursion_limit")
-
-  response_text <- asa:::.extract_response_text(final_state, backend = "gemini")
-  parsed <- jsonlite::fromJSON(response_text)
   expect_true(is.list(parsed))
   expect_equal(as.character(parsed$prior_occupation), "teacher")
   expect_equal(as.character(parsed$prior_occupation_source), "https://example.com/profile")

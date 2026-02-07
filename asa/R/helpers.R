@@ -1347,6 +1347,66 @@ configure_temporal <- function(time_filter = NULL) {
 }
 
 
+#' Run Code with a Temporary Configuration Snapshot
+#'
+#' Internal helper that snapshots a runtime config, executes code, then
+#' best-effort restores the original config on exit.
+#'
+#' @param snapshot_fn Function returning previous config snapshot.
+#' @param restore_fn Function restoring previous config.
+#' @param fn Function to execute while temporary config is active.
+#' @param should_restore Optional predicate that decides whether restore should run.
+#' @param on_exit_fn Optional cleanup function executed on exit.
+#' @return Result of \code{fn()}.
+#' @keywords internal
+.with_config_snapshot <- function(snapshot_fn,
+                                  restore_fn,
+                                  fn,
+                                  should_restore = NULL,
+                                  on_exit_fn = NULL) {
+  previous <- tryCatch(snapshot_fn(), error = function(e) NULL)
+
+  on.exit({
+    restore_ok <- tryCatch(
+      if (is.function(should_restore)) {
+        isTRUE(should_restore(previous))
+      } else {
+        !is.null(previous)
+      },
+      error = function(e) FALSE
+    )
+
+    if (restore_ok) {
+      tryCatch(restore_fn(previous), error = function(e) NULL)
+    }
+
+    if (is.function(on_exit_fn)) {
+      tryCatch(on_exit_fn(previous), error = function(e) NULL)
+    }
+  }, add = TRUE)
+
+  fn()
+}
+
+
+#' Cast a Value to a Single Integer
+#'
+#' Internal helper that converts to a scalar integer, returning \code{default}
+#' when conversion fails or yields a missing value.
+#'
+#' @param value Value to cast.
+#' @param default Fallback scalar integer when casting fails.
+#' @return Scalar integer.
+#' @keywords internal
+.as_scalar_int <- function(value, default = NA_integer_) {
+  cast <- .try_or(as.integer(value), integer(0))
+  if (length(cast) == 0 || is.na(cast[[1]])) {
+    return(default)
+  }
+  cast[[1]]
+}
+
+
 #' Apply Search Configuration for a Single Operation
 #'
 #' Internal helper that applies search settings, runs a function,
@@ -1376,56 +1436,55 @@ configure_temporal <- function(time_filter = NULL) {
     return(fn())
   }
 
-  previous <- tryCatch({
-    cfg <- configure_search(conda_env = conda_env)
-    if (is.null(cfg)) {
-      return(NULL)
-    }
-    list(
-      max_results = cfg$max_results,
-      timeout = cfg$timeout,
-      max_retries = cfg$max_retries,
-      retry_delay = cfg$retry_delay,
-      backoff_multiplier = cfg$backoff_multiplier,
-      captcha_backoff_base = cfg$captcha_backoff_base,
-      page_load_wait = cfg$page_load_wait,
-      inter_search_delay = cfg$inter_search_delay
-    )
-  }, error = function(e) NULL)
-
-  on.exit({
-    if (!is.null(previous)) {
+  .with_config_snapshot(
+    snapshot_fn = function() {
+      cfg <- configure_search(conda_env = conda_env)
+      if (is.null(cfg)) {
+        return(NULL)
+      }
+      list(
+        max_results = cfg$max_results,
+        timeout = cfg$timeout,
+        max_retries = cfg$max_retries,
+        retry_delay = cfg$retry_delay,
+        backoff_multiplier = cfg$backoff_multiplier,
+        captcha_backoff_base = cfg$captcha_backoff_base,
+        page_load_wait = cfg$page_load_wait,
+        inter_search_delay = cfg$inter_search_delay
+      )
+    },
+    restore_fn = function(previous) {
+      configure_search(
+        max_results = previous$max_results,
+        timeout = previous$timeout,
+        max_retries = previous$max_retries,
+        retry_delay = previous$retry_delay,
+        backoff_multiplier = previous$backoff_multiplier,
+        captcha_backoff_base = previous$captcha_backoff_base,
+        page_load_wait = previous$page_load_wait,
+        inter_search_delay = previous$inter_search_delay,
+        conda_env = conda_env
+      )
+    },
+    should_restore = function(previous) {
+      !is.null(previous)
+    },
+    fn = function() {
       tryCatch(
         configure_search(
-          max_results = previous$max_results,
-          timeout = previous$timeout,
-          max_retries = previous$max_retries,
-          retry_delay = previous$retry_delay,
-          backoff_multiplier = previous$backoff_multiplier,
-          captcha_backoff_base = previous$captcha_backoff_base,
-          page_load_wait = previous$page_load_wait,
-          inter_search_delay = previous$inter_search_delay,
+          max_results = search$max_results,
+          timeout = search$timeout,
+          max_retries = search$max_retries,
+          retry_delay = search$retry_delay,
+          backoff_multiplier = search$backoff_multiplier,
+          inter_search_delay = search$inter_search_delay,
           conda_env = conda_env
         ),
         error = function(e) NULL
       )
+      fn()
     }
-  }, add = TRUE)
-
-  tryCatch(
-    configure_search(
-      max_results = search$max_results,
-      timeout = search$timeout,
-      max_retries = search$max_retries,
-      retry_delay = search$retry_delay,
-      backoff_multiplier = search$backoff_multiplier,
-      inter_search_delay = search$inter_search_delay,
-      conda_env = conda_env
-    ),
-    error = function(e) NULL
   )
-
-  fn()
 }
 
 #' Resolve a single option from config
@@ -1628,64 +1687,6 @@ configure_temporal <- function(time_filter = NULL) {
     return(fn())
   }
 
-  previous <- tryCatch({
-    cfg <- asa_env$webpage_tool$configure_webpage_reader()
-    list(
-      allow_read_webpages = cfg$allow_read_webpages,
-      relevance_mode = cfg$relevance_mode,
-      embedding_provider = cfg$embedding_provider,
-      embedding_model = cfg$embedding_model,
-      timeout = cfg$timeout,
-      max_bytes = cfg$max_bytes,
-      max_chars = cfg$max_chars,
-      max_chunks = cfg$max_chunks,
-      chunk_chars = cfg$chunk_chars,
-      embedding_api_base = cfg$embedding_api_base,
-      prefilter_k = cfg$prefilter_k,
-      use_mmr = cfg$use_mmr,
-      mmr_lambda = cfg$mmr_lambda,
-      cache_enabled = cfg$cache_enabled,
-      cache_max_entries = cfg$cache_max_entries,
-      cache_max_text_chars = cfg$cache_max_text_chars,
-      user_agent = cfg$user_agent
-    )
-  }, error = function(e) NULL)
-
-  on.exit({
-    if (!is.null(previous) && !is.null(previous$allow_read_webpages)) {
-      tryCatch(
-        asa_env$webpage_tool$configure_webpage_reader(
-          allow_read_webpages = previous$allow_read_webpages,
-          relevance_mode = previous$relevance_mode,
-          embedding_provider = previous$embedding_provider,
-          embedding_model = previous$embedding_model,
-          timeout = previous$timeout,
-          max_bytes = previous$max_bytes,
-          max_chars = previous$max_chars,
-          max_chunks = previous$max_chunks,
-          chunk_chars = previous$chunk_chars,
-          embedding_api_base = previous$embedding_api_base,
-          prefilter_k = previous$prefilter_k,
-          use_mmr = previous$use_mmr,
-          mmr_lambda = previous$mmr_lambda,
-          cache_enabled = previous$cache_enabled,
-          cache_max_entries = previous$cache_max_entries,
-          cache_max_text_chars = previous$cache_max_text_chars,
-          user_agent = previous$user_agent
-        ),
-        error = function(e) NULL
-      )
-    }
-
-    # Clear any per-run cache after the operation.
-    if (isTRUE(allow_read_webpages)) {
-      tryCatch(
-        asa_env$webpage_tool$clear_webpage_reader_cache(),
-        error = function(e) NULL
-      )
-    }
-  }, add = TRUE)
-
   # Clear cache at the start of this operation (per-run caching semantics).
   if (isTRUE(allow_read_webpages)) {
     tryCatch(
@@ -1696,30 +1697,85 @@ configure_temporal <- function(time_filter = NULL) {
 
   allow_arg <- if (is.null(allow_read_webpages)) NULL else isTRUE(allow_read_webpages)
 
-  tryCatch(
-    asa_env$webpage_tool$configure_webpage_reader(
-      allow_read_webpages = allow_arg,
-      relevance_mode = relevance_mode,
-      embedding_provider = embedding_provider,
-      embedding_model = embedding_model,
-      timeout = timeout,
-      max_bytes = max_bytes,
-      max_chars = max_chars,
-      max_chunks = max_chunks,
-      chunk_chars = chunk_chars,
-      embedding_api_base = embedding_api_base,
-      prefilter_k = prefilter_k,
-      use_mmr = use_mmr,
-      mmr_lambda = mmr_lambda,
-      cache_enabled = cache_enabled,
-      cache_max_entries = cache_max_entries,
-      cache_max_text_chars = cache_max_text_chars,
-      user_agent = user_agent
-    ),
-    error = function(e) NULL
+  .with_config_snapshot(
+    snapshot_fn = function() {
+      cfg <- asa_env$webpage_tool$configure_webpage_reader()
+      list(
+        allow_read_webpages = cfg$allow_read_webpages,
+        relevance_mode = cfg$relevance_mode,
+        embedding_provider = cfg$embedding_provider,
+        embedding_model = cfg$embedding_model,
+        timeout = cfg$timeout,
+        max_bytes = cfg$max_bytes,
+        max_chars = cfg$max_chars,
+        max_chunks = cfg$max_chunks,
+        chunk_chars = cfg$chunk_chars,
+        embedding_api_base = cfg$embedding_api_base,
+        prefilter_k = cfg$prefilter_k,
+        use_mmr = cfg$use_mmr,
+        mmr_lambda = cfg$mmr_lambda,
+        cache_enabled = cfg$cache_enabled,
+        cache_max_entries = cfg$cache_max_entries,
+        cache_max_text_chars = cfg$cache_max_text_chars,
+        user_agent = cfg$user_agent
+      )
+    },
+    restore_fn = function(previous) {
+      asa_env$webpage_tool$configure_webpage_reader(
+        allow_read_webpages = previous$allow_read_webpages,
+        relevance_mode = previous$relevance_mode,
+        embedding_provider = previous$embedding_provider,
+        embedding_model = previous$embedding_model,
+        timeout = previous$timeout,
+        max_bytes = previous$max_bytes,
+        max_chars = previous$max_chars,
+        max_chunks = previous$max_chunks,
+        chunk_chars = previous$chunk_chars,
+        embedding_api_base = previous$embedding_api_base,
+        prefilter_k = previous$prefilter_k,
+        use_mmr = previous$use_mmr,
+        mmr_lambda = previous$mmr_lambda,
+        cache_enabled = previous$cache_enabled,
+        cache_max_entries = previous$cache_max_entries,
+        cache_max_text_chars = previous$cache_max_text_chars,
+        user_agent = previous$user_agent
+      )
+    },
+    should_restore = function(previous) {
+      !is.null(previous) && !is.null(previous$allow_read_webpages)
+    },
+    on_exit_fn = function(previous) {
+      # Clear any per-run cache after the operation.
+      if (isTRUE(allow_read_webpages)) {
+        asa_env$webpage_tool$clear_webpage_reader_cache()
+      }
+    },
+    fn = function() {
+      tryCatch(
+        asa_env$webpage_tool$configure_webpage_reader(
+          allow_read_webpages = allow_arg,
+          relevance_mode = relevance_mode,
+          embedding_provider = embedding_provider,
+          embedding_model = embedding_model,
+          timeout = timeout,
+          max_bytes = max_bytes,
+          max_chars = max_chars,
+          max_chunks = max_chunks,
+          chunk_chars = chunk_chars,
+          embedding_api_base = embedding_api_base,
+          prefilter_k = prefilter_k,
+          use_mmr = use_mmr,
+          mmr_lambda = mmr_lambda,
+          cache_enabled = cache_enabled,
+          cache_max_entries = cache_max_entries,
+          cache_max_text_chars = cache_max_text_chars,
+          user_agent = user_agent
+        ),
+        error = function(e) NULL
+      )
+      fn()
+    }
   )
-
-  fn()
 }
 
 

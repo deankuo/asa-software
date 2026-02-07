@@ -306,17 +306,10 @@ run_task <- function(prompt,
   # Extract search tier from trace (if search was used)
   search_tier <- .extract_search_tier(response$trace)
   budget_state_out <- response$budget_state %||% list()
-  as_scalar_int <- function(value) {
-    cast <- .try_or(as.integer(value), integer(0))
-    if (length(cast) == 0 || is.na(cast[[1]])) {
-      return(NA_integer_)
-    }
-    cast[[1]]
-  }
-  tool_calls_used <- as_scalar_int(budget_state_out$tool_calls_used)
-  tool_calls_limit <- as_scalar_int(budget_state_out$tool_calls_limit)
-  tool_calls_remaining <- as_scalar_int(budget_state_out$tool_calls_remaining)
-  fold_count <- as_scalar_int(response$fold_stats$fold_count)
+  tool_calls_used <- .as_scalar_int(budget_state_out$tool_calls_used)
+  tool_calls_limit <- .as_scalar_int(budget_state_out$tool_calls_limit)
+  tool_calls_remaining <- .as_scalar_int(budget_state_out$tool_calls_remaining)
+  fold_count <- .as_scalar_int(response$fold_stats$fold_count)
   stop_reason <- .try_or(as.character(response$stop_reason), character(0))
   stop_reason <- if (length(stop_reason) > 0 && nzchar(stop_reason[[1]])) {
     stop_reason[[1]]

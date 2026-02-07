@@ -11,6 +11,7 @@ import copy
 import json
 import logging
 import os
+import pathlib
 import re
 import shutil
 import sqlite3
@@ -41,6 +42,20 @@ from selenium.webdriver.support.ui import WebDriverWait
 import requests
 import random as random
 import primp
+
+try:
+    from message_utils import (
+        message_content_from_message as _shared_message_content_from_message,
+        message_content_to_text as _shared_message_content_to_text,
+    )
+except ImportError:
+    _module_dir = pathlib.Path(__file__).resolve().parent
+    if str(_module_dir) not in sys.path:
+        sys.path.insert(0, str(_module_dir))
+    from message_utils import (
+        message_content_from_message as _shared_message_content_from_message,
+        message_content_to_text as _shared_message_content_to_text,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -3858,35 +3873,7 @@ def _final_system_prompt(
 
 
 def _message_content_to_text(content: Any) -> str:
-    if content is None:
-        return ""
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts: List[str] = []
-        for item in content:
-            if isinstance(item, str):
-                if item.strip():
-                    parts.append(item)
-                continue
-            if isinstance(item, dict):
-                for key in ("text", "content", "value"):
-                    val = item.get(key)
-                    if isinstance(val, str) and val.strip():
-                        parts.append(val)
-                        break
-                continue
-            try:
-                s = str(item)
-            except Exception:
-                s = ""
-            if s.strip():
-                parts.append(s)
-        return "\n".join(parts)
-    try:
-        return str(content)
-    except Exception:
-        return ""
+    return _shared_message_content_to_text(content, list_mode="join")
 
 
 def _extract_response_tool_calls(response: Any) -> list:
@@ -4257,17 +4244,7 @@ def _message_is_assistant(msg: Any) -> bool:
 
 def _message_content_from_message(msg: Any) -> Any:
     """Best-effort extraction of a message content payload."""
-    if msg is None:
-        return None
-    try:
-        if isinstance(msg, dict):
-            return msg.get("content", msg.get("text"))
-    except Exception:
-        pass
-    try:
-        return getattr(msg, "content", None)
-    except Exception:
-        return None
+    return _shared_message_content_from_message(msg)
 
 
 def _copy_message(msg: Any) -> Any:

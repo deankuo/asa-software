@@ -5,11 +5,12 @@
 #
 import logging
 import time
-from typing import Dict, Optional, Any
+from typing import Any, Callable, Dict, Optional, TypeVar
 
 import requests
 
 logger = logging.getLogger(__name__)
+T = TypeVar("T")
 
 # Default User-Agent for research tools (Wikidata/Wayback prefer honest identification)
 DEFAULT_USER_AGENT = "ASA-Research-Agent/1.0 (https://github.com/cjerzak/asa-software)"
@@ -110,7 +111,7 @@ def request_json(
     user_agent: Optional[str] = None,
 ) -> Any:
     """Make request and parse JSON response."""
-    response = make_request(
+    return _request_and_parse(
         url=url,
         method=method,
         params=params,
@@ -121,8 +122,8 @@ def request_json(
         retry_delay=retry_delay,
         proxy=proxy,
         user_agent=user_agent,
+        parser=lambda response: response.json(),
     )
-    return response.json()
 
 
 def request_text(
@@ -138,6 +139,38 @@ def request_text(
     user_agent: Optional[str] = None,
 ) -> str:
     """Make request and return response body text."""
+    return _request_and_parse(
+        url=url,
+        method=method,
+        params=params,
+        data=data,
+        headers=headers,
+        timeout=timeout,
+        max_retries=max_retries,
+        retry_delay=retry_delay,
+        proxy=proxy,
+        user_agent=user_agent,
+        parser=lambda response: response.text,
+    )
+
+
+def _request_and_parse(
+    url: str,
+    method: str = "GET",
+    params: Optional[Dict[str, Any]] = None,
+    data: Optional[Dict[str, Any]] = None,
+    headers: Optional[Dict[str, str]] = None,
+    timeout: float = 30.0,
+    max_retries: int = 3,
+    retry_delay: float = 2.0,
+    proxy: Optional[str] = None,
+    user_agent: Optional[str] = None,
+    parser: Optional[Callable[[requests.Response], T]] = None,
+) -> T:
+    """Make request and parse response via parser callback."""
+    if parser is None:
+        raise ValueError("parser callback is required")
+
     response = make_request(
         url=url,
         method=method,
@@ -150,4 +183,4 @@ def request_text(
         proxy=proxy,
         user_agent=user_agent,
     )
-    return response.text
+    return parser(response)

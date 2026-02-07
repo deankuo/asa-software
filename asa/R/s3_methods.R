@@ -879,15 +879,8 @@ print.asa_result <- function(x, ...) {
   if (length(stop_reason) > 0 && nzchar(stop_reason[[1]])) {
     cat("Stop:    ", stop_reason[[1]], "\n", sep = "")
   }
-  as_scalar_int <- function(value) {
-    cast <- .try_or(as.integer(value), integer(0))
-    if (length(cast) == 0 || is.na(cast[[1]])) {
-      return(NA_integer_)
-    }
-    cast[[1]]
-  }
-  tool_used <- as_scalar_int(x$execution$tool_calls_used)
-  tool_lim <- as_scalar_int(x$execution$tool_calls_limit)
+  tool_used <- .as_scalar_int(x$execution$tool_calls_used)
+  tool_lim <- .as_scalar_int(x$execution$tool_calls_limit)
   if (!is.na(tool_used) && !is.na(tool_lim)) {
     cat("Tools:   ", tool_used, "/", tool_lim, "\n", sep = "")
   }
