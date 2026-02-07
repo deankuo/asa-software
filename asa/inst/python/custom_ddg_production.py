@@ -6296,6 +6296,7 @@ def _invoke_model_with_fallback(
         "schema_source": schema_source,
         "context": context,
         "error_type": type(exc).__name__,
+        "error_message": str(exc)[:500] if str(exc) else "",
         "retry_attempts": int(attempts_used),
         "retry_max_attempts": int(max_attempts),
         "retryable_error": bool(last_retryable),
