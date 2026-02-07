@@ -1027,7 +1027,8 @@ test_that("memory folding finalization respects inferred schema from CSV templat
   expect_equal(as.character(final_state$expected_schema_source), "inferred")
   expect_true(as.integer(as.list(final_state$fold_stats)$fold_count) >= 1L)
   expect_equal(as.integer(reticulate::py$csv_template_summarizer$calls), 1L)
-  expect_true(as.integer(reticulate::py$csv_template_llm$n) >= 2L)
+  # Finalize may now reuse an already-terminal response instead of re-invoking the LLM.
+  expect_true(as.integer(reticulate::py$csv_template_llm$n) >= 1L)
 
   response_text <- asa:::.extract_response_text(final_state, backend = "gemini")
   parsed <- jsonlite::fromJSON(response_text)
@@ -1045,7 +1046,7 @@ test_that("memory folding finalization respects inferred schema from CSV templat
       if (is.list(ev) && !is.null(ev$context)) as.character(ev$context) else NA_character_
     }, character(1))
   }
-  expect_true("finalize" %in% contexts)
+  expect_true(any(c("agent", "finalize") %in% contexts))
 })
 
 test_that("recursion_limit=2 completes without error (no double finalize)", {
@@ -1100,6 +1101,62 @@ test_that("recursion_limit=2 completes without error (no double finalize)", {
   expect_equal(result$stop_reason, "recursion_limit")
   # Verify only 1 LLM call was made (no double finalize)
   expect_equal(as.integer(reticulate::py$counting_stub_llm$call_count), 1L)
+})
+
+test_that("memory finalize reuses terminal response after no-op summarize near limit", {
+  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
+  asa_test_skip_if_missing_python_modules(c(
+    "langchain_core",
+    "langgraph",
+    "langgraph.prebuilt",
+    "pydantic",
+    "requests"
+  ), method = "import")
+
+  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+
+  asa_test_stub_multi_response_llm(
+    responses = list(
+      list(content = "{\"status\":\"complete\",\"items\":[],\"missing\":[],\"notes\":\"FIRST\"}"),
+      list(content = "{\"status\":\"complete\",\"items\":[],\"missing\":[],\"notes\":\"SECOND\"}")
+    ),
+    var_name = "memory_reuse_finalize_llm"
+  )
+  asa_test_stub_summarizer(var_name = "memory_reuse_finalize_summarizer")
+
+  agent <- prod$create_memory_folding_agent(
+    model = reticulate::py$memory_reuse_finalize_llm,
+    tools = list(),
+    checkpointer = NULL,
+    message_threshold = as.integer(1),
+    keep_recent = as.integer(1),
+    fold_char_budget = as.integer(99999),
+    summarizer_model = reticulate::py$memory_reuse_finalize_summarizer,
+    debug = FALSE
+  )
+
+  final_state <- agent$invoke(
+    list(
+      messages = list(list(role = "user", content = "Return JSON")),
+      summary = "",
+      archive = list(),
+      fold_stats = reticulate::dict(fold_count = 0L),
+      expected_schema = list(status = "string", items = "array", missing = "array", notes = "string"),
+      expected_schema_source = "explicit"
+    ),
+    config = list(
+      recursion_limit = as.integer(4),
+      configurable = list(thread_id = "test_memory_finalize_reuse_noop_summarize")
+    )
+  )
+
+  expect_equal(final_state$stop_reason, "recursion_limit")
+  expect_equal(as.integer(reticulate::py$memory_reuse_finalize_llm$n), 1L)
+
+  response_text <- asa:::.extract_response_text(final_state, backend = "gemini")
+  parsed <- jsonlite::fromJSON(response_text)
+  expect_true(is.list(parsed))
+  expect_equal(as.character(parsed$notes), "FIRST")
 })
 
 test_that("finalize strips residual tool calls and returns terminal JSON (standard)", {

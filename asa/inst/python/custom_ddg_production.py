@@ -3546,6 +3546,81 @@ def _sanitize_finalize_response(
     return response, event
 
 
+def _message_is_assistant(msg: Any) -> bool:
+    """Best-effort check whether a message is an assistant/AI message."""
+    try:
+        if isinstance(msg, dict):
+            role = str(msg.get("role") or msg.get("type") or "").lower()
+            return role in {"assistant", "ai"}
+    except Exception:
+        pass
+
+    try:
+        if type(msg).__name__ == "AIMessage":
+            return True
+        role = getattr(msg, "type", None)
+        if isinstance(role, str):
+            return role.lower() in {"assistant", "ai"}
+    except Exception:
+        pass
+    return False
+
+
+def _message_content_from_message(msg: Any) -> Any:
+    """Best-effort extraction of a message content payload."""
+    if msg is None:
+        return None
+    try:
+        if isinstance(msg, dict):
+            return msg.get("content", msg.get("text"))
+    except Exception:
+        pass
+    try:
+        return getattr(msg, "content", None)
+    except Exception:
+        return None
+
+
+def _copy_message(msg: Any) -> Any:
+    """Create a best-effort deep-ish copy of a message object."""
+    if msg is None:
+        return None
+    if isinstance(msg, dict):
+        try:
+            return dict(msg)
+        except Exception:
+            return msg
+    try:
+        if hasattr(msg, "model_copy"):
+            return msg.model_copy(deep=True)
+    except Exception:
+        pass
+    try:
+        if hasattr(msg, "copy"):
+            return msg.copy(deep=True)
+    except Exception:
+        pass
+    return msg
+
+
+def _reusable_terminal_finalize_response(messages: list) -> Optional[Any]:
+    """Reuse a terminal assistant message during finalize when it is already valid text."""
+    if not messages:
+        return None
+
+    last = messages[-1]
+    if not _message_is_assistant(last):
+        return None
+    if _extract_response_tool_calls(last):
+        return None
+
+    content_text = _message_content_to_text(_message_content_from_message(last))
+    if not content_text:
+        return None
+
+    return _copy_message(last)
+
+
 def _compact_tool_output(content_text: str, full_results_limit: int = 8) -> str:
     """Structure-preserving compaction for search tool output.
 
@@ -4023,9 +4098,11 @@ def create_memory_folding_agent(
         expected_schema = state.get("expected_schema")
         expected_schema_source = state.get("expected_schema_source") or ("explicit" if expected_schema is not None else None)
 
-        system_msg = SystemMessage(content=_final_system_prompt(summary, scratchpad=scratchpad, remaining=remaining))
-        full_messages = _build_full_messages(system_msg, messages, summary, archive)
-        response = model.invoke(full_messages)
+        response = _reusable_terminal_finalize_response(messages)
+        if response is None:
+            system_msg = SystemMessage(content=_final_system_prompt(summary, scratchpad=scratchpad, remaining=remaining))
+            full_messages = _build_full_messages(system_msg, messages, summary, archive)
+            response = model.invoke(full_messages)
         repair_events: List[Dict[str, Any]] = []
         response, finalize_event = _sanitize_finalize_response(
             response,
@@ -4664,9 +4741,11 @@ def create_standard_agent(
         remaining = remaining_steps_value(state)
         expected_schema = state.get("expected_schema")
         expected_schema_source = state.get("expected_schema_source") or ("explicit" if expected_schema is not None else None)
-        system_msg = SystemMessage(content=_final_system_prompt(scratchpad=scratchpad, remaining=remaining))
-        full_messages = [system_msg] + list(messages)
-        response = model.invoke(full_messages)
+        response = _reusable_terminal_finalize_response(messages)
+        if response is None:
+            system_msg = SystemMessage(content=_final_system_prompt(scratchpad=scratchpad, remaining=remaining))
+            full_messages = [system_msg] + list(messages)
+            response = model.invoke(full_messages)
         repair_events: List[Dict[str, Any]] = []
         response, finalize_event = _sanitize_finalize_response(
             response,
