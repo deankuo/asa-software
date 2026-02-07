@@ -2701,6 +2701,144 @@ test_that("field_status unknown-after threshold triggers semantic finalize with 
   expect_true(is.null(parsed$birth_place) || parsed$birth_place == "" || is.na(parsed$birth_place))
 })
 
+test_that("field_status parses Search source blocks with embedded JSON facts", {
+  prod <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
+
+  reticulate::py_run_string(paste0(
+    "from langchain_core.messages import AIMessage\n",
+    "from langchain_core.tools import Tool\n\n",
+    "def _source_block_json_tool(query: str) -> str:\n",
+    "    return '__START_OF_SOURCE 1__ <CONTENT> {\"prior_occupation\":\"teacher\",\"prior_occupation_source\":\"https://example.com/profile\"} </CONTENT> <URL> https://example.com/profile </URL> __END_OF_SOURCE 1__'\n\n",
+    "source_block_json_tool = Tool(\n",
+    "    name='Search',\n",
+    "    description='Search tool emitting source block JSON facts',\n",
+    "    func=_source_block_json_tool,\n",
+    ")\n\n",
+    "class _SourceBlockJSONLLM:\n",
+    "    def __init__(self):\n",
+    "        self.calls = 0\n",
+    "    def bind_tools(self, tools):\n",
+    "        return self\n",
+    "    def invoke(self, messages):\n",
+    "        self.calls += 1\n",
+    "        if self.calls == 1:\n",
+    "            return AIMessage(content='search', tool_calls=[{'name':'Search','args':{'query':'person'},'id':'call_1'}])\n",
+    "        return AIMessage(content='{\"prior_occupation\":\"Unknown\",\"prior_occupation_source\":null}')\n\n",
+    "source_block_json_llm = _SourceBlockJSONLLM()\n"
+  ))
+
+  expected_schema <- list(
+    prior_occupation = "Primary occupation before politics, or 'Unknown'",
+    prior_occupation_source = "URL of source, or null"
+  )
+
+  agent <- prod$create_standard_agent(
+    model = reticulate::py$source_block_json_llm,
+    tools = list(reticulate::py$source_block_json_tool)
+  )
+
+  invoke <- asa_test_invoke_json_agent(
+    agent = agent,
+    expected_schema = expected_schema,
+    expected_schema_source = "explicit",
+    input_state = list(
+      messages = list(list(
+        role = "user",
+        content = "Return strict JSON with prior_occupation and prior_occupation_source."
+      )),
+      search_budget_limit = 4L,
+      unknown_after_searches = 1L,
+      finalize_on_all_fields_resolved = TRUE
+    ),
+    config = list(
+      recursion_limit = 12L,
+      configurable = list(thread_id = "test_source_block_json_field_status")
+    ),
+    backend = "gemini"
+  )
+
+  parsed <- invoke$parsed
+  expect_true(is.list(parsed))
+  expect_equal(as.character(parsed$prior_occupation), "teacher")
+  expect_equal(as.character(parsed$prior_occupation_source), "https://example.com/profile")
+
+  final_state <- invoke$final_state
+  field_status <- tryCatch(reticulate::py_to_r(final_state$field_status), error = function(e) final_state$field_status)
+  expect_true(is.list(field_status))
+  expect_equal(as.character(field_status$prior_occupation$status), "found")
+  expect_equal(as.character(field_status$prior_occupation$value), "teacher")
+  expect_equal(as.character(field_status$prior_occupation$source_url), "https://example.com/profile")
+})
+
+test_that("source-block-only search does not prematurely force unknown before terminal source-backed JSON", {
+  prod <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
+
+  reticulate::py_run_string(paste0(
+    "from langchain_core.messages import AIMessage\n",
+    "from langchain_core.tools import Tool\n\n",
+    "def _source_block_text_tool(query: str) -> str:\n",
+    "    return '__START_OF_SOURCE 1__ <CONTENT> Candidate profile summary with role details. </CONTENT> <URL> https://example.com/profile </URL> __END_OF_SOURCE 1__'\n\n",
+    "source_block_text_tool = Tool(\n",
+    "    name='Search',\n",
+    "    description='Search tool emitting source block snippets only',\n",
+    "    func=_source_block_text_tool,\n",
+    ")\n\n",
+    "class _SourceBlockTextLLM:\n",
+    "    def __init__(self):\n",
+    "        self.calls = 0\n",
+    "    def bind_tools(self, tools):\n",
+    "        return self\n",
+    "    def invoke(self, messages):\n",
+    "        self.calls += 1\n",
+    "        if self.calls <= 2:\n",
+    "            return AIMessage(content='search more', tool_calls=[{'name':'Search','args':{'query':'person'},'id':'call_' + str(self.calls)}])\n",
+    "        return AIMessage(content='{\"prior_occupation\":\"teacher\",\"prior_occupation_source\":\"https://example.com/profile\"}')\n\n",
+    "source_block_text_llm = _SourceBlockTextLLM()\n"
+  ))
+
+  expected_schema <- list(
+    prior_occupation = "Primary occupation before politics, or 'Unknown'",
+    prior_occupation_source = "URL of source, or null"
+  )
+
+  agent <- prod$create_standard_agent(
+    model = reticulate::py$source_block_text_llm,
+    tools = list(reticulate::py$source_block_text_tool)
+  )
+
+  invoke <- asa_test_invoke_json_agent(
+    agent = agent,
+    expected_schema = expected_schema,
+    expected_schema_source = "explicit",
+    input_state = list(
+      messages = list(list(
+        role = "user",
+        content = "Return strict JSON with prior_occupation and prior_occupation_source."
+      )),
+      search_budget_limit = 8L,
+      unknown_after_searches = 1L,
+      finalize_on_all_fields_resolved = TRUE
+    ),
+    config = list(
+      recursion_limit = 20L,
+      configurable = list(thread_id = "test_source_block_text_attempts")
+    ),
+    backend = "gemini"
+  )
+
+  parsed <- invoke$parsed
+  expect_true(is.list(parsed))
+  expect_equal(as.character(parsed$prior_occupation), "teacher")
+  expect_equal(as.character(parsed$prior_occupation_source), "https://example.com/profile")
+
+  final_state <- invoke$final_state
+  field_status <- tryCatch(reticulate::py_to_r(final_state$field_status), error = function(e) final_state$field_status)
+  expect_true(is.list(field_status))
+  expect_equal(as.character(field_status$prior_occupation$status), "found")
+  expect_equal(as.character(field_status$prior_occupation$value), "teacher")
+  expect_true(as.integer(field_status$prior_occupation$attempts) <= 1L)
+})
+
 test_that("finalize canonical guard overrides fabricated terminal values from field_status", {
   prod <- asa_test_import_langgraph_module("custom_ddg_production", required_files = "custom_ddg_production.py", required_modules = ASA_TEST_LANGGRAPH_MODULES)
 
@@ -2708,10 +2846,10 @@ test_that("finalize canonical guard overrides fabricated terminal values from fi
     "from langchain_core.messages import AIMessage\n",
     "from langchain_core.tools import Tool\n\n",
     "def _weak_search(query: str) -> str:\n",
-    "    return 'irrelevant unstructured payload'\n\n",
+    "    return '{\"noise\":\"irrelevant\"}'\n\n",
     "weak_search_tool = Tool(\n",
     "    name='Search',\n",
-    "    description='Returns no structured evidence',\n",
+    "    description='Returns irrelevant structured payload',\n",
     "    func=_weak_search,\n",
     ")\n\n",
     "class _FieldStatusGuardLLM:\n",

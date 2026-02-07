@@ -3431,6 +3431,92 @@ def _extract_url_candidates(text: str, *, max_urls: int = 8) -> list:
     return out
 
 
+def _tool_message_name(msg: Any) -> str:
+    """Best-effort normalized tool name from a tool message."""
+    try:
+        if isinstance(msg, dict):
+            name = msg.get("name") or msg.get("tool_name")
+            if name:
+                return str(name).strip()
+    except Exception:
+        pass
+    try:
+        name = getattr(msg, "name", None)
+        if name:
+            return str(name).strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _is_nonempty_payload(payload: Any) -> bool:
+    if isinstance(payload, dict):
+        return len(payload) > 0
+    if isinstance(payload, list):
+        return len(payload) > 0
+    return False
+
+
+def _parse_source_blocks(text: str, *, max_blocks: int = 64) -> list:
+    """Parse Search-style __START_OF_SOURCE blocks into structured records."""
+    if not text:
+        return []
+
+    pattern = re.compile(
+        r"__START_OF_SOURCE\s+(\d+)__\s*(.*?)\s*__END_OF_SOURCE\s+\d+__",
+        re.DOTALL | re.IGNORECASE,
+    )
+    out: List[Dict[str, Any]] = []
+    for match in pattern.finditer(text):
+        if len(out) >= max(1, int(max_blocks)):
+            break
+        source_id = match.group(1)
+        block = str(match.group(2) or "").strip()
+        if not block:
+            continue
+
+        content = ""
+        url = None
+        content_match = re.search(
+            r"<CONTENT>\s*(.*?)\s*</CONTENT>",
+            block,
+            re.DOTALL | re.IGNORECASE,
+        )
+        if content_match:
+            content = str(content_match.group(1) or "")
+        else:
+            content = block
+        content = re.sub(r"\s+", " ", content).strip()
+
+        url_match = re.search(
+            r"<URL>\s*(.*?)\s*</URL>",
+            block,
+            re.DOTALL | re.IGNORECASE,
+        )
+        if url_match:
+            url = str(url_match.group(1) or "").strip()
+        if not url:
+            urls = _extract_url_candidates(block, max_urls=1)
+            if urls:
+                url = urls[0]
+
+        parsed_id = None
+        try:
+            parsed_id = int(source_id)
+        except Exception:
+            parsed_id = None
+
+        out.append(
+            {
+                "source_id": parsed_id,
+                "content": content,
+                "url": url if isinstance(url, str) and url else None,
+                "raw": block,
+            }
+        )
+    return out
+
+
 def _normalize_key_token(token: Any) -> str:
     if token is None:
         return ""
@@ -3485,17 +3571,36 @@ def _tool_message_payloads(tool_messages: Any) -> list:
     for msg in list(tool_messages or []):
         if not _message_is_tool(msg):
             continue
+        tool_name = _tool_message_name(msg)
         content = _message_content_from_message(msg)
         text = _message_content_to_text(content).strip()
         if not text:
             continue
+        source_blocks = _parse_source_blocks(text)
+        source_payloads: List[Any] = []
+        for block in source_blocks:
+            block_content = str(block.get("content") or "").strip()
+            if not block_content:
+                continue
+            parsed_block = parse_llm_json(block_content)
+            if isinstance(parsed_block, (dict, list)) and _is_nonempty_payload(parsed_block):
+                source_payloads.append(parsed_block)
         parsed = parse_llm_json(text)
-        if not isinstance(parsed, (dict, list)):
+        if not isinstance(parsed, (dict, list)) or not _is_nonempty_payload(parsed):
             parsed = None
+        urls = _extract_url_candidates(text)
+        for block in source_blocks:
+            block_url = block.get("url")
+            if isinstance(block_url, str) and block_url.startswith("http") and block_url not in urls:
+                urls.append(block_url)
         payloads.append({
+            "tool_name": tool_name,
             "text": text,
             "payload": parsed,
-            "urls": _extract_url_candidates(text),
+            "source_blocks": source_blocks,
+            "source_payloads": source_payloads,
+            "has_structured_payload": parsed is not None or bool(source_payloads),
+            "urls": urls,
         })
     return payloads
 
@@ -3514,7 +3619,13 @@ def _extract_field_status_updates(
         return field_status
 
     payloads = _tool_message_payloads(tool_messages)
-    attempts_delta = max(0, int(tool_calls_delta))
+    # Count "search attempts" by round only when deterministic extraction
+    # had structured payloads to evaluate.
+    attempts_delta = 0
+    if int(tool_calls_delta) > 0:
+        has_structured_payload = any(bool(item.get("has_structured_payload")) for item in payloads)
+        if has_structured_payload:
+            attempts_delta = 1
 
     for path, _ in _schema_leaf_paths(expected_schema):
         if "[]" in path:
@@ -3533,47 +3644,57 @@ def _extract_field_status_updates(
         found_evidence = None
 
         for payload_item in payloads:
-            payload = payload_item.get("payload")
             text = payload_item.get("text", "")
             urls = payload_item.get("urls") or []
-            value = None
+            payload_candidates: List[Any] = []
+            payload = payload_item.get("payload")
+            if isinstance(payload, (dict, list)):
+                payload_candidates.append(payload)
+            for source_payload in payload_item.get("source_payloads") or []:
+                if isinstance(source_payload, (dict, list)):
+                    payload_candidates.append(source_payload)
 
-            if isinstance(payload, dict):
-                value = _lookup_path_value(payload, path)
-                if _is_empty_like(value):
-                    for alias in aliases:
-                        value = _lookup_key_recursive(payload, alias)
+            for candidate_payload in payload_candidates:
+                value = None
+                if isinstance(candidate_payload, dict):
+                    value = _lookup_path_value(candidate_payload, path)
+                    if _is_empty_like(value):
+                        for alias in aliases:
+                            value = _lookup_key_recursive(candidate_payload, alias)
+                            if not _is_empty_like(value):
+                                break
+                elif isinstance(candidate_payload, list):
+                    for row in candidate_payload:
+                        if not isinstance(row, (dict, list)):
+                            continue
+                        for alias in aliases:
+                            value = _lookup_key_recursive(row, alias)
+                            if not _is_empty_like(value):
+                                break
                         if not _is_empty_like(value):
                             break
-            elif isinstance(payload, list):
-                for row in payload:
-                    if not isinstance(row, (dict, list)):
-                        continue
+
+                if _is_empty_like(value) or _is_unknown_marker(value):
+                    continue
+
+                found_value = value
+                found_evidence = text[:240]
+                # Prefer explicit sibling "*_source" key when present.
+                if isinstance(candidate_payload, dict):
                     for alias in aliases:
-                        value = _lookup_key_recursive(row, alias)
-                        if not _is_empty_like(value):
+                        source_key = f"{alias}_source"
+                        source_val = _lookup_key_recursive(candidate_payload, source_key)
+                        if isinstance(source_val, str) and source_val.startswith("http"):
+                            found_source = source_val
                             break
-                    if not _is_empty_like(value):
-                        break
+                if found_source is None and isinstance(found_value, str) and found_value.startswith("http"):
+                    found_source = found_value
+                if found_source is None and urls:
+                    found_source = urls[0]
+                break
 
-            if _is_empty_like(value) or _is_unknown_marker(value):
-                continue
-
-            found_value = value
-            found_evidence = text[:240]
-            # Prefer explicit sibling "*_source" key when present.
-            if isinstance(payload, dict):
-                for alias in aliases:
-                    source_key = f"{alias}_source"
-                    source_val = _lookup_key_recursive(payload, source_key)
-                    if isinstance(source_val, str) and source_val.startswith("http"):
-                        found_source = source_val
-                        break
-            if found_source is None and isinstance(found_value, str) and found_value.startswith("http"):
-                found_source = found_value
-            if found_source is None and urls:
-                found_source = urls[0]
-            break
+            if not _is_empty_like(found_value):
+                break
 
         if not _is_empty_like(found_value):
             entry["status"] = _FIELD_STATUS_FOUND
@@ -3594,6 +3715,106 @@ def _extract_field_status_updates(
             field_status[key] = entry
 
     return field_status
+
+
+def _collect_tool_urls_from_messages(messages: Any, *, max_urls: int = 256) -> set:
+    """Collect known source URLs from tool outputs in the current transcript."""
+    urls = set()
+    for payload_item in _tool_message_payloads(messages):
+        for url in payload_item.get("urls") or []:
+            if not isinstance(url, str):
+                continue
+            cleaned = url.strip()
+            if cleaned.startswith("http"):
+                urls.add(cleaned.rstrip("/"))
+            if len(urls) >= max(1, int(max_urls)):
+                return urls
+    return urls
+
+
+def _normalize_url_match(url: Any) -> Optional[str]:
+    if not isinstance(url, str):
+        return None
+    cleaned = url.strip()
+    if not cleaned.startswith("http"):
+        return None
+    return cleaned.rstrip("/")
+
+
+def _promote_terminal_payload_into_field_status(
+    *,
+    response: Any,
+    field_status: Any,
+    expected_schema: Any,
+    allowed_source_urls: Any = None,
+) -> Dict[str, Dict[str, Any]]:
+    """Promote source-backed terminal JSON values into canonical field_status."""
+    normalized = _normalize_field_status_map(field_status, expected_schema)
+    if not normalized or expected_schema is None:
+        return normalized
+
+    content = response.get("content") if isinstance(response, dict) else getattr(response, "content", None)
+    text = _message_content_to_text(content).strip()
+    if not text:
+        return normalized
+
+    parsed = parse_llm_json(text)
+    if not isinstance(parsed, (dict, list)) or not _is_nonempty_payload(parsed):
+        return normalized
+
+    allowed = set()
+    for raw in list(allowed_source_urls or []):
+        normalized_url = _normalize_url_match(raw)
+        if normalized_url:
+            allowed.add(normalized_url)
+
+    for path, _ in _schema_leaf_paths(expected_schema):
+        if "[]" in path:
+            continue
+        aliases = _field_key_aliases(path)
+        key = next((a for a in aliases if a in normalized), path.replace("[]", ""))
+        entry = normalized.get(key)
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("status") or "").lower() == _FIELD_STATUS_FOUND and not _is_empty_like(entry.get("value")):
+            continue
+
+        value = _lookup_path_value(parsed, path)
+        if _is_empty_like(value):
+            for alias in aliases:
+                value = _lookup_key_recursive(parsed, alias)
+                if not _is_empty_like(value):
+                    break
+        if _is_empty_like(value) or _is_unknown_marker(value):
+            continue
+
+        source_url = None
+        if isinstance(parsed, dict):
+            for alias in aliases:
+                source_key = f"{alias}_source"
+                source_val = _lookup_key_recursive(parsed, source_key)
+                if isinstance(source_val, str) and source_val.startswith("http"):
+                    source_url = source_val
+                    break
+            if source_url is None and key.endswith("_source") and isinstance(value, str) and value.startswith("http"):
+                source_url = value
+
+        normalized_source = _normalize_url_match(source_url)
+        # Enforce provenance for non-source fields.
+        if not key.endswith("_source"):
+            if normalized_source is None:
+                continue
+            if allowed and normalized_source not in allowed:
+                continue
+
+        entry["status"] = _FIELD_STATUS_FOUND
+        entry["value"] = value
+        if normalized_source:
+            entry["source_url"] = normalized_source
+        entry["evidence"] = "terminal_payload_source_backed"
+        normalized[key] = entry
+
+    return normalized
 
 
 def _field_status_progress(field_status: Any) -> Dict[str, Any]:
@@ -5590,6 +5811,13 @@ def create_memory_folding_agent(
                 context="agent",
                 debug=debug,
             )
+            field_status = _promote_terminal_payload_into_field_status(
+                response=response,
+                field_status=field_status,
+                expected_schema=expected_schema,
+                allowed_source_urls=_collect_tool_urls_from_messages(messages),
+            )
+            budget_state.update(_field_status_progress(field_status))
             if force_fallback:
                 response, canonical_event = _apply_field_status_terminal_guard(
                     response,
@@ -5679,6 +5907,13 @@ def create_memory_folding_agent(
             context="finalize",
             debug=debug,
         )
+        field_status = _promote_terminal_payload_into_field_status(
+            response=response,
+            field_status=field_status,
+            expected_schema=expected_schema,
+            allowed_source_urls=_collect_tool_urls_from_messages(messages),
+        )
+        budget_state.update(_field_status_progress(field_status))
         response, canonical_event = _apply_field_status_terminal_guard(
             response,
             expected_schema,
@@ -6383,6 +6618,13 @@ def create_standard_agent(
                 context="agent",
                 debug=debug,
             )
+            field_status = _promote_terminal_payload_into_field_status(
+                response=response,
+                field_status=field_status,
+                expected_schema=expected_schema,
+                allowed_source_urls=_collect_tool_urls_from_messages(messages),
+            )
+            budget_state.update(_field_status_progress(field_status))
             if force_fallback:
                 response, canonical_event = _apply_field_status_terminal_guard(
                     response,
@@ -6467,6 +6709,13 @@ def create_standard_agent(
             context="finalize",
             debug=debug,
         )
+        field_status = _promote_terminal_payload_into_field_status(
+            response=response,
+            field_status=field_status,
+            expected_schema=expected_schema,
+            allowed_source_urls=_collect_tool_urls_from_messages(messages),
+        )
+        budget_state.update(_field_status_progress(field_status))
         response, canonical_event = _apply_field_status_terminal_guard(
             response,
             expected_schema,
