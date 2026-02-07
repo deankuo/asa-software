@@ -80,6 +80,85 @@ test_that("research graph stops with stop_reason='recursion_limit' (RemainingSte
   expect_equal(final_state$stop_reason, "recursion_limit")
 })
 
+test_that("run_research forwards recursion_limit into graph config", {
+  python_path <- asa_test_skip_if_no_python(required_files = "research_graph.py")
+  asa_test_skip_if_missing_python_modules(c(
+    "langchain_core",
+    "langgraph",
+    "langgraph.prebuilt",
+    "pydantic",
+    "requests"
+  ), method = "import")
+
+  research <- reticulate::import_from_path("research_graph", path = python_path)
+
+  reticulate::py_run_string(paste0(
+    "class _ConfigCaptureInvokeGraph:\n",
+    "    def __init__(self):\n",
+    "        self.last_config = None\n",
+    "    def invoke(self, initial_state, config):\n",
+    "        self.last_config = config\n",
+    "        return {'results': [], 'status': 'complete', 'stop_reason': 'recursion_limit'}\n",
+    "\n",
+    "config_capture_invoke_graph = _ConfigCaptureInvokeGraph()\n"
+  ))
+
+  result <- research$run_research(
+    graph = reticulate::py$config_capture_invoke_graph,
+    query = "test query",
+    schema = list(name = "character"),
+    config_dict = list(recursion_limit = 7L),
+    thread_id = "test-thread-run-research"
+  )
+
+  captured <- reticulate::py_to_r(reticulate::py$config_capture_invoke_graph$last_config)
+  expect_equal(captured$configurable$thread_id, "test-thread-run-research")
+  expect_equal(as.integer(captured$recursion_limit), 7L)
+  expect_equal(result$status, "complete")
+  expect_equal(result$stop_reason, "recursion_limit")
+})
+
+test_that("stream_research forwards recursion_limit into graph config", {
+  python_path <- asa_test_skip_if_no_python(required_files = "research_graph.py")
+  asa_test_skip_if_missing_python_modules(c(
+    "langchain_core",
+    "langgraph",
+    "langgraph.prebuilt",
+    "pydantic",
+    "requests"
+  ), method = "import")
+
+  research <- reticulate::import_from_path("research_graph", path = python_path)
+
+  reticulate::py_run_string(paste0(
+    "class _ConfigCaptureStreamGraph:\n",
+    "    def __init__(self):\n",
+    "        self.last_config = None\n",
+    "    def stream(self, initial_state, config, stream_mode='updates'):\n",
+    "        self.last_config = config\n",
+    "        yield {'planner': {'status': 'complete', 'results': []}}\n",
+    "\n",
+    "config_capture_stream_graph = _ConfigCaptureStreamGraph()\n"
+  ))
+
+  events <- research$stream_research(
+    graph = reticulate::py$config_capture_stream_graph,
+    query = "test query",
+    schema = list(name = "character"),
+    config_dict = list(recursion_limit = 9L),
+    thread_id = "test-thread-stream-research"
+  )
+
+  event_list <- reticulate::iterate(events)
+  expect_true(length(event_list) >= 1)
+  last_event <- event_list[[length(event_list)]]
+  expect_equal(last_event$event_type, "complete")
+
+  captured <- reticulate::py_to_r(reticulate::py$config_capture_stream_graph$last_config)
+  expect_equal(captured$configurable$thread_id, "test-thread-stream-research")
+  expect_equal(as.integer(captured$recursion_limit), 9L)
+})
+
 test_that("best-effort recursion_limit output populates required JSON fields (stubbed)", {
   python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
   asa_test_skip_if_missing_python_modules(c(

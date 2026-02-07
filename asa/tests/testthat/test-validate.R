@@ -304,7 +304,8 @@ test_that(".validate_run_agent validates recursion_limit", {
   expect_silent(.validate_run_agent("prompt", NULL, NULL, FALSE))  # NULL recursion_limit is OK
   expect_silent(.validate_run_agent("prompt", NULL, 50L, FALSE))
   expect_error(.validate_run_agent("prompt", NULL, 0L, FALSE), "be positive")
-  expect_error(.validate_run_agent("prompt", NULL, 1L, FALSE), ">= 2")
+  expect_error(.validate_run_agent("prompt", NULL, 1L, FALSE), ">= 3")
+  expect_error(.validate_run_agent("prompt", NULL, 2L, FALSE), ">= 3")
   expect_error(.validate_run_agent("prompt", NULL, 600L, FALSE), "be <= 500")
   expect_error(.validate_run_agent("prompt", NULL, -5L, FALSE), "be positive")
 })

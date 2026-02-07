@@ -844,6 +844,48 @@ def _build_initial_state(
     }
 
 
+def _resolve_invoke_recursion_limit(config_dict: Optional[Dict[str, Any]]) -> Optional[int]:
+    """Extract and validate recursion_limit for graph invoke/stream config."""
+    if config_dict is None:
+        return None
+
+    recursion_limit = None
+    try:
+        if isinstance(config_dict, dict):
+            recursion_limit = config_dict.get("recursion_limit")
+        elif hasattr(config_dict, "get"):
+            recursion_limit = config_dict.get("recursion_limit")
+    except Exception:
+        recursion_limit = None
+
+    if recursion_limit is None:
+        return None
+
+    try:
+        resolved = int(recursion_limit)
+    except Exception:
+        logger.warning("Ignoring invalid recursion_limit=%r in run_research config", recursion_limit)
+        return None
+
+    if resolved <= 0:
+        logger.warning("Ignoring non-positive recursion_limit=%r in run_research config", recursion_limit)
+        return None
+
+    return resolved
+
+
+def _build_langgraph_run_config(
+    thread_id: str,
+    config_dict: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """Build LangGraph runtime config, including recursion limit when provided."""
+    config = {"configurable": {"thread_id": thread_id}}
+    recursion_limit = _resolve_invoke_recursion_limit(config_dict)
+    if recursion_limit is not None:
+        config["recursion_limit"] = recursion_limit
+    return config
+
+
 def _build_research_result(
     state: Dict[str, Any],
     elapsed: float,
@@ -898,7 +940,7 @@ def run_research(
     thread_id = _resolve_thread_id(query, thread_id)
     initial_state = _build_initial_state(query, schema, config_dict)
 
-    config = {"configurable": {"thread_id": thread_id}}
+    config = _build_langgraph_run_config(thread_id, config_dict)
     start_time = time.time()
 
     try:
@@ -927,7 +969,7 @@ def stream_research(
     thread_id = _resolve_thread_id(query, thread_id)
     initial_state = _build_initial_state(query, schema, config_dict)
 
-    config = {"configurable": {"thread_id": thread_id}}
+    config = _build_langgraph_run_config(thread_id, config_dict)
     start_time = time.time()
 
     # Accumulate state updates (stream_mode="updates" gives partial updates per node)

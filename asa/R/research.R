@@ -267,6 +267,23 @@ asa_enumerate <- function(query,
     temporal = temporal
   )
 
+  # Ensure the runtime graph invoke/stream config carries recursion_limit so
+  # RemainingSteps-based stop guards work in research graphs.
+  recursion_config <- NULL
+  if (!is.null(config) && inherits(config, "asa_config")) {
+    recursion_config <- config
+  } else if (!is.null(agent) && inherits(agent, "asa_agent")) {
+    recursion_config <- agent$config
+  }
+  use_memory_folding <- TRUE
+  if (!is.null(recursion_config) && !is.null(recursion_config$memory_folding)) {
+    use_memory_folding <- isTRUE(recursion_config$memory_folding)
+  }
+  config_dict$recursion_limit <- .resolve_effective_recursion_limit(
+    config = recursion_config,
+    use_memory_folding = use_memory_folding
+  )
+
   # Ensure agent is initialized
   if (is.null(agent)) {
     config_for_agent <- if (!is.null(config)) config else asa_config(
