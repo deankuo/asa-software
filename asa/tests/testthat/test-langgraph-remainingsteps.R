@@ -1382,6 +1382,153 @@ test_that("recursion_limit=2 completes without error (no double finalize)", {
   expect_equal(as.integer(reticulate::py$counting_stub_llm$call_count), 1L)
 })
 
+test_that("shared router prioritizes pending tool calls when budget allows", {
+  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
+  asa_test_skip_if_missing_python_modules(c(
+    "langchain_core",
+    "pydantic"
+  ), method = "import")
+
+  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+
+  reticulate::py_run_string(paste0(
+    "from langchain_core.messages import AIMessage\n",
+    "route_state_budget_ok = {\n",
+    "    'messages': [AIMessage(content='calling tool', tool_calls=[{'name':'Search','args':{'query':'ada'},'id':'edge_call_1'}])],\n",
+    "    'remaining_steps': 2,\n",
+    "}\n",
+    "route_state_budget_low = {\n",
+    "    'messages': [AIMessage(content='calling tool', tool_calls=[{'name':'Search','args':{'query':'ada'},'id':'edge_call_1'}])],\n",
+    "    'remaining_steps': 1,\n",
+    "}\n"
+  ))
+
+  route_ok <- prod$`_route_after_agent_step`(
+    reticulate::py$route_state_budget_ok
+  )
+  route_low <- prod$`_route_after_agent_step`(
+    reticulate::py$route_state_budget_low
+  )
+
+  expect_equal(as.character(route_ok), "tools")
+  expect_equal(as.character(route_low), "finalize")
+})
+
+test_that("tool exceptions produce terminal fallback instead of hard error (standard)", {
+  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
+  asa_test_skip_if_missing_python_modules(c(
+    "langchain_core",
+    "langgraph",
+    "langgraph.prebuilt",
+    "pydantic",
+    "requests"
+  ), method = "import")
+
+  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+
+  reticulate::py_run_string(paste0(
+    "from langchain_core.messages import AIMessage\n",
+    "from langchain_core.tools import Tool\n\n",
+    "class _ToolExceptionLLM:\n",
+    "    def __init__(self):\n",
+    "        self.calls = 0\n",
+    "    def bind_tools(self, tools):\n",
+    "        return self\n",
+    "    def invoke(self, messages):\n",
+    "        self.calls += 1\n",
+    "        if self.calls == 1:\n",
+    "            return AIMessage(\n",
+    "                content='call tool',\n",
+    "                tool_calls=[{'name':'Search','args':{'query':'boom'},'id':'call_err_1'}],\n",
+    "            )\n",
+    "        return AIMessage(content=",
+    deparse('{"status":"complete","items":[],"missing":[],"notes":"recovered"}'),
+    ")\n\n",
+    "def _boom_search(query: str) -> str:\n",
+    "    raise RuntimeError('boom')\n\n",
+    "tool_exception_llm = _ToolExceptionLLM()\n",
+    "boom_search_tool = Tool(name='Search', description='Exploding tool', func=_boom_search)\n"
+  ))
+
+  agent <- prod$create_standard_agent(
+    model = reticulate::py$tool_exception_llm,
+    tools = list(reticulate::py$boom_search_tool)
+  )
+
+  final_state <- NULL
+  expect_no_error({
+    final_state <- agent$invoke(
+      list(messages = list(list(role = "user", content = "Return JSON"))),
+      config = list(recursion_limit = 4L)
+    )
+  })
+
+  expect_equal(final_state$stop_reason, "recursion_limit")
+  expect_equal(as.integer(reticulate::py$tool_exception_llm$calls), 2L)
+  response_text <- asa:::.extract_response_text(final_state, backend = "gemini")
+  expect_true(is.character(response_text) && nzchar(response_text))
+})
+
+test_that("model invoke exceptions return schema fallback instead of hard error (standard)", {
+  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
+  asa_test_skip_if_missing_python_modules(c(
+    "langchain_core",
+    "langgraph",
+    "langgraph.prebuilt",
+    "pydantic",
+    "requests"
+  ), method = "import")
+
+  prod <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+
+  reticulate::py_run_string(paste0(
+    "class _ModelExceptionLLM:\n",
+    "    def bind_tools(self, tools):\n",
+    "        return self\n",
+    "    def invoke(self, messages):\n",
+    "        raise TimeoutError('synthetic model timeout')\n\n",
+    "model_exception_llm = _ModelExceptionLLM()\n"
+  ))
+
+  schema <- list(
+    status = "string",
+    items = "array",
+    missing = "array",
+    notes = "string"
+  )
+
+  agent <- prod$create_standard_agent(
+    model = reticulate::py$model_exception_llm,
+    tools = list()
+  )
+
+  final_state <- NULL
+  expect_no_error({
+    final_state <- agent$invoke(
+      list(
+        messages = list(list(role = "user", content = "Return JSON")),
+        expected_schema = schema,
+        expected_schema_source = "explicit"
+      ),
+      config = list(recursion_limit = 4L)
+    )
+  })
+
+  response_text <- asa:::.extract_response_text(final_state, backend = "gemini")
+  parsed <- jsonlite::fromJSON(response_text)
+  expect_true(is.list(parsed))
+  expect_true(all(c("status", "items", "missing", "notes") %in% names(parsed)))
+
+  repair_events <- reticulate::py_to_r(final_state$json_repair)
+  reasons <- character(0)
+  if (is.list(repair_events) && length(repair_events) > 0) {
+    reasons <- vapply(repair_events, function(ev) {
+      if (is.list(ev) && !is.null(ev$repair_reason)) as.character(ev$repair_reason) else NA_character_
+    }, character(1))
+  }
+  expect_true("invoke_exception_fallback" %in% reasons)
+})
+
 test_that("reused thread_id does not let stale recursion stop_reason skip tools", {
   python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
   asa_test_skip_if_missing_python_modules(c(

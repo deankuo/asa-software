@@ -220,7 +220,7 @@ test_that(".validate_initialize_agent validates recursion_limit", {
       backend = "openai", model = "gpt-4", conda_env = "asa_env",
       proxy = NULL, use_browser = TRUE, use_memory_folding = TRUE,
       memory_threshold = 4L, memory_keep_recent = 2L,
-      rate_limit = 0.2, timeout = 120L, recursion_limit = 2L,
+      rate_limit = 0.2, timeout = 120L, recursion_limit = 4L,
       verbose = TRUE
     )
   )
@@ -252,6 +252,28 @@ test_that(".validate_initialize_agent validates recursion_limit", {
       proxy = NULL, use_browser = TRUE, use_memory_folding = TRUE,
       memory_threshold = 4L, memory_keep_recent = 2L,
       rate_limit = 0.2, timeout = 120L, recursion_limit = 1L,
+      verbose = TRUE
+    ),
+    "recursion_limit"
+  )
+
+  expect_error(
+    .validate_initialize_agent(
+      backend = "openai", model = "gpt-4", conda_env = "asa_env",
+      proxy = NULL, use_browser = TRUE, use_memory_folding = TRUE,
+      memory_threshold = 4L, memory_keep_recent = 2L,
+      rate_limit = 0.2, timeout = 120L, recursion_limit = 2L,
+      verbose = TRUE
+    ),
+    "recursion_limit"
+  )
+
+  expect_error(
+    .validate_initialize_agent(
+      backend = "openai", model = "gpt-4", conda_env = "asa_env",
+      proxy = NULL, use_browser = TRUE, use_memory_folding = TRUE,
+      memory_threshold = 4L, memory_keep_recent = 2L,
+      rate_limit = 0.2, timeout = 120L, recursion_limit = 3L,
       verbose = TRUE
     ),
     "recursion_limit"
@@ -313,9 +335,11 @@ test_that(".validate_run_task_batch rejects invalid workers", {
 test_that(".validate_run_agent validates recursion_limit", {
   expect_silent(.validate_run_agent("prompt", NULL, NULL, FALSE))  # NULL recursion_limit is OK
   expect_silent(.validate_run_agent("prompt", NULL, 50L, FALSE))
-  expect_silent(.validate_run_agent("prompt", NULL, 2L, FALSE))
+  expect_silent(.validate_run_agent("prompt", NULL, 4L, FALSE))
   expect_error(.validate_run_agent("prompt", NULL, 0L, FALSE), "be positive")
-  expect_error(.validate_run_agent("prompt", NULL, 1L, FALSE), ">= 2")
+  expect_error(.validate_run_agent("prompt", NULL, 1L, FALSE), ">= 4")
+  expect_error(.validate_run_agent("prompt", NULL, 2L, FALSE), ">= 4")
+  expect_error(.validate_run_agent("prompt", NULL, 3L, FALSE), ">= 4")
   expect_error(.validate_run_agent("prompt", NULL, 600L, FALSE), "be <= 500")
   expect_error(.validate_run_agent("prompt", NULL, -5L, FALSE), "be positive")
 })

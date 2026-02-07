@@ -3927,7 +3927,174 @@ class MemoryFoldingAgentState(TypedDict):
 FINALIZE_WHEN_REMAINING_STEPS_LTE = 2
 
 
-def _create_tool_node_with_scratchpad(base_tool_node):
+def _exception_fallback_text(expected_schema: Any, *, context: str = "agent") -> str:
+    """Build a safe terminal fallback payload for invocation failures."""
+    if expected_schema is not None:
+        seed = "[]" if isinstance(expected_schema, list) else "{}"
+        try:
+            repaired = repair_json_output_to_schema(seed, expected_schema, fallback_on_failure=True)
+            repaired_text = _message_content_to_text(repaired)
+            if repaired_text:
+                return repaired_text
+        except Exception:
+            pass
+        return seed
+    return f"Unable to complete the {context} step due to an internal error."
+
+
+def _invoke_model_with_fallback(
+    invoke_fn: Callable[[], Any],
+    *,
+    expected_schema: Any = None,
+    schema_source: Optional[str] = None,
+    context: str = "agent",
+    debug: bool = False,
+) -> tuple[Any, Optional[Dict[str, Any]]]:
+    """Invoke model callable and convert exceptions into terminal AI responses."""
+    try:
+        return invoke_fn(), None
+    except Exception as exc:
+        if debug:
+            logger.exception("Model invoke failed in %s", context)
+        fallback_text = _exception_fallback_text(expected_schema, context=context)
+        try:
+            from langchain_core.messages import AIMessage
+            response = AIMessage(content=fallback_text)
+        except Exception:
+            response = {"role": "assistant", "content": fallback_text}
+
+        event = {
+            "repair_applied": True,
+            "repair_reason": "invoke_exception_fallback",
+            "missing_keys_count": 0,
+            "missing_keys_sample": [],
+            "fallback_on_failure": True,
+            "schema_source": schema_source,
+            "context": context,
+            "error_type": type(exc).__name__,
+        }
+        if debug or str(os.environ.get("ASA_LOG_JSON_REPAIR", "")).lower() in {"1", "true", "yes"}:
+            logger.info("json_repair=%s", event)
+        return response, event
+
+
+def _tool_node_error_result(
+    state: Any,
+    exc: Exception,
+    *,
+    scratchpad_entries: Optional[list] = None,
+    debug: bool = False,
+) -> Dict[str, Any]:
+    """Convert tool-node exceptions into non-throwing ToolMessage output."""
+    if debug:
+        logger.exception("Tool node invoke failed")
+    else:
+        logger.warning("Tool node invoke failed (%s): %s", type(exc).__name__, exc)
+
+    error_text = "Tool execution failed; proceeding without tool output."
+    call_id = "tool_error"
+    tool_name = "tool_error"
+    last_msg = (state.get("messages") or [None])[-1]
+    try:
+        tool_calls = getattr(last_msg, "tool_calls", None) or []
+        if tool_calls and isinstance(tool_calls[0], dict):
+            call_id = str(tool_calls[0].get("id") or call_id)
+            tool_name = str(tool_calls[0].get("name") or tool_name)
+    except Exception:
+        pass
+
+    try:
+        from langchain_core.messages import ToolMessage
+        tool_msg = ToolMessage(content=error_text, tool_call_id=call_id, name=tool_name)
+    except Exception:
+        tool_msg = {"role": "tool", "content": error_text, "tool_call_id": call_id}
+
+    result = {"messages": [tool_msg]}
+    if scratchpad_entries:
+        result["scratchpad"] = scratchpad_entries
+    remaining = remaining_steps_value(state)
+    if remaining is not None and remaining <= FINALIZE_WHEN_REMAINING_STEPS_LTE:
+        result["stop_reason"] = "recursion_limit"
+    return result
+
+
+def _has_pending_tool_calls(message: Any) -> bool:
+    """Return True when a message still carries pending tool calls."""
+    return bool(_extract_response_tool_calls(message))
+
+
+def _is_active_recursion_stop(state: Any, remaining: Optional[int] = None) -> bool:
+    """Return True when recursion stop_reason is active for the current edge."""
+    if state.get("stop_reason") != "recursion_limit":
+        return False
+    if remaining is None:
+        remaining = remaining_steps_value(state)
+    return remaining is not None and remaining <= FINALIZE_WHEN_REMAINING_STEPS_LTE
+
+
+def _can_route_tools_safely(remaining: Optional[int]) -> bool:
+    """Require budget for a tool step plus one follow-up step."""
+    if remaining is None:
+        return True
+    return remaining > 1
+
+
+def _can_end_on_recursion_stop(state: Any, messages: list, remaining: Optional[int]) -> bool:
+    """Only treat recursion stop_reason as terminal when we already have terminal text."""
+    if not _is_active_recursion_stop(state, remaining):
+        return False
+    return _reusable_terminal_finalize_response(messages) is not None
+
+
+def _route_after_agent_step(
+    state: Any,
+    *,
+    allow_summarize: bool = False,
+    should_fold: Optional[Callable[[list], bool]] = None,
+) -> str:
+    """Shared post-agent routing for standard + memory-folding graphs."""
+    messages = state.get("messages", [])
+    if not messages:
+        return "end"
+
+    remaining = remaining_steps_value(state)
+    last_message = messages[-1]
+
+    if _has_pending_tool_calls(last_message):
+        if _can_route_tools_safely(remaining):
+            return "tools"
+        if remaining is not None and remaining <= 0:
+            return "end"
+        if _can_end_on_recursion_stop(state, messages, remaining):
+            return "end"
+        return "finalize"
+
+    if _should_force_finalize(state):
+        if _can_end_on_recursion_stop(state, messages, remaining):
+            return "end"
+        if remaining is not None and remaining <= 0:
+            return "end"
+        return "finalize"
+
+    if allow_summarize and callable(should_fold) and should_fold(messages):
+        return "summarize"
+
+    return "end"
+
+
+def _route_after_tools_step(state: Any) -> str:
+    """Shared post-tools routing for standard + memory-folding graphs."""
+    remaining = remaining_steps_value(state)
+    if _should_force_finalize(state):
+        if remaining is not None and remaining <= 0:
+            return "end"
+        return "finalize"
+    if remaining is not None and remaining <= 0:
+        return "end"
+    return "agent"
+
+
+def _create_tool_node_with_scratchpad(base_tool_node, *, debug: bool = False):
     """Wrap a ToolNode to extract save_finding calls into scratchpad state."""
     def tool_node_with_scratchpad(state):
         """Execute tools, extract scratchpad entries into state."""
@@ -3942,7 +4109,15 @@ def _create_tool_node_with_scratchpad(base_tool_node):
                         "finding": finding[:500],
                         "category": category if category in ("fact", "observation", "todo", "insight") else "fact",
                     })
-        result = base_tool_node.invoke(state)
+        try:
+            result = base_tool_node.invoke(state)
+        except Exception as exc:
+            return _tool_node_error_result(
+                state,
+                exc,
+                scratchpad_entries=scratchpad_entries if scratchpad_entries else None,
+                debug=debug,
+            )
         if scratchpad_entries:
             result["scratchpad"] = scratchpad_entries
         # Defensive marker: if tool execution happened at the recursion edge,
@@ -4007,7 +4182,7 @@ def create_memory_folding_agent(
     # Create tool executor with scratchpad wrapper
     from langgraph.prebuilt import ToolNode
     base_tool_node = ToolNode(tools_with_scratchpad)
-    tool_node_with_scratchpad = _create_tool_node_with_scratchpad(base_tool_node)
+    tool_node_with_scratchpad = _create_tool_node_with_scratchpad(base_tool_node, debug=debug)
 
     def _build_full_messages(system_msg, messages, summary, archive):
         """Insert optional retrieval context from archive as a user-level message."""
@@ -4078,14 +4253,28 @@ def create_memory_folding_agent(
         if remaining is not None and remaining <= FINALIZE_WHEN_REMAINING_STEPS_LTE:
             system_msg = SystemMessage(content=_final_system_prompt(summary, scratchpad=scratchpad, remaining=remaining))
             full_messages = _build_full_messages(system_msg, messages, summary, archive)
-            response = model.invoke(full_messages)
+            response, invoke_event = _invoke_model_with_fallback(
+                lambda: model.invoke(full_messages),
+                expected_schema=expected_schema,
+                schema_source=expected_schema_source,
+                context="agent",
+                debug=debug,
+            )
         else:
             # Prepend system message with summary context
             system_msg = SystemMessage(content=_base_system_prompt(summary, scratchpad=scratchpad))
             full_messages = _build_full_messages(system_msg, messages, summary, archive)
-            response = model_with_tools.invoke(full_messages)
+            response, invoke_event = _invoke_model_with_fallback(
+                lambda: model_with_tools.invoke(full_messages),
+                expected_schema=expected_schema,
+                schema_source=expected_schema_source,
+                context="agent",
+                debug=debug,
+            )
 
         repair_events: List[Dict[str, Any]] = []
+        if invoke_event:
+            repair_events.append(invoke_event)
         if remaining is not None and remaining <= FINALIZE_WHEN_REMAINING_STEPS_LTE:
             response, finalize_event = _sanitize_finalize_response(
                 response,
@@ -4140,8 +4329,18 @@ def create_memory_folding_agent(
         if response is None:
             system_msg = SystemMessage(content=_final_system_prompt(summary, scratchpad=scratchpad, remaining=remaining))
             full_messages = _build_full_messages(system_msg, messages, summary, archive)
-            response = model.invoke(full_messages)
+            response, invoke_event = _invoke_model_with_fallback(
+                lambda: model.invoke(full_messages),
+                expected_schema=expected_schema,
+                schema_source=expected_schema_source,
+                context="finalize",
+                debug=debug,
+            )
+        else:
+            invoke_event = None
         repair_events: List[Dict[str, Any]] = []
+        if invoke_event:
+            repair_events.append(invoke_event)
         response, finalize_event = _sanitize_finalize_response(
             response,
             expected_schema,
@@ -4555,46 +4754,29 @@ def create_memory_folding_agent(
         IMPORTANT: We only fold memory when the agent has completed its response
         (no pending tool calls) to maintain message sequence integrity.
         """
-        messages = state.get("messages", [])
-
-        if not messages:
-            return "end"
-
-        if _should_force_finalize(state):
-            # Agent already finalized (set stop_reason) — skip redundant finalize node
-            if state.get("stop_reason") == "recursion_limit":
-                return "end"
-            # No budget to execute finalize node — agent_node already ran in finalize mode
-            rem = remaining_steps_value(state)
-            if rem is not None and rem <= 0:
-                return "end"
-            return "finalize"
-
-        last_message = messages[-1]
-        last_type = type(last_message).__name__
-
-        # Check if agent wants to use tools - if so, DON'T fold yet
-        tool_calls = getattr(last_message, 'tool_calls', None)
-        if tool_calls:
-            return "tools"
-
-        # Agent is done (no tool calls) - NOW check if we need to fold memory.
-        # Primary trigger: estimated total chars across messages exceeds budget.
-        # Backstop: message count exceeds threshold.
-        total_chars = sum(
-            len(_message_content_to_text(getattr(m, "content", "")) or "")
-            for m in messages
-        )
-        should_fold = total_chars > fold_char_budget or len(messages) > message_threshold
-        if should_fold:
-            if debug:
+        def should_fold_messages(messages: list) -> bool:
+            # Primary trigger: estimated total chars across messages exceeds budget.
+            # Backstop: message count exceeds threshold.
+            total_chars = sum(
+                len(_message_content_to_text(getattr(m, "content", "")) or "")
+                for m in messages
+            )
+            should_fold = total_chars > fold_char_budget or len(messages) > message_threshold
+            if should_fold and debug:
                 logger.info(
-                    f"Memory fold triggered: {total_chars} chars (budget={fold_char_budget}), "
-                    f"{len(messages)} msgs (threshold={message_threshold})"
+                    "Memory fold triggered: %s chars (budget=%s), %s msgs (threshold=%s)",
+                    total_chars,
+                    fold_char_budget,
+                    len(messages),
+                    message_threshold,
                 )
-            return "summarize"
+            return should_fold
 
-        return "end"
+        return _route_after_agent_step(
+            state,
+            allow_summarize=True,
+            should_fold=should_fold_messages,
+        )
 
     def after_tools(state: MemoryFoldingAgentState) -> str:
         """
@@ -4609,12 +4791,7 @@ def create_memory_folding_agent(
         - 'finalize': If near recursion limit
         - 'agent': Always (let agent process tool results first)
         """
-        remaining = remaining_steps_value(state)
-        if remaining is not None and remaining <= 0:
-            return "end"  # No budget for any more nodes
-        if _should_force_finalize(state):
-            return "finalize"
-        return "agent"
+        return _route_after_tools_step(state)
 
     def after_summarize(state: MemoryFoldingAgentState) -> str:
         """
@@ -4741,7 +4918,7 @@ def create_standard_agent(
 
     model_with_tools = model.bind_tools(tools_with_scratchpad)
     base_tool_node = ToolNode(tools_with_scratchpad)
-    tool_node_with_scratchpad = _create_tool_node_with_scratchpad(base_tool_node)
+    tool_node_with_scratchpad = _create_tool_node_with_scratchpad(base_tool_node, debug=debug)
 
     def agent_node(state: StandardAgentState) -> dict:
         messages = state.get("messages", [])
@@ -4763,13 +4940,27 @@ def create_standard_agent(
         if remaining is not None and remaining <= FINALIZE_WHEN_REMAINING_STEPS_LTE:
             system_msg = SystemMessage(content=_final_system_prompt(scratchpad=scratchpad, remaining=remaining))
             full_messages = [system_msg] + list(messages)
-            response = model.invoke(full_messages)
+            response, invoke_event = _invoke_model_with_fallback(
+                lambda: model.invoke(full_messages),
+                expected_schema=expected_schema,
+                schema_source=expected_schema_source,
+                context="agent",
+                debug=debug,
+            )
         else:
             system_msg = SystemMessage(content=_base_system_prompt(scratchpad=scratchpad))
             full_messages = [system_msg] + list(messages)
-            response = model_with_tools.invoke(full_messages)
+            response, invoke_event = _invoke_model_with_fallback(
+                lambda: model_with_tools.invoke(full_messages),
+                expected_schema=expected_schema,
+                schema_source=expected_schema_source,
+                context="agent",
+                debug=debug,
+            )
 
         repair_events: List[Dict[str, Any]] = []
+        if invoke_event:
+            repair_events.append(invoke_event)
         if remaining is not None and remaining <= FINALIZE_WHEN_REMAINING_STEPS_LTE:
             response, finalize_event = _sanitize_finalize_response(
                 response,
@@ -4816,8 +5007,18 @@ def create_standard_agent(
         if response is None:
             system_msg = SystemMessage(content=_final_system_prompt(scratchpad=scratchpad, remaining=remaining))
             full_messages = [system_msg] + list(messages)
-            response = model.invoke(full_messages)
+            response, invoke_event = _invoke_model_with_fallback(
+                lambda: model.invoke(full_messages),
+                expected_schema=expected_schema,
+                schema_source=expected_schema_source,
+                context="finalize",
+                debug=debug,
+            )
+        else:
+            invoke_event = None
         repair_events: List[Dict[str, Any]] = []
+        if invoke_event:
+            repair_events.append(invoke_event)
         response, finalize_event = _sanitize_finalize_response(
             response,
             expected_schema,
@@ -4843,35 +5044,10 @@ def create_standard_agent(
         return out
 
     def should_continue(state: StandardAgentState) -> str:
-        messages = state.get("messages", [])
-        if not messages:
-            return "end"
-
-        if _should_force_finalize(state):
-            # Agent already finalized (set stop_reason) — skip redundant finalize node
-            if state.get("stop_reason") == "recursion_limit":
-                return "end"
-            # No budget to execute finalize node — agent_node already ran in finalize mode
-            rem = remaining_steps_value(state)
-            if rem is not None and rem <= 0:
-                return "end"
-            return "finalize"
-
-        last_message = messages[-1]
-        last_type = type(last_message).__name__
-        tool_calls = getattr(last_message, "tool_calls", None)
-
-        if tool_calls:
-            return "tools"
-        return "end"
+        return _route_after_agent_step(state)
 
     def after_tools(state: StandardAgentState) -> str:
-        remaining = remaining_steps_value(state)
-        if remaining is not None and remaining <= 0:
-            return "end"  # No budget for any more nodes
-        if _should_force_finalize(state):
-            return "finalize"
-        return "agent"
+        return _route_after_tools_step(state)
 
     workflow = StateGraph(StandardAgentState)
     workflow.add_node("agent", agent_node)
