@@ -58,7 +58,7 @@ Python packages:
 }
 
 Python compatibility note:
-Current LangChain releases still import parts of \code{pydantic.v1}, which emits
+Current LangChain releases still import parts of `pydantic.v1`, which emits
 warnings on Python 3.14+. Prefer Python 3.12 (or 3.13) until upstream
 dependencies remove that compatibility layer.
 }
