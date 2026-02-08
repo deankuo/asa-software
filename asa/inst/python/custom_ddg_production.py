@@ -5209,8 +5209,14 @@ def _copy_message(msg: Any) -> Any:
     return msg
 
 
-def _reusable_terminal_finalize_response(messages: list) -> Optional[Any]:
-    """Reuse a terminal assistant message during finalize when it is already valid text."""
+def _reusable_terminal_finalize_response(messages: list, expected_schema: Any = None) -> Optional[Any]:
+    """Reuse a terminal assistant message during finalize when it is already valid text.
+
+    If *expected_schema* is provided, the candidate response is checked for
+    quality: when >80% of the schema leaf fields are Unknown/empty/null the
+    response is rejected (returns None) so the caller will re-invoke the model
+    with the full finalization prompt that includes field_status data.
+    """
     if not messages:
         return None
 
@@ -5223,6 +5229,37 @@ def _reusable_terminal_finalize_response(messages: list) -> Optional[Any]:
     content_text = _message_content_to_text(_message_content_from_message(last))
     if not content_text:
         return None
+
+    # --- Quality gate: reject all-Unknown reusable responses ---------------
+    if expected_schema is not None:
+        try:
+            parsed = parse_llm_json(content_text)
+            if isinstance(parsed, dict):
+                leaf_paths = _schema_leaf_paths(expected_schema)
+                if leaf_paths:
+                    unknown_count = 0
+                    total_count = 0
+                    for path, _descriptor in leaf_paths:
+                        # Walk into the parsed dict following the dotted path
+                        parts = path.replace("[]", "").split(".")
+                        val = parsed
+                        for p in parts:
+                            if isinstance(val, dict):
+                                val = val.get(p)
+                            else:
+                                val = None
+                                break
+                        total_count += 1
+                        if _is_unknown_marker(val) or _is_empty_like(val):
+                            unknown_count += 1
+                    if total_count > 0 and (unknown_count / total_count) > 0.80:
+                        logger.info(
+                            "Rejecting reusable terminal response: %d/%d fields unknown (%.0f%%)",
+                            unknown_count, total_count, 100.0 * unknown_count / total_count,
+                        )
+                        return None
+        except Exception:
+            pass  # If parsing fails, fall through to normal reuse logic
 
     # Reused finalize responses are appended as new turns; assign a fresh id
     # so reducers/downstream consumers don't see duplicate message IDs.
@@ -6370,8 +6407,15 @@ def create_memory_folding_agent(
         )
         budget_state.update(_field_status_progress(field_status))
 
-        response = _reusable_terminal_finalize_response(messages)
+        response = _reusable_terminal_finalize_response(messages, expected_schema=expected_schema)
         if response is None:
+            # Build tool output digest for context when re-invoking
+            tool_digest = _recent_tool_context_seed(
+                messages,
+                expected_schema=expected_schema,
+                max_messages=20,
+                max_total_chars=50000,
+            )
             system_msg = SystemMessage(content=_final_system_prompt(
                 summary,
                 scratchpad=scratchpad,
@@ -6380,6 +6424,15 @@ def create_memory_folding_agent(
                 remaining=remaining,
             ))
             full_messages = _build_full_messages(system_msg, messages, summary, archive)
+            if tool_digest:
+                digest_msg = HumanMessage(
+                    content=(
+                        "TOOL OUTPUT DIGEST (for reference when building your final answer):\n\n"
+                        + tool_digest
+                    )
+                )
+                # Append digest at the end so it doesn't break tool_calls/tool_response pairing
+                full_messages.append(digest_msg)
             response, invoke_event = _invoke_model_with_fallback(
                 lambda: model.invoke(full_messages),
                 expected_schema=expected_schema,
@@ -7020,7 +7073,7 @@ def create_standard_agent(
     Create a standard ReAct-style LangGraph agent with RemainingSteps guard.
     """
     from langgraph.graph import StateGraph, END
-    from langchain_core.messages import SystemMessage
+    from langchain_core.messages import SystemMessage, HumanMessage
     from langgraph.prebuilt import ToolNode
 
     # Create save_finding tool and combine with user-provided tools
@@ -7179,8 +7232,15 @@ def create_standard_agent(
             unknown_after_searches=state.get("unknown_after_searches"),
         )
         budget_state.update(_field_status_progress(field_status))
-        response = _reusable_terminal_finalize_response(messages)
+        response = _reusable_terminal_finalize_response(messages, expected_schema=expected_schema)
         if response is None:
+            # Build tool output digest for context when re-invoking
+            tool_digest = _recent_tool_context_seed(
+                messages,
+                expected_schema=expected_schema,
+                max_messages=20,
+                max_total_chars=50000,
+            )
             system_msg = SystemMessage(content=_final_system_prompt(
                 scratchpad=scratchpad,
                 field_status=field_status,
@@ -7188,6 +7248,15 @@ def create_standard_agent(
                 remaining=remaining,
             ))
             full_messages = [system_msg] + list(messages)
+            if tool_digest:
+                digest_msg = HumanMessage(
+                    content=(
+                        "TOOL OUTPUT DIGEST (for reference when building your final answer):\n\n"
+                        + tool_digest
+                    )
+                )
+                # Append digest at the end so it doesn't break tool_calls/tool_response pairing
+                full_messages.append(digest_msg)
             response, invoke_event = _invoke_model_with_fallback(
                 lambda: model.invoke(full_messages),
                 expected_schema=expected_schema,
