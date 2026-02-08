@@ -175,22 +175,23 @@ attempt <- asa::run_task(
 )
 
 # write to disk for further investigations.
-readr::write_file(prompt, "~/Documents/asa-software/reports/prompt_example_real.txt")
-readr::write_file(attempt$trace, "~/Documents/asa-software/reports/trace_real.txt")
+readr::write_file(prompt, "~/Documents/asa-software/tracked_reports/prompt_example_real.txt")
+readr::write_file(attempt$trace, "~/Documents/asa-software/tracked_reports/trace_real.txt")
+readr::write_file(paste(unlist(attempt$token_stats), collapse = "\n"), "~/Documents/asa-software/tracked_reports/token_stats_real.txt")
 
 attempt$token_stats
 attempt$elapsed_time
 attempt$fold_stats
 
 # save final answer
-tmp <- readr::read_file('~/Documents/asa-software/reports/trace_real.txt')
+tmp <- readr::read_file('~/Documents/asa-software/tracked_reports/trace_real.txt')
 final_answer <- asa::extract_agent_results(tmp)[["json_data"]]
 message("Trace test complete")
 
 cat(jsonlite::toJSON(final_answer, pretty = TRUE, auto_unbox = TRUE, null = "null"))
 jsonlite::write_json(
   final_answer,
-  "~/Documents/asa-software/reports/our_answer_real.txt",
+  "~/Documents/asa-software/traced_reports/our_answer_real.txt",
   auto_unbox = TRUE,
   pretty = TRUE,
   null = "null"
