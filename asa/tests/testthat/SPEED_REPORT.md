@@ -1,6 +1,6 @@
 # Speed Test Report
 
-**Last Run:** 2026-02-08 13:20:11 CST
+**Last Run:** 2026-02-08 14:18:53 CST
 **Overall Status:** PASS
 **Tolerance Factor:** 4.00x baseline
 
@@ -8,10 +8,10 @@
 
 | Benchmark | Current | Baseline | Threshold | Ratio | Status |
 |-----------|---------|----------|-----------|-------|--------|
-| build_prompt | 0.1189s | 0.09s | 0.36s | 1.32x | PASS |
-| helper_funcs | 0.0687s | 0.07s | 0.28s | 0.98x | PASS |
-| combined | 0.1072s | 0.09s | 0.36s | 1.18x | PASS |
-| agent_search | 31.4s | 18s | 70s | 1.79x | PASS |
+| build_prompt | 0.1199s | 0.09s | 0.36s | 1.33x | PASS |
+| helper_funcs | 0.0695s | 0.07s | 0.28s | 0.99x | PASS |
+| combined | 0.1069s | 0.09s | 0.36s | 1.17x | PASS |
+| agent_search | 21.6s | 18s | 70s | 1.23x | PASS |
 
 ## Baseline Reference
 

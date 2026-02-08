@@ -7093,36 +7093,35 @@ def create_memory_folding_agent(
             "token_trace": [{"node": "summarize", **_usage}],
         })
 
+    def should_fold_messages(messages: list) -> bool:
+        """Check whether the conversation exceeds the fold budget."""
+        # Primary trigger: estimated total chars across messages exceeds budget.
+        # Backstop: message count exceeds threshold.
+        total_chars = sum(
+            len(_message_content_to_text(getattr(m, "content", "")) or "")
+            for m in messages
+        )
+        should_fold = total_chars > fold_char_budget or len(messages) > message_threshold
+        if should_fold and debug:
+            logger.info(
+                "Memory fold triggered: %s chars (budget=%s), %s msgs (threshold=%s)",
+                total_chars,
+                fold_char_budget,
+                len(messages),
+                message_threshold,
+            )
+        return should_fold
+
     def should_continue(state: MemoryFoldingAgentState) -> str:
         """
         Determine next step after agent node.
 
         Routes to:
         - 'tools': If the agent wants to use a tool
-        - 'summarize': If message count exceeds threshold AND agent is done (no tool calls)
+        - 'summarize': Safety-net fold if context exceeds budget and agent
+          produced a non-tool-call response (primary fold happens in after_tools)
         - 'end': If the agent is done and no folding needed
-
-        IMPORTANT: We only fold memory when the agent has completed its response
-        (no pending tool calls) to maintain message sequence integrity.
         """
-        def should_fold_messages(messages: list) -> bool:
-            # Primary trigger: estimated total chars across messages exceeds budget.
-            # Backstop: message count exceeds threshold.
-            total_chars = sum(
-                len(_message_content_to_text(getattr(m, "content", "")) or "")
-                for m in messages
-            )
-            should_fold = total_chars > fold_char_budget or len(messages) > message_threshold
-            if should_fold and debug:
-                logger.info(
-                    "Memory fold triggered: %s chars (budget=%s), %s msgs (threshold=%s)",
-                    total_chars,
-                    fold_char_budget,
-                    len(messages),
-                    message_threshold,
-                )
-            return should_fold
-
         return _route_after_agent_step(
             state,
             allow_summarize=True,
@@ -7133,16 +7132,28 @@ def create_memory_folding_agent(
         """
         Determine next step after tool execution.
 
-        ALWAYS routes back to agent so the agent can process raw tool output
-        before any memory folding occurs. Folding is handled by should_continue
-        AFTER the agent has reasoned about the results.
+        Checks whether the conversation has exceeded the fold budget after
+        tool outputs were appended.  If so, routes to 'summarize' to compress
+        old messages before the agent processes tool results.
 
         Routes to:
         - 'end': If no budget for any more nodes
         - 'finalize': If near recursion limit
-        - 'agent': Always (let agent process tool results first)
+        - 'summarize': If messages exceed fold budget (primary fold trigger)
+        - 'agent': Otherwise (let agent process tool results)
         """
-        return _route_after_tools_step(state)
+        remaining = remaining_steps_value(state)
+        if _should_force_finalize(state):
+            if remaining is not None and remaining <= 0:
+                return "end"
+            return "finalize"
+        if remaining is not None and remaining <= 0:
+            return "end"
+        # Primary fold trigger: compress before returning to agent
+        messages = state.get("messages", [])
+        if should_fold_messages(messages):
+            return "summarize"
+        return "agent"
 
     def after_summarize(state: MemoryFoldingAgentState) -> str:
         """

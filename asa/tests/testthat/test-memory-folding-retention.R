@@ -5,7 +5,7 @@
 # 1. Memory folding defaults are correctly set
 # 2. The fold_char_budget constant exists and is reasonable
 # 3. Structure-preserving compaction logic (tested at R level via config)
-# 4. after_tools no longer routes to summarize (tested via config verification)
+# 4. after_tools routes to summarize when fold budget exceeded (primary fold trigger)
 
 # ============================================================================
 # Memory Folding Defaults Tests

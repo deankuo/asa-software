@@ -1008,12 +1008,11 @@ test_that("memory folding updates summary and injects it into the next system pr
   expect_true(grepl("IMPORTANT_FACT=42", last_prompt, fixed = TRUE))
   expect_true(grepl("beta: old assistant note", last_prompt, fixed = TRUE))
 
-  # After folding, the summary is stored in state but may not appear in a system
-  # prompt within this invocation if the agent already completed (no more agent
-  # turns after the fold). This is by design: after_tools now always routes to
-  # agent first (so the agent can process raw tool results), then should_continue
-  # triggers the fold. In single-round conversations the fold happens after the
-  # agent's final response, so the summary benefits the NEXT conversation round.
+  # After folding, the summary is stored in state and injected into the system
+  # prompt on the next agent turn. The primary fold trigger is in after_tools:
+  # when tool outputs push the conversation past the fold budget, after_tools
+  # routes to 'summarize' before returning to 'agent'. should_continue acts as
+  # a safety-net fold trigger for non-tool-call responses.
   #
   # Verify the fold produced valid state:
   sys_prompts <- reticulate::py_to_r(reticulate::py$stub_llm$system_prompts)
