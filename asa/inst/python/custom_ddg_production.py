@@ -4714,16 +4714,18 @@ def _make_save_finding_tool():
 
     @tool
     def save_finding(finding: str, category: str = "fact") -> str:
-        """Save a finding to your scratchpad for later reference.
+        """Save a finding to your durable scratchpad (survives memory compression).
 
-        Use this to record facts, observations, or intermediate results during
-        multi-step research so you can reference them when producing the final answer.
+        IMPORTANT: Call this for every schema field value you discover. Format:
+          save_finding(finding='field_name = value (source: URL)', category='fact')
+
+        Also use for other observations, todos, or insights during multi-step research.
 
         Args:
             finding: The finding to save (be concise but specific)
             category: One of "fact", "observation", "todo", "insight"
         """
-        return f"Saved to scratchpad: {finding[:120]}{'...' if len(finding) > 120 else ''}"
+        return f"Saved to scratchpad: {finding[:250]}{'...' if len(finding) > 250 else ''}"
 
     return save_finding
 
@@ -4733,6 +4735,7 @@ def _base_system_prompt(
     scratchpad: Any = None,
     field_status: Any = None,
     budget_state: Any = None,
+    post_fold: bool = False,
 ) -> str:
     """Generate system prompt that includes optional structured memory context."""
     budget = _normalize_budget_state(budget_state)
@@ -4741,8 +4744,11 @@ def _base_system_prompt(
         "Use tools when you need current information or facts you're unsure about.\n\n"
         "Canonical extraction rule: when a FIELD STATUS ledger is present, treat it as authoritative. "
         "Use scratchpad as optional working notes only.\n\n"
-        "You have a `save_finding` tool. Use it to record important intermediate results "
-        "during multi-step research, so you can reference them later without relying on memory.\n\n"
+        "You have a `save_finding` tool for durable working notes that survive memory compression.\n"
+        "CRITICAL: Every time you discover a value for a schema field, IMMEDIATELY call "
+        "save_finding(finding='field_name = value (source: URL)', category='fact') BEFORE "
+        "doing anything else. This is your insurance against information loss.\n"
+        "Also save other important intermediate results you may need later.\n\n"
         f"Tool-call budget: {budget['tool_calls_used']}/{budget['tool_calls_limit']} used. "
         f"Stop searching when budget is exhausted.\n\n"
         "When a webpage mentions a person by name with a hyperlink [link: URL], follow that URL to find their detailed profile.\n\n"
@@ -4761,6 +4767,12 @@ def _base_system_prompt(
         parts.append(scratchpad_block)
     if field_status_block or memory_block or scratchpad_block:
         parts.append("Use FIELD STATUS first, then memory/scratchpad for missing context before acting.")
+    if post_fold:
+        parts.append(
+            "NOTE: A memory fold just occurred. Your earlier search results have been "
+            "compressed into the memory above. Check FIELD STATUS for unresolved fields "
+            "and continue searching — do NOT finalize prematurely with Unknown values."
+        )
     return "\n\n".join(parts)
 
 
@@ -6247,6 +6259,14 @@ def create_memory_folding_agent(
         )
         budget_state.update(_field_status_progress(field_status))
 
+        # Detect if a memory fold just occurred so we can nudge the agent to continue.
+        _fold_stats = state.get("fold_stats") or {}
+        _post_fold = (
+            isinstance(_fold_stats, dict)
+            and _fold_stats.get("fold_count", 0) > 0
+            and _memory_has_content(summary)
+        )
+
         if debug:
             logger.info(
                 "Agent node: %s messages, memory=%s, archive=%s, scratchpad=%s, fields=%s/%s, budget=%s/%s",
@@ -6287,6 +6307,7 @@ def create_memory_folding_agent(
                 scratchpad=scratchpad,
                 field_status=field_status,
                 budget_state=budget_state,
+                post_fold=_post_fold,
             ))
             full_messages = _build_full_messages(system_msg, messages, summary, archive)
             required_tool_plan = _extract_required_tool_plan(messages)
@@ -6826,15 +6847,16 @@ def create_memory_folding_agent(
                 )
             elif msg_type == "ToolMessage":
                 if _mi in _processed_tool_indices:
-                    # Observation masking: agent already processed this output,
-                    # so include only tool name + URL/title (2-3 lines).
+                    # Observation masking: agent already processed this output.
+                    # Preserve compact summary including key snippets so the
+                    # summarizer can extract schema field values.
                     tool_name = getattr(msg, "name", None) or "tool"
-                    _mask_lines = [f"[{msg_type}] ({tool_name}) [already processed]"]
-                    for _line in content_text.splitlines()[:20]:
-                        _ll = _line.strip().lower()
-                        if _ll.startswith("url:") or _ll.startswith("final url:") or _ll.startswith("title:"):
-                            _mask_lines.append(f"  {_line.strip()}")
-                    fold_text_parts.append("\n".join(_mask_lines))
+                    compacted = _compact_tool_output(content_text, full_results_limit=3)
+                    if len(compacted) > 800:
+                        compacted = compacted[:800] + "..."
+                    fold_text_parts.append(
+                        f"[{msg_type}] ({tool_name}) [processed - compact]\n{compacted}"
+                    )
                     fold_masked_tool_messages += 1
                 else:
                     # Structure-preserving compaction: keeps all titles/URLs,
@@ -6920,24 +6942,48 @@ def create_memory_folding_agent(
         )
 
         summarize_started = time.perf_counter()
-        summary_response = summarizer_model.invoke([HumanMessage(content=summarize_prompt)])
-        fold_summarizer_latency_m = (time.perf_counter() - summarize_started) / 60.0
-        summary_text = summary_response.content if hasattr(summary_response, "content") else str(summary_response)
-        summary_text_str = _message_content_to_text(summary_text) or str(summary_text)
-        parsed_memory = parse_llm_json(summary_text_str)
-        fold_parse_success = isinstance(parsed_memory, dict) and bool(parsed_memory)
-        if not isinstance(parsed_memory, dict):
-            parsed_memory = {}
-        # Robust fallback: if the model didn't return JSON, store the text as a legacy fact
-        # so folding doesn't silently erase prior context.
-        if not parsed_memory and summary_text_str.strip():
-            parsed_memory = {"facts": [summary_text_str.strip()]}
-        new_memory = _sanitize_memory_dict(parsed_memory)
+        fold_degraded = False
+        try:
+            summary_response = summarizer_model.invoke([HumanMessage(content=summarize_prompt)])
+            fold_summarizer_latency_m = (time.perf_counter() - summarize_started) / 60.0
+            summary_text = summary_response.content if hasattr(summary_response, "content") else str(summary_response)
+            summary_text_str = _message_content_to_text(summary_text) or str(summary_text)
+            parsed_memory = parse_llm_json(summary_text_str)
+            fold_parse_success = isinstance(parsed_memory, dict) and bool(parsed_memory)
+            if not isinstance(parsed_memory, dict):
+                parsed_memory = {}
+            # Robust fallback: if the model didn't return JSON, store the text as a legacy fact
+            # so folding doesn't silently erase prior context.
+            if not parsed_memory and summary_text_str.strip():
+                parsed_memory = {"facts": [summary_text_str.strip()]}
+            new_memory = _sanitize_memory_dict(parsed_memory)
+        except Exception as fold_exc:
+            # Degraded fold: summarizer failed (e.g. RemoteProtocolError).
+            # Salvage FIELD_EXTRACT entries from fold_text and preserve current_memory.
+            fold_summarizer_latency_m = (time.perf_counter() - summarize_started) / 60.0
+            fold_degraded = True
+            fold_parse_success = False
+            summary_response = None
+            if debug:
+                logger.warning("Summarizer invoke failed, using degraded fold: %s", fold_exc)
+            degraded_facts = list(current_memory.get("facts") or [])
+            for _fe_match in re.finditer(
+                r"FIELD_EXTRACT:\s*(\S+)\s*=\s*(.+?)(?:\s*\(source:.*?\))?\s*$",
+                fold_text,
+                re.MULTILINE,
+            ):
+                _fe_name, _fe_val = _fe_match.group(1).strip(), _fe_match.group(2).strip()
+                if _fe_name and _fe_val:
+                    degraded_facts.append(f"FIELD_EXTRACT: {_fe_name} = {_fe_val}")
+            degraded_memory = dict(current_memory)
+            degraded_memory["facts"] = degraded_facts
+            new_memory = _sanitize_memory_dict(degraded_memory)
 
         # Post-fold schema field validation & recovery.
         # Check that FIELD_EXTRACT entries from the input survived into the output.
+        # Skip if fold was degraded (summarizer already failed).
         fold_field_recovery_count = 0
-        if schema_extraction_block:
+        if schema_extraction_block and not fold_degraded:
             input_fields = {}
             for match in re.finditer(
                 r"FIELD_EXTRACT:\s*(\S+)\s*=\s*(.+?)(?:\s*\(source:.*?\))?\s*$",
@@ -7061,7 +7107,9 @@ def create_memory_folding_agent(
             current_fold_stats.get("fold_total_messages_removed", 0) + fold_messages_removed
         )
 
-        _usage = _token_usage_dict_from_message(summary_response)
+        _usage = _token_usage_dict_from_message(summary_response) if summary_response is not None else {
+            "input_tokens": 0, "output_tokens": 0, "total_tokens": 0
+        }
         # Accumulate repair-call token usage if a recovery re-prompt was made.
         if fold_field_recovery_count > 0:
             _usage["input_tokens"] += _repair_usage.get("input_tokens", 0)
@@ -7086,6 +7134,7 @@ def create_memory_folding_agent(
                 "fold_masked_tool_messages": fold_masked_tool_messages,
                 "fold_anchored_facts_preserved": fold_anchored_facts_preserved,
                 "fold_ungrounded_facts": fold_ungrounded_facts,
+                "fold_degraded": fold_degraded,
             },
             "tokens_used": state.get("tokens_used", 0) + _usage["total_tokens"],
             "input_tokens": state.get("input_tokens", 0) + _usage["input_tokens"],
