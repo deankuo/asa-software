@@ -21,7 +21,7 @@ import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Type
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urljoin, urlparse, urlunparse
 
 from curl_cffi import requests
 from bs4 import BeautifulSoup
@@ -265,7 +265,11 @@ def _validate_url(url: str) -> Tuple[bool, str, str]:
 
 
 def _extract_main_text(html: str) -> Tuple[str, str]:
-    """Extract readable text from HTML. Returns (title, text)."""
+    """Extract readable text from HTML. Returns (title, text).
+
+    Preserves hyperlinks inline so that the agent can discover linked URLs
+    (e.g., profile pages referenced from a suplente listing).
+    """
     soup = BeautifulSoup(html or "", "html.parser")
 
     title = ""
@@ -297,6 +301,75 @@ def _extract_main_text(html: str) -> Tuple[str, str]:
             return 0
 
     best = max(candidates, key=node_text_len) if candidates else soup
+
+    # --- Inline hyperlinks before text extraction ---
+    # Detect the base URL from <base> tag if present, for resolving relative hrefs.
+    base_url = ""
+    base_tag = soup.find("base")
+    if base_tag and base_tag.get("href"):
+        base_url = base_tag["href"].strip()
+
+    def _should_annotate_link(href: str, link_text: str) -> bool:
+        """Decide if a hyperlink is worth inlining in extracted text."""
+        if not href:
+            return False
+        href_lower = href.lower()
+        text_lower = link_text.lower().strip()
+        # Skip fragment-only links, javascript, mailto, tel
+        if href_lower.startswith(("#", "javascript:", "mailto:", "tel:")):
+            return False
+        # Always annotate links with parliamentary/government patterns
+        gov_patterns = [
+            "parlamentario", "diputado", "senador", "congreso",
+            "asamblea", "legislativ", "gob.bo", "gov.", "gobierno",
+        ]
+        for pat in gov_patterns:
+            if pat in href_lower or pat in text_lower:
+                return True
+        # Annotate links whose text looks like a person name
+        # (2+ capitalized words, at least 5 chars total)
+        if len(text_lower) >= 5:
+            words = link_text.strip().split()
+            if len(words) >= 2 and all(
+                w[0].isupper() for w in words if len(w) > 1
+            ):
+                return True
+        # Annotate "ver el" or "ver perfil" style links
+        if any(kw in text_lower for kw in ["ver el", "ver perfil", "ver la", "profile", "perfil"]):
+            return True
+        # Annotate relative links (likely internal navigation) with non-trivial text
+        if not href_lower.startswith(("http://", "https://")):
+            if len(text_lower) >= 3 and text_lower not in (
+                "home", "inicio", "menu", "buscar", "search",
+                "rss", "xml", "login", "registr",
+            ):
+                return True
+        return False
+
+    def _resolve_href(href: str) -> str:
+        """Resolve a potentially relative href to an absolute URL."""
+        if not href:
+            return href
+        href = href.strip()
+        if href.startswith(("http://", "https://")):
+            return href
+        if base_url:
+            return urljoin(base_url, href)
+        return href
+
+    if best:
+        for a_tag in best.find_all("a", href=True):
+            try:
+                href = a_tag.get("href", "")
+                link_text = a_tag.get_text(strip=True)
+                if _should_annotate_link(href, link_text):
+                    resolved = _resolve_href(href)
+                    # Append link annotation after the anchor text
+                    marker = soup.new_string(f" [link: {resolved}]")
+                    a_tag.append(marker)
+            except Exception:
+                continue
+
     raw_text = "\n".join(best.stripped_strings) if best else ""
 
     # Normalize whitespace but keep newlines as separators.
