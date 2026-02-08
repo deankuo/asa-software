@@ -165,9 +165,9 @@ attempt <- asa::run_task(
         
         # Full webpage reader (OpenWebpage tool output)
         allow_read_webpages = TRUE,
-        webpage_max_chars = (5L) * 6000L,
-        webpage_max_chunks = 10,
-        webpage_chunk_chars = (5L) * 300L
+        webpage_max_chars = (5L) * 8000L,
+        webpage_max_chunks = 20,
+        webpage_chunk_chars = (5L) * 600L
       )
     )
 )
