@@ -151,7 +151,7 @@ attempt <- asa::run_task(
       use_browser = FALSE, 
       use_memory_folding = TRUE,
       #recursion_limit = 50L, memory_threshold = 16L, memory_keep_recent = 6L, # production
-      recursion_limit = 50L, memory_threshold = 8L, memory_keep_recent = 4L, # production
+      recursion_limit = 16L, memory_threshold = 8L, memory_keep_recent = 4L, # production
       fold_char_budget = 5L * (2000L), # default is 30000L
       rate_limit = 0.3,
       timeout = 180L,
