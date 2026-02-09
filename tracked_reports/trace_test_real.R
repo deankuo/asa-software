@@ -175,7 +175,7 @@ attempt <- asa::run_task(
 
 # write to disk for further investigations.
 readr::write_file(prompt, "~/Documents/asa-software/tracked_reports/prompt_example_real.txt")
-readr::write_file(attempt$trace, "~/Documents/asa-software/tracked_reports/trace_real.txt")
+writeLines(attempt$trace, "~/Documents/asa-software/tracked_reports/trace_real.txt", useBytes = TRUE)
 readr::write_file(paste(unlist(attempt$token_stats), collapse = "\n"), "~/Documents/asa-software/tracked_reports/token_stats_real.txt")
 
 attempt$token_stats$tokens_used
