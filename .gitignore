@@ -16,6 +16,7 @@ __pycache__/
 *.env
 sync_code.sh
 docs/
+.Renviron
 
 # R build/check artifacts
 *.Rcheck/

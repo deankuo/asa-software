@@ -520,7 +520,7 @@ initialize_agent <- function(backend = NULL,
     chat_models <- reticulate::import("langchain_aws")
     region <- Sys.getenv("AWS_DEFAULT_REGION", unset = "us-east-1")
     llm <- chat_models$ChatBedrockConverse(
-      model = model,
+      model_id = model,
       region_name = region,
       temperature = ASA_DEFAULT_TEMPERATURES$bedrock
     )

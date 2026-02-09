@@ -567,6 +567,8 @@ check_backend <- function(conda_env = NULL, strict = FALSE) {
       "langchain_groq",
       "langchain_openai",
       "langchain_google_genai",
+      "langchain_anthropic",
+      "langchain_aws",
       "langgraph",
       "ddgs",
       "selenium",
