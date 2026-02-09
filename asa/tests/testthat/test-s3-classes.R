@@ -26,6 +26,22 @@ test_that("asa_response constructor creates correct object", {
   expect_equal(response$status_code, 200L)
   expect_equal(response$elapsed_time, 1.5)
   expect_equal(response$fold_stats$fold_count, 2L)
+  expect_true(inherits(response$created_at, "POSIXct"))
+  expect_true(is.na(response$tokens_used))
+})
+
+test_that("asa_response stores tokens_used when provided", {
+  response <- asa_response(
+    message = "Test response",
+    status_code = 200L,
+    raw_response = NULL,
+    trace = "trace text",
+    elapsed_time = 1.5,
+    prompt = "Test prompt",
+    tokens_used = 1500L
+  )
+
+  expect_equal(response$tokens_used, 1500L)
 })
 
 test_that("asa_response stores fold_stats correctly", {
@@ -93,6 +109,7 @@ test_that("asa_result constructor creates correct object", {
   expect_equal(result$status, "success")
   expect_equal(result$parsed$field1, "value1")
   expect_equal(result$parsed$field2, 42)
+  expect_true(inherits(result$created_at, "POSIXct"))
 })
 
 test_that("as.data.frame.asa_result works", {
@@ -115,7 +132,7 @@ test_that("as.data.frame.asa_result works", {
   expect_equal(df$age, "30")
 })
 
-test_that("asa_result stores execution metadata", {
+test_that("asa_result stores execution metadata and token_stats", {
   result <- asa_result(
     prompt = "Test query",
     message = "Test answer",
@@ -133,15 +150,24 @@ test_that("asa_result stores execution metadata", {
       fold_count = 1L
     )
   )
+  result$token_stats <- list(
+    tokens_used = 2500L,
+    input_tokens = 1700L,
+    output_tokens = 800L,
+    fold_tokens = 0L,
+    token_trace = list()
+  )
 
   expect_equal(result$execution$thread_id, "thread-123")
   expect_equal(result$execution$tool_calls_used, 2L)
+  expect_equal(result$token_stats$tokens_used, 2500L)
 
   df <- as.data.frame(result)
   expect_equal(df$thread_id, "thread-123")
   expect_equal(df$stop_reason, "recursion_limit")
   expect_equal(df$tool_calls_limit, 5L)
   expect_equal(df$fold_count, 1L)
+  expect_equal(df$tokens_used, 2500L)
 })
 
 test_that("asa_config defaults and printing are consistent", {
@@ -173,4 +199,32 @@ test_that("print methods produce expected headers", {
 
   result <- asa_result("prompt", "message", NULL, "", 1.0, "success")
   expect_output(print(result), "ASA Task Result")
+})
+
+test_that("print.asa_response shows tokens when present", {
+  response <- asa_response(
+    message = "Test", status_code = 200L, raw_response = NULL,
+    trace = "", elapsed_time = 1.0, prompt = "p", tokens_used = 1234L
+  )
+  output <- capture.output(print(response))
+  expect_true(any(grepl("Tokens:", output)))
+  expect_true(any(grepl("1234", output)))
+})
+
+test_that("print.asa_result shows tokens when present", {
+  result <- asa_result(
+    prompt = "p", message = "m", parsed = NULL, raw_output = "",
+    elapsed_time = 1.0, status = "success",
+    execution = list()
+  )
+  result$token_stats <- list(
+    tokens_used = 5678L,
+    input_tokens = 4000L,
+    output_tokens = 1678L,
+    fold_tokens = 0L,
+    token_trace = list()
+  )
+  output <- capture.output(print(result))
+  expect_true(any(grepl("Tokens:", output)))
+  expect_true(any(grepl("5678", output)))
 })

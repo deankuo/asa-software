@@ -17,7 +17,11 @@ asa_response(
   stop_reason = NULL,
   budget_state = list(),
   field_status = list(),
-  json_repair = list()
+  json_repair = list(),
+  tokens_used = NA_integer_,
+  input_tokens = NA_integer_,
+  output_tokens = NA_integer_,
+  token_trace = list()
 )
 }
 \arguments{

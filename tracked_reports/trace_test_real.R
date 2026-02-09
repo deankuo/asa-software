@@ -1,6 +1,6 @@
 # Rscript: trace_test_real.R
 options(error=NULL)
-devtools::load_all('~/Documents/asa-software/asa')
+# devtools::load_all('~/Documents/asa-software/asa')
 
 # Prefer local package source so trace runs validate current repo code.
 if (requireNamespace("devtools", quietly = TRUE)) {
@@ -84,7 +84,6 @@ Your output must follow this exact schema (JSON schema):
   "confidence": "Low | Medium | High",
   "justification": "One-sentence summary of search findings and reliability assessment."
 }
-
 ```
 
 IMPORTANT REQUIREMENTS:
@@ -144,13 +143,15 @@ attempt <- asa::run_task(
     expected_schema = EXPECTED_SCHEMA,
     verbose = FALSE,
     agent = asa::initialize_agent(
-      # backend = "gemini", model = "gemini-3-pro-preview",
-      backend = "openai", model = "gpt-5-mini-2025-08-07",
+      #backend = "gemini", model = "gemini-3-pro-preview",
+      backend = "gemini", model = "gemini-3-flash-preview",
+      #backend = "openai", model = "gpt-5-mini-2025-08-07",
       #backend = "openai", model = "gpt-5-nano-2025-08-07",
       # proxy = proxy,
       use_browser = FALSE, 
       use_memory_folding = TRUE,
-      recursion_limit = 50L, memory_threshold = 16L, memory_keep_recent = 6L, # production
+      #recursion_limit = 50L, memory_threshold = 16L, memory_keep_recent = 6L, # production
+      recursion_limit = 16L, memory_threshold = 8L, memory_keep_recent = 4L, # production
       fold_char_budget = 5L * (2000L), # default is 30000L
       rate_limit = 0.3,
       timeout = 180L,
@@ -173,19 +174,28 @@ attempt <- asa::run_task(
 )
 
 # write to disk for further investigations.
-readr::write_file(prompt, "~/Documents/asa-software/reports/prompt_example_real.txt")
-readr::write_file(attempt$trace, "~/Documents/asa-software/reports/trace_real.txt")
+readr::write_file(prompt, "~/Documents/asa-software/tracked_reports/prompt_example_real.txt")
+writeLines(attempt$trace, "~/Documents/asa-software/tracked_reports/trace_real.txt", useBytes = TRUE)
+readr::write_file(paste(unlist(attempt$token_stats), collapse = "\n"), "~/Documents/asa-software/tracked_reports/token_stats_real.txt")
+
+attempt$token_stats$tokens_used
+attempt$token_stats$input_tokens
+attempt$token_stats$output_tokens
+plot(unlist(attempt$token_stats$token_trace))
+attempt$elapsed_time
+attempt$fold_stats
 
 # save final answer
-tmp <- readr::read_file('~/Documents/asa-software/reports/trace_real.txt')
+tmp <- readr::read_file('~/Documents/asa-software/tracked_reports/trace_real.txt')
 final_answer <- asa::extract_agent_results(tmp)[["json_data"]]
 message("Trace test complete")
 
-cat(jsonlite::toJSON(final_answer, pretty = TRUE, auto_unbox = TRUE, null = "null"))
 jsonlite::write_json(
   final_answer,
-  "~/Documents/asa-software/reports/our_answer_real.txt",
+  "~/Documents/asa-software/tracked_reports/our_answer_real.txt",
   auto_unbox = TRUE,
   pretty = TRUE,
   null = "null"
 )
+cat(jsonlite::toJSON(final_answer, pretty = TRUE, auto_unbox = TRUE, null = "null"))
+#trace_real.txt token_stats_real.txt our_answer_real.txt

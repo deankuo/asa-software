@@ -997,7 +997,7 @@ test_that("memory folding updates summary and injects it into the next system pr
   expect_true(isTRUE(fs$fold_parse_success))
   expect_true(is.list(final_state$summary))
   expect_true("facts" %in% names(final_state$summary))
-  expect_true("FOLDED_SUMMARY" %in% unlist(final_state$summary$facts))
+  expect_true(any(grepl("FOLDED_SUMMARY", unlist(final_state$summary$facts), fixed = TRUE)))
   expect_true(is.list(final_state$archive))
   expect_true(length(final_state$archive) >= 1L)
 
@@ -1008,12 +1008,11 @@ test_that("memory folding updates summary and injects it into the next system pr
   expect_true(grepl("IMPORTANT_FACT=42", last_prompt, fixed = TRUE))
   expect_true(grepl("beta: old assistant note", last_prompt, fixed = TRUE))
 
-  # After folding, the summary is stored in state but may not appear in a system
-  # prompt within this invocation if the agent already completed (no more agent
-  # turns after the fold). This is by design: after_tools now always routes to
-  # agent first (so the agent can process raw tool results), then should_continue
-  # triggers the fold. In single-round conversations the fold happens after the
-  # agent's final response, so the summary benefits the NEXT conversation round.
+  # After folding, the summary is stored in state and injected into the system
+  # prompt on the next agent turn. The primary fold trigger is in after_tools:
+  # when tool outputs push the conversation past the fold budget, after_tools
+  # routes to 'summarize' before returning to 'agent'. should_continue acts as
+  # a safety-net fold trigger for non-tool-call responses.
   #
   # Verify the fold produced valid state:
   sys_prompts <- reticulate::py_to_r(reticulate::py$stub_llm$system_prompts)
@@ -2615,7 +2614,7 @@ test_that("field_status is canonical vs scratchpad and is injected into finalize
 
   sys_prompts <- reticulate::py_to_r(reticulate::py$field_status_canonical_llm$system_prompts)
   expect_true(length(sys_prompts) >= 2L)
-  expect_true(grepl("CANONICAL FIELD STATUS", sys_prompts[[2]], fixed = TRUE))
+  expect_true(grepl("FIELD STATUS", sys_prompts[[2]], fixed = TRUE))
   expect_true(grepl("prior_occupation: found", sys_prompts[[2]], fixed = TRUE))
   expect_true(grepl("YOUR SCRATCHPAD", sys_prompts[[2]], fixed = TRUE))
   expect_true(grepl("prior_occupation=lawyer", sys_prompts[[2]], fixed = TRUE))
@@ -3288,4 +3287,319 @@ test_that("invoke-exception fallback at recursion edge preserves earlier tool fa
   expect_true(is.list(repair_events) && length(repair_events) >= 1L)
   reasons <- vapply(repair_events, function(ev) as.character(ev$repair_reason %||% NA_character_), character(1))
   expect_true(any(reasons == "invoke_exception_fallback", na.rm = TRUE))
+})
+
+
+# ── Observation masking preserves compact snippets (Fix 1) ──────────────────
+
+test_that("observation masking uses compact output instead of URL-only stripping", {
+  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
+  asa_test_skip_if_missing_python_modules(c(
+    "langchain_core",
+    "langgraph",
+    "langgraph.prebuilt",
+    "pydantic"
+  ), method = "import")
+
+  custom_ddg <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  msgs <- reticulate::import("langchain_core.messages", convert = TRUE)
+
+  # Summarizer that captures the fold_text prompt it receives.
+  # The initial history includes a processed ToolMessage (followed by AIMessage)
+  # so folding will exercise the observation-masking path.
+  reticulate::py_run_string(paste0(
+    "from langchain_core.tools import Tool\n",
+    "from langchain_core.messages import AIMessage, ToolMessage\n",
+    "\n",
+    "def _fake_search_compact(query: str) -> str:\n",
+    "    return 'new search result'\n",
+    "\n",
+    "fake_search_compact = Tool(\n",
+    "    name='Search',\n",
+    "    description='Fake search',\n",
+    "    func=_fake_search_compact,\n",
+    ")\n",
+    "\n",
+    "class _CompactStubResponse:\n",
+    "    def __init__(self, content):\n",
+    "        self.content = content\n",
+    "\n",
+    "class _CompactSummarizer:\n",
+    "    def __init__(self):\n",
+    "        self.calls = 0\n",
+    "        self.last_prompt = None\n",
+    "    def invoke(self, messages):\n",
+    "        self.calls += 1\n",
+    "        self.last_prompt = messages[0].content if messages else None\n",
+    "        return _CompactStubResponse('{\"version\":1,\"facts\":[\"birth_year=1982\"],\"decisions\":[],\"open_questions\":[],\"sources\":[],\"warnings\":[]}')\n",
+    "\n",
+    "class _CompactRecordingLLM:\n",
+    "    def __init__(self):\n",
+    "        self.n = 0\n",
+    "    def bind_tools(self, tools):\n",
+    "        return self\n",
+    "    def invoke(self, messages):\n",
+    "        self.n += 1\n",
+    "        if self.n == 1:\n",
+    "            return AIMessage(\n",
+    "                content='searching again',\n",
+    "                tool_calls=[{'name':'Search','args':{'query':'x'},'id':'call_c1'}],\n",
+    "            )\n",
+    "        return AIMessage(content='final answer')\n",
+    "\n",
+    "compact_llm = _CompactRecordingLLM()\n",
+    "compact_summarizer = _CompactSummarizer()\n",
+    "\n",
+    "# Build a processed ToolMessage (with structured source blocks) followed by AIMessage\n",
+    "processed_tool_msg = ToolMessage(\n",
+    "    content=(\n",
+    "        '__START_OF_SOURCE 1__\\n'\n",
+    "        'Title: Ramona Moye Profile\\n'\n",
+    "        'URL: https://example.com/profile\\n'\n",
+    "        'Born 1982 in Beni department, indigenous deputy from TIPNIS\\n'\n",
+    "        '__END_OF_SOURCE 1__\\n'\n",
+    "        '__START_OF_SOURCE 2__\\n'\n",
+    "        'Title: Legislative Records\\n'\n",
+    "        'URL: https://example.com/records\\n'\n",
+    "        'MAS party representative since 2015\\n'\n",
+    "        '__END_OF_SOURCE 2__'\n",
+    "    ),\n",
+    "    tool_call_id='call_prev',\n",
+    "    name='Search',\n",
+    ")\n"
+  ))
+
+  agent <- custom_ddg$create_memory_folding_agent(
+    model = reticulate::py$compact_llm,
+    tools = list(reticulate::py$fake_search_compact),
+    checkpointer = NULL,
+    message_threshold = as.integer(5),
+    keep_recent = as.integer(1),
+    summarizer_model = reticulate::py$compact_summarizer,
+    debug = FALSE
+  )
+
+  # History: HumanMessage -> AIMessage(tool_call) -> ToolMessage(search results) -> AIMessage(processed)
+  # The ToolMessage is "processed" because it's followed by an AIMessage.
+  initial <- msgs$HumanMessage(content = "Find birth_year for Ramona Moye Camaconi")
+  ai_tool_call <- msgs$AIMessage(
+    content = "Let me search",
+    tool_calls = list(list(name = "Search", args = list(query = "x"), id = "call_prev"))
+  )
+  ai_processed <- msgs$AIMessage(content = "I found the profile, born 1982")
+
+  final_state <- agent$invoke(
+    list(messages = list(initial, ai_tool_call, reticulate::py$processed_tool_msg, ai_processed),
+         summary = "",
+         fold_stats = reticulate::dict(fold_count = 0L)),
+    config = list(
+      recursion_limit = as.integer(40),
+      configurable = list(thread_id = "test_compact_masking")
+    )
+  )
+
+  # The summarizer should have received the fold prompt containing snippet content
+  # (not just URLs). Specifically, "Born 1982" should appear in the fold text.
+  expect_equal(as.integer(reticulate::py$compact_summarizer$calls), 1L)
+  last_prompt <- as.character(reticulate::py$compact_summarizer$last_prompt)
+  # Under compact masking, snippet text is preserved (not stripped to URL-only)
+  expect_true(
+    grepl("Born 1982", last_prompt, fixed = TRUE) ||
+    grepl("Ramona Moye Profile", last_prompt, fixed = TRUE),
+    info = "Compact observation masking should preserve snippet content in fold prompt"
+  )
+  # The new compact marker should appear instead of the old URL-only marker
+  expect_true(
+    grepl("processed - compact", last_prompt, fixed = TRUE),
+    info = "Compact masking marker should appear in fold prompt"
+  )
+  # The old URL-only masking marker should NOT appear
+  expect_false(
+    grepl("[already processed]", last_prompt, fixed = TRUE),
+    info = "Old URL-only masking marker should not appear"
+  )
+})
+
+
+# ── Degraded fold recovers on summarizer failure (Fix 3) ────────────────────
+
+test_that("degraded fold preserves FIELD_EXTRACT entries when summarizer fails", {
+  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
+  asa_test_skip_if_missing_python_modules(c(
+    "langchain_core",
+    "langgraph",
+    "langgraph.prebuilt",
+    "pydantic"
+  ), method = "import")
+
+  custom_ddg <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  msgs <- reticulate::import("langchain_core.messages", convert = TRUE)
+
+  # Summarizer that raises an exception (simulating RemoteProtocolError)
+  reticulate::py_run_string(paste0(
+    "from langchain_core.tools import Tool\n",
+    "from langchain_core.messages import AIMessage\n",
+    "\n",
+    "def _fake_search_degrade(query: str) -> str:\n",
+    "    return 'FIELD_EXTRACT: birth_year = 1982 (source: https://example.com)'\n",
+    "\n",
+    "fake_search_degrade = Tool(\n",
+    "    name='Search',\n",
+    "    description='Fake search',\n",
+    "    func=_fake_search_degrade,\n",
+    ")\n",
+    "\n",
+    "class _FailingSummarizer:\n",
+    "    def __init__(self):\n",
+    "        self.calls = 0\n",
+    "    def invoke(self, messages):\n",
+    "        self.calls += 1\n",
+    "        raise ConnectionError('Simulated RemoteProtocolError')\n",
+    "\n",
+    "class _DegradeLLM:\n",
+    "    def __init__(self):\n",
+    "        self.n = 0\n",
+    "    def bind_tools(self, tools):\n",
+    "        return self\n",
+    "    def invoke(self, messages):\n",
+    "        self.n += 1\n",
+    "        if self.n == 1:\n",
+    "            return AIMessage(\n",
+    "                content='searching',\n",
+    "                tool_calls=[{'name':'Search','args':{'query':'x'},'id':'call_d1'}],\n",
+    "            )\n",
+    "        return AIMessage(content='final answer')\n",
+    "\n",
+    "degrade_llm = _DegradeLLM()\n",
+    "failing_summarizer = _FailingSummarizer()\n"
+  ))
+
+  agent <- custom_ddg$create_memory_folding_agent(
+    model = reticulate::py$degrade_llm,
+    tools = list(reticulate::py$fake_search_degrade),
+    checkpointer = NULL,
+    message_threshold = as.integer(5),
+    keep_recent = as.integer(1),
+    summarizer_model = reticulate::py$failing_summarizer,
+    debug = FALSE
+  )
+
+  initial <- msgs$HumanMessage(content = "Find birth_year for test person")
+  ai1 <- msgs$AIMessage(content = "old exchange one")
+  human2 <- msgs$HumanMessage(content = "continue")
+  ai2 <- msgs$AIMessage(content = "old exchange two")
+
+  # Should NOT crash despite summarizer failure
+  final_state <- agent$invoke(
+    list(messages = list(initial, ai1, human2, ai2), summary = "",
+         fold_stats = reticulate::dict(fold_count = 0L)),
+    config = list(
+      recursion_limit = as.integer(40),
+      configurable = list(thread_id = "test_degraded_fold")
+    )
+  )
+
+  fs <- as.list(final_state$fold_stats)
+  # Fold should still have occurred (count incremented)
+  expect_equal(as.integer(fs$fold_count), 1L)
+  # fold_degraded should be TRUE
+  expect_true(isTRUE(fs$fold_degraded))
+  # fold_parse_success should be FALSE
+  expect_false(isTRUE(fs$fold_parse_success))
+  # The summarizer was called (and failed)
+  expect_equal(as.integer(reticulate::py$failing_summarizer$calls), 1L)
+})
+
+
+# ── Post-fold continuation nudge (Fix 4) ────────────────────────────────────
+
+test_that("post-fold system prompt includes continuation nudge", {
+  python_path <- asa_test_skip_if_no_python(required_files = "custom_ddg_production.py")
+  asa_test_skip_if_missing_python_modules(c(
+    "langchain_core",
+    "langgraph",
+    "langgraph.prebuilt",
+    "pydantic"
+  ), method = "import")
+
+  custom_ddg <- reticulate::import_from_path("custom_ddg_production", path = python_path)
+  msgs <- reticulate::import("langchain_core.messages", convert = TRUE)
+
+  reticulate::py_run_string(paste0(
+    "from langchain_core.tools import Tool\n",
+    "from langchain_core.messages import AIMessage\n",
+    "\n",
+    "def _fake_search_nudge(query: str) -> str:\n",
+    "    return 'result data'\n",
+    "\n",
+    "fake_search_nudge = Tool(\n",
+    "    name='Search',\n",
+    "    description='Fake search',\n",
+    "    func=_fake_search_nudge,\n",
+    ")\n",
+    "\n",
+    "class _NudgeStubResponse:\n",
+    "    def __init__(self, content):\n",
+    "        self.content = content\n",
+    "\n",
+    "class _NudgeSummarizer:\n",
+    "    def invoke(self, messages):\n",
+    "        return _NudgeStubResponse('{\"version\":1,\"facts\":[\"some fact\"],\"decisions\":[],\"open_questions\":[],\"sources\":[],\"warnings\":[]}')\n",
+    "\n",
+    "class _NudgeRecordingLLM:\n",
+    "    def __init__(self):\n",
+    "        self.n = 0\n",
+    "        self.system_prompts = []\n",
+    "    def bind_tools(self, tools):\n",
+    "        return self\n",
+    "    def invoke(self, messages):\n",
+    "        self.n += 1\n",
+    "        try:\n",
+    "            self.system_prompts.append(getattr(messages[0], 'content', None))\n",
+    "        except Exception:\n",
+    "            self.system_prompts.append(None)\n",
+    "        if self.n == 1:\n",
+    "            return AIMessage(\n",
+    "                content='searching',\n",
+    "                tool_calls=[{'name':'Search','args':{'query':'x'},'id':'call_n1'}],\n",
+    "            )\n",
+    "        return AIMessage(content='final answer')\n",
+    "\n",
+    "nudge_llm = _NudgeRecordingLLM()\n",
+    "nudge_summarizer = _NudgeSummarizer()\n"
+  ))
+
+  agent <- custom_ddg$create_memory_folding_agent(
+    model = reticulate::py$nudge_llm,
+    tools = list(reticulate::py$fake_search_nudge),
+    checkpointer = NULL,
+    message_threshold = as.integer(5),
+    keep_recent = as.integer(1),
+    summarizer_model = reticulate::py$nudge_summarizer,
+    debug = FALSE
+  )
+
+  initial <- msgs$HumanMessage(content = "research task")
+  ai1 <- msgs$AIMessage(content = "old exchange one")
+  human2 <- msgs$HumanMessage(content = "continue")
+  ai2 <- msgs$AIMessage(content = "old exchange two")
+
+  final_state <- agent$invoke(
+    list(messages = list(initial, ai1, human2, ai2), summary = "",
+         fold_stats = reticulate::dict(fold_count = 0L)),
+    config = list(
+      recursion_limit = as.integer(40),
+      configurable = list(thread_id = "test_post_fold_nudge")
+    )
+  )
+
+  # After fold, the next agent turn should see the post-fold nudge.
+  sys_prompts <- reticulate::py_to_r(reticulate::py$nudge_llm$system_prompts)
+  expect_true(length(sys_prompts) >= 2L)
+  # The post-fold system prompt (second or later) should contain the nudge
+  later_prompts <- sys_prompts[-1]
+  has_nudge <- any(vapply(later_prompts, function(p) {
+    grepl("memory fold just occurred", p, fixed = TRUE)
+  }, logical(1)))
+  expect_true(has_nudge, info = "Post-fold system prompt should contain continuation nudge")
 })

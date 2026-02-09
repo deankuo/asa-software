@@ -24,6 +24,8 @@ from langgraph.managed import RemainingSteps
 from langgraph.prebuilt import ToolNode
 
 from state_utils import (
+    _token_usage_dict_from_message,
+    _token_usage_from_message,
     add_to_list,
     hash_result,
     merge_dicts,
@@ -108,6 +110,9 @@ class ResearchState(TypedDict):
     round_number: int
     queries_used: int
     tokens_used: int
+    input_tokens: int
+    output_tokens: int
+    token_trace: Annotated[list, add_to_list]
     start_time: float
     status: str  # "planning", "searching", "complete", "failed"
     stop_reason: Optional[str]
@@ -140,38 +145,6 @@ def _fuzzy_match_name(name1: str, name2: str) -> float:
     overlap = len(words1 & words2)
     total = len(words1 | words2)
     return overlap / total if total > 0 else 0.0
-
-
-def _token_usage_from_message(message: Any) -> int:
-    """Best-effort extraction of token usage from LangChain message objects."""
-    if message is None:
-        return 0
-
-    # Newer LangChain: AIMessage.usage_metadata = {"input_tokens":..., "output_tokens":..., "total_tokens":...}
-    usage = getattr(message, "usage_metadata", None)
-    if isinstance(usage, dict):
-        total = usage.get("total_tokens")
-        if isinstance(total, (int, float)):
-            return int(total)
-        inp = usage.get("input_tokens")
-        out = usage.get("output_tokens")
-        if isinstance(inp, (int, float)) and isinstance(out, (int, float)):
-            return int(inp + out)
-
-    # Some providers: response_metadata contains usage/token_usage
-    resp_meta = getattr(message, "response_metadata", None)
-    if isinstance(resp_meta, dict):
-        token_usage = resp_meta.get("token_usage") or resp_meta.get("usage") or {}
-        if isinstance(token_usage, dict):
-            total = token_usage.get("total_tokens")
-            if isinstance(total, (int, float)):
-                return int(total)
-            inp = token_usage.get("prompt_tokens")
-            out = token_usage.get("completion_tokens")
-            if isinstance(inp, (int, float)) and isinstance(out, (int, float)):
-                return int(inp + out)
-
-    return 0
 
 
 def _configured_recursion_limit_from_state(state: Any) -> Optional[int]:
@@ -330,13 +303,17 @@ def create_planner_node(llm):
                 plan = {}
             logger.info(f"Plan: entity={plan.get('entity_type')}, wikidata={plan.get('wikidata_type')}")
 
+            usage = _token_usage_dict_from_message(response)
             return {
                 "plan": plan,
                 "entity_type": plan.get("entity_type", "unknown"),
                 "wikidata_type": plan.get("wikidata_type"),
                 "status": "searching",
                 "queries_used": 1,
-                "tokens_used": state.get("tokens_used", 0) + _token_usage_from_message(response),
+                "tokens_used": state.get("tokens_used", 0) + usage["total_tokens"],
+                "input_tokens": state.get("input_tokens", 0) + usage["input_tokens"],
+                "output_tokens": state.get("output_tokens", 0) + usage["output_tokens"],
+                "token_trace": [{"node": "planner", **usage}],
             }
 
         except Exception as e:
@@ -408,6 +385,9 @@ def create_searcher_node(llm, tools, wikidata_tool=None, research_config: Resear
         results = []
         queries_used = state.get("queries_used", 0)
         tokens_used = state.get("tokens_used", 0)
+        input_tokens = state.get("input_tokens", 0)
+        output_tokens = state.get("output_tokens", 0)
+        local_token_trace = []
         total_unique = len(seen_hashes)
         needs_more = target_items is not None and total_unique < target_items
 
@@ -535,7 +515,11 @@ Use the Search tool to find information."""
                 )
                 for _ in range(max_tool_calls):
                     response = model_with_tools.invoke(messages)
-                    tokens_used += _token_usage_from_message(response)
+                    _usage = _token_usage_dict_from_message(response)
+                    tokens_used += _usage["total_tokens"]
+                    input_tokens += _usage["input_tokens"]
+                    output_tokens += _usage["output_tokens"]
+                    local_token_trace.append({"node": "searcher", **_usage})
                     messages.append(response)
                     queries_used += 1
 
@@ -574,7 +558,11 @@ Use the Search tool to find information."""
 
                     extraction_messages = [HumanMessage(content=extraction_prompt)]
                     extraction_response = llm.invoke(extraction_messages)
-                    tokens_used += _token_usage_from_message(extraction_response)
+                    _ext_usage = _token_usage_dict_from_message(extraction_response)
+                    tokens_used += _ext_usage["total_tokens"]
+                    input_tokens += _ext_usage["input_tokens"]
+                    output_tokens += _ext_usage["output_tokens"]
+                    local_token_trace.append({"node": "searcher_extract", **_ext_usage})
                     queries_used += 1
 
                     parsed = parse_llm_json(extraction_response.content)
@@ -680,6 +668,9 @@ Use the Search tool to find information."""
             "new_results": results,
             "queries_used": queries_used,
             "tokens_used": tokens_used,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "token_trace": local_token_trace,
             "round_number": state.get("round_number", 0) + 1
         }
 
@@ -898,6 +889,9 @@ def _build_initial_state(
         "round_number": 0,
         "queries_used": 0,
         "tokens_used": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "token_trace": [],
         "start_time": time.time(),
         "status": "planning",
         "stop_reason": None,
@@ -999,6 +993,9 @@ def _build_research_result(
             "round_number": state.get("round_number", 0),
             "queries_used": state.get("queries_used", 0),
             "tokens_used": state.get("tokens_used", 0),
+            "input_tokens": state.get("input_tokens", 0),
+            "output_tokens": state.get("output_tokens", 0),
+            "token_trace": state.get("token_trace", []),
             "time_elapsed": elapsed,
             "items_found": len(results)
         },

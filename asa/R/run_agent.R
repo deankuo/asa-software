@@ -135,7 +135,11 @@
       stop_reason = NA_character_,
       budget_state = list(),
       field_status = list(),
-      json_repair = list()
+      json_repair = list(),
+      tokens_used = NA_integer_,
+      input_tokens = NA_integer_,
+      output_tokens = NA_integer_,
+      token_trace = list()
     ))
   }
 
@@ -171,6 +175,12 @@
     fold_stats$fold_count <- 0L
   }
 
+  # Extract token usage from Python state
+  tokens_used <- .as_scalar_int(.try_or(raw_response$tokens_used, NA_integer_))
+  input_tokens <- .as_scalar_int(.try_or(raw_response$input_tokens, NA_integer_))
+  output_tokens <- .as_scalar_int(.try_or(raw_response$output_tokens, NA_integer_))
+  token_trace <- .try_or(as.list(raw_response$token_trace), list())
+
   # Return response object
   asa_response(
     message = response_text,
@@ -189,7 +199,11 @@
     stop_reason = stop_reason,
     budget_state = budget_state_out,
     field_status = field_status_out,
-    json_repair = json_repair
+    json_repair = json_repair,
+    tokens_used = tokens_used,
+    input_tokens = input_tokens,
+    output_tokens = output_tokens,
+    token_trace = token_trace
   )
 }
 
@@ -366,6 +380,11 @@
     initial_state$finalize_on_all_fields_resolved <- isTRUE(finalize_on_all_fields_resolved)
   }
 
+  initial_state$tokens_used <- 0L
+  initial_state$input_tokens <- 0L
+  initial_state$output_tokens <- 0L
+  initial_state$token_trace <- list()
+
   # Only seed summary/fold_stats when starting a fresh (ephemeral) thread.
   if (is.null(thread_id)) {
     initial_state$summary <- reticulate::dict()
@@ -394,7 +413,11 @@
   resolved_thread_id <- .resolve_thread_id(thread_id)
   initial_state <- list(
     messages = list(list(role = "user", content = prompt)),
-    stop_reason = NULL
+    stop_reason = NULL,
+    tokens_used = 0L,
+    input_tokens = 0L,
+    output_tokens = 0L,
+    token_trace = list()
   )
   if (!is.null(expected_schema)) {
     initial_state$expected_schema <- expected_schema
@@ -605,6 +628,9 @@
         return(NA_character_)
       }
 
+      # Strip embedded NUL bytes (cause "Embedded NUL in string" from reticulate)
+      text <- .strip_nul(text)
+
       # Clean XML tags without stripping inner content
       text <- gsub("</?[^>]+>", "", text)
 
@@ -624,6 +650,19 @@
   })
 
   response_text
+}
+
+#' Strip embedded NUL bytes from a string
+#'
+#' NUL bytes (\x00) in web page content survive UTF-8 decoding and cause
+#' "Embedded NUL in string" errors when passed from Python to R via reticulate.
+#' @keywords internal
+.strip_nul <- function(x) {
+  if (!is.character(x) || length(x) == 0) return(x)
+  vapply(x, function(s) {
+    r <- charToRaw(s)
+    rawToChar(r[r != as.raw(0L)])
+  }, character(1), USE.NAMES = FALSE)
 }
 
 #' Build Trace from Raw Response
@@ -652,10 +691,11 @@
 .build_trace <- function(raw_response) {
   tryCatch({
     cleaned <- .strip_trace_noise(raw_response)
-    paste(
+    out <- paste(
       lapply(unlist(cleaned), function(l) capture.output(l)),
       collapse = "\n\n"
     )
+    .strip_nul(out)
   }, error = function(e) {
     ""
   })

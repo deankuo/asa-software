@@ -316,6 +316,13 @@ run_task <- function(prompt,
   } else {
     NA_character_
   }
+  tokens_used <- .as_scalar_int(response$tokens_used)
+  token_stats <- .build_token_stats(
+    tokens_used = tokens_used,
+    input_tokens = .as_scalar_int(response$input_tokens),
+    output_tokens = .as_scalar_int(response$output_tokens),
+    token_trace = response$token_trace %||% list()
+  )
   execution <- list(
     thread_id = response$thread_id %||% thread_id %||% NA_character_,
     stop_reason = stop_reason,
@@ -327,7 +334,8 @@ run_task <- function(prompt,
     fold_stats = response$fold_stats %||% list(),
     budget_state = budget_state_out,
     field_status = response$field_status %||% list(),
-    json_repair = response$json_repair %||% list()
+    json_repair = response$json_repair %||% list(),
+    token_stats = token_stats
   )
 
   # Build result object - always return asa_result for consistent API
@@ -343,8 +351,10 @@ run_task <- function(prompt,
     parsing_status = parsing_status,
     execution = execution
   )
+  # Top-level aliases for backward compat; canonical location is $execution
   result$fold_stats <- response$fold_stats %||% list()
   result$status_code <- response$status_code %||% NA_integer_
+  result$token_stats <- token_stats
 
   # For "raw" format, add additional fields for debugging
   if (identical(output_format, "raw")) {
@@ -807,6 +817,13 @@ run_task_batch <- function(prompts,
     prompts$status <- vapply(results, function(r) r$status %||% NA_character_, character(1))
     prompts$elapsed_time <- vapply(results, function(r) r$elapsed_time %||% NA_real_, numeric(1))
     prompts$search_tier <- vapply(results, function(r) r$search_tier %||% "unknown", character(1))
+    prompts$tokens_used <- vapply(results, function(r) {
+      ts <- r$token_stats
+      if (!is.null(ts) && !is.null(ts$tokens_used)) {
+        return(.as_scalar_int(ts$tokens_used) %||% NA_integer_)
+      }
+      .as_scalar_int(r$execution$tokens_used) %||% NA_integer_
+    }, integer(1))
 
     # Add parsed fields if JSON output
     if (identical(output_format, "json") || (is.character(output_format) && length(output_format) > 1)) {

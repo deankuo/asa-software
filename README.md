@@ -642,7 +642,7 @@ Sys.setenv(OPENAI_API_KEY = "sk-...")
 **Python environment issues?**
 ```r
 # Rebuild the conda environment
-asa::build_backend(conda_env = "asa_env", force = TRUE)
+asa::build_backend(conda_env = "asa_env", python_version = "3.12", force = TRUE)
 ```
 
 **Cost considerations:**
@@ -652,14 +652,14 @@ asa::build_backend(conda_env = "asa_env", force = TRUE)
 ## Performance
 
 <!-- SPEED_REPORT_START -->
-**Last Run:** 2026-02-07 20:12:32 CST | **Status:** PASS
+**Last Run:** 2026-02-08 18:13:16 CST | **Status:** PASS
 
 | Benchmark | Current | Baseline | Ratio | Status |
 |-----------|---------|----------|-------|--------|
-| `build_prompt` | 0.085s | 0.09s | 0.94x | PASS |
-| `helper_funcs` | 0.045s | 0.07s | 0.65x | PASS |
-| `combined` | 0.073s | 0.09s | 0.81x | PASS |
-| `agent_search` | 31.0s | 18s | 1.76x | PASS |
+| `build_prompt` | 0.074s | 0.09s | 0.82x | PASS |
+| `helper_funcs` | 0.041s | 0.07s | 0.59x | PASS |
+| `combined` | 0.066s | 0.09s | 0.72x | PASS |
+| `agent_search` | 31.2s | 18s | 1.77x | PASS |
 
 Tests fail if time exceeds 4.00x baseline. 
 See [full report](asa/tests/testthat/SPEED_REPORT.md) for details.
@@ -668,7 +668,7 @@ See [full report](asa/tests/testthat/SPEED_REPORT.md) for details.
 ## Requirements
 
 - R >= 4.0
-- Python >= 3.14 (managed via conda)
+- Python 3.12 or 3.13 (managed via conda; 3.14 currently emits upstream `pydantic.v1` warnings in LangChain)
 - reticulate, jsonlite, rlang
 
 **Optional:**
