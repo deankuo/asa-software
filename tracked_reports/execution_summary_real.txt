@@ -1,0 +1,149 @@
+{
+  "elapsed_time": 2.7677,
+  "field_status": {
+    "education_level": {
+      "status": "pending",
+      "value": null,
+      "source_url": null,
+      "evidence": null,
+      "attempts": 2,
+      "descriptor": "High School|Some College|Associate|Bachelor's|Master's/Professional|PhD|Unknown"
+    },
+    "education_institution": {
+      "status": "pending",
+      "value": null,
+      "source_url": null,
+      "evidence": null,
+      "attempts": 2,
+      "descriptor": "string|Unknown"
+    },
+    "education_field": {
+      "status": "pending",
+      "value": null,
+      "source_url": null,
+      "evidence": null,
+      "attempts": 2,
+      "descriptor": "string|Unknown"
+    },
+    "education_source": {
+      "status": "pending",
+      "value": null,
+      "source_url": null,
+      "evidence": null,
+      "attempts": 2,
+      "descriptor": "string|null"
+    },
+    "prior_occupation": {
+      "status": "found",
+      "value": "Presidenta de la Organización de Mujeres - Sub Central Sécure",
+      "source_url": "http://www.vicepresidencia.gob.bo/spip.php?page=parlamentario&id_parlamentario=609",
+      "evidence": null,
+      "attempts": 2,
+      "descriptor": "string|Unknown"
+    },
+    "class_background": {
+      "status": "found",
+      "value": "Indigenous",
+      "source_url": "https://observatorioccdbolivia.wordpress.com/2019/04/25/el-tipnis-y-el-madidi-las-heridas-que-sangran-en-el-rostro-indigena-de-bolivia",
+      "evidence": null,
+      "attempts": 2,
+      "descriptor": "Working class|Middle class/professional|Upper/elite|Unknown"
+    },
+    "prior_occupation_source": {
+      "status": "pending",
+      "value": null,
+      "source_url": null,
+      "evidence": null,
+      "attempts": 2,
+      "descriptor": "string|null"
+    },
+    "disability_status": {
+      "status": "pending",
+      "value": null,
+      "source_url": null,
+      "evidence": null,
+      "attempts": 2,
+      "descriptor": "No disability|Some disability|Unknown"
+    },
+    "disability_source": {
+      "status": "pending",
+      "value": null,
+      "source_url": null,
+      "evidence": null,
+      "attempts": 2,
+      "descriptor": "string|null"
+    },
+    "birth_place": {
+      "status": "found",
+      "value": "TIPNIS",
+      "source_url": "https://observatorioccdbolivia.wordpress.com/2019/04/25/el-tipnis-y-el-madidi-las-heridas-que-sangran-en-el-rostro-indigena-de-bolivia",
+      "evidence": null,
+      "attempts": 2,
+      "descriptor": "string|Unknown"
+    },
+    "birth_place_source": {
+      "status": "pending",
+      "value": null,
+      "source_url": null,
+      "evidence": null,
+      "attempts": 2,
+      "descriptor": "string|null"
+    },
+    "birth_year": {
+      "status": "found",
+      "value": "1982",
+      "source_url": "http://www.vicepresidencia.gob.bo/spip.php?page=parlamentario&id_parlamentario=609",
+      "evidence": null,
+      "attempts": 2,
+      "descriptor": "integer|null|Unknown"
+    },
+    "birth_year_source": {
+      "status": "pending",
+      "value": null,
+      "source_url": null,
+      "evidence": null,
+      "attempts": 2,
+      "descriptor": "string|null"
+    },
+    "lgbtq_status": {
+      "status": "pending",
+      "value": null,
+      "source_url": null,
+      "evidence": null,
+      "attempts": 2,
+      "descriptor": "Non-LGBTQ|Openly LGBTQ|Unknown"
+    },
+    "lgbtq_details": {
+      "status": "pending",
+      "value": null,
+      "source_url": null,
+      "evidence": null,
+      "attempts": 2,
+      "descriptor": "string|null"
+    },
+    "lgbtq_source": {
+      "status": "pending",
+      "value": null,
+      "source_url": null,
+      "evidence": null,
+      "attempts": 2,
+      "descriptor": "string|null"
+    },
+    "confidence": {
+      "status": "pending",
+      "value": null,
+      "source_url": null,
+      "evidence": null,
+      "attempts": 2,
+      "descriptor": "Low|Medium|High"
+    },
+    "justification": {
+      "status": "pending",
+      "value": null,
+      "source_url": null,
+      "evidence": null,
+      "attempts": 2,
+      "descriptor": "string"
+    }
+  }
+}

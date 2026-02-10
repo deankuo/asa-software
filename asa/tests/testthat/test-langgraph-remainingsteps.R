@@ -3624,7 +3624,8 @@ test_that("_parse_plan_response handles valid JSON", {
   )
   result_r <- reticulate::py_to_r(result)
   expect_equal(result_r$goal, "G")
-  expect_equal(length(result_r$steps), 1L)
+  # Single-step plans are auto-expanded into a 4-step research template
+  expect_equal(length(result_r$steps), 4L)
   expect_equal(result_r$steps[[1]]$status, "pending")
 })
 

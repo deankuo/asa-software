@@ -5987,6 +5987,7 @@ class MemoryFoldingAgentState(TypedDict):
 # Shared agent helpers (used by both memory-folding and standard agents)
 # ────────────────────────────────────────────────────────────────────────
 FINALIZE_WHEN_REMAINING_STEPS_LTE = 2
+_MAX_PREMATURE_END_NUDGES = 2
 
 
 def _exception_fallback_text(
@@ -7740,13 +7741,64 @@ def create_memory_folding_agent(
         - 'tools': If the agent wants to use a tool
         - 'summarize': Safety-net fold if context exceeds budget and agent
           produced a non-tool-call response (primary fold happens in after_tools)
+        - 'nudge': If agent tried to end with many unresolved fields
         - 'end': If the agent is done and no folding needed
         """
-        return _route_after_agent_step(
+        base_result = _route_after_agent_step(
             state,
             allow_summarize=True,
             should_fold=should_fold_messages,
         )
+        if base_result == "end":
+            # Don't nudge if we're at/near the recursion limit
+            remaining = remaining_steps_value(state)
+            if state.get("stop_reason") == "recursion_limit":
+                return "end"
+            if remaining is not None and remaining <= FINALIZE_WHEN_REMAINING_STEPS_LTE + 3:
+                return "end"
+            # Don't nudge if caller opted into resolution-based finalization
+            if state.get("finalize_on_all_fields_resolved"):
+                return "end"
+            # Check if this is a premature ending with many unresolved fields
+            progress = _field_status_progress(_state_field_status(state))
+            total = int(progress.get("total_fields", 0))
+            unresolved = int(progress.get("unresolved_fields", 0))
+            nudge_count = int((state.get("budget_state") or {}).get("premature_end_nudge_count", 0))
+            if (
+                total > 0
+                and unresolved > 0
+                and nudge_count < _MAX_PREMATURE_END_NUDGES
+            ):
+                if debug:
+                    logger.info(
+                        "Nudging agent: %s/%s fields unresolved, nudge %s/%s",
+                        unresolved, total, nudge_count + 1, _MAX_PREMATURE_END_NUDGES,
+                    )
+                return "nudge"
+        return base_result
+
+    def nudge_node(state: MemoryFoldingAgentState) -> dict:
+        """Inject a continuation message when the agent tries to end with unresolved fields."""
+        field_status = _state_field_status(state)
+        pending = [
+            fn for fn, fs in field_status.items()
+            if fs.get("status") == _FIELD_STATUS_PENDING
+            and not fn.endswith("_source")
+            and fn not in ("confidence", "justification")
+        ]
+        nudge_count = int((state.get("budget_state") or {}).get("premature_end_nudge_count", 0))
+        nudge_msg = HumanMessage(content=(
+            f"CONTINUE SEARCHING — {len(pending)} fields are still unresolved: "
+            f"{', '.join(pending[:10])}. "
+            "Use Search or OpenWebpage to find this information. "
+            "Do NOT produce a final answer yet. "
+            "For each value you discover, call save_finding(finding='field_name = value "
+            "(source: URL)', category='fact')."
+        ))
+        return {
+            "messages": [nudge_msg],
+            "budget_state": {"premature_end_nudge_count": nudge_count + 1},
+        }
 
     def after_tools(state: MemoryFoldingAgentState) -> str:
         """
@@ -7824,6 +7876,7 @@ def create_memory_folding_agent(
     workflow.add_node("tools", tool_node_with_scratchpad)
     workflow.add_node("summarize", summarize_conversation)
     workflow.add_node("finalize", finalize_answer)
+    workflow.add_node("nudge", nudge_node)
 
     workflow.set_entry_point("agent")
 
@@ -7835,9 +7888,13 @@ def create_memory_folding_agent(
             "tools": "tools",
             "summarize": "summarize",
             "finalize": "finalize",
+            "nudge": "nudge",
             "end": END
         }
     )
+
+    # Nudge routes back to agent for another attempt
+    workflow.add_edge("nudge", "agent")
 
     # Tools route back to agent, with optional summarization when too long
     workflow.add_conditional_edges(
@@ -8208,7 +8265,45 @@ def create_standard_agent(
         return out
 
     def should_continue(state: StandardAgentState) -> str:
-        return _route_after_agent_step(state)
+        base_result = _route_after_agent_step(state)
+        if base_result == "end":
+            remaining = remaining_steps_value(state)
+            if state.get("stop_reason") == "recursion_limit":
+                return "end"
+            if remaining is not None and remaining <= FINALIZE_WHEN_REMAINING_STEPS_LTE + 3:
+                return "end"
+            if state.get("finalize_on_all_fields_resolved"):
+                return "end"
+            progress = _field_status_progress(_state_field_status(state))
+            total = int(progress.get("total_fields", 0))
+            unresolved = int(progress.get("unresolved_fields", 0))
+            nudge_count = int((state.get("budget_state") or {}).get("premature_end_nudge_count", 0))
+            if total > 0 and unresolved > 0 and nudge_count < _MAX_PREMATURE_END_NUDGES:
+                return "nudge"
+        return base_result
+
+    def nudge_node(state: StandardAgentState) -> dict:
+        """Inject a continuation message when the agent tries to end with unresolved fields."""
+        field_status = _state_field_status(state)
+        pending = [
+            fn for fn, fs in field_status.items()
+            if fs.get("status") == _FIELD_STATUS_PENDING
+            and not fn.endswith("_source")
+            and fn not in ("confidence", "justification")
+        ]
+        nudge_count = int((state.get("budget_state") or {}).get("premature_end_nudge_count", 0))
+        nudge_msg = HumanMessage(content=(
+            f"CONTINUE SEARCHING — {len(pending)} fields are still unresolved: "
+            f"{', '.join(pending[:10])}. "
+            "Use Search or OpenWebpage to find this information. "
+            "Do NOT produce a final answer yet. "
+            "For each value you discover, call save_finding(finding='field_name = value "
+            "(source: URL)', category='fact')."
+        ))
+        return {
+            "messages": [nudge_msg],
+            "budget_state": {"premature_end_nudge_count": nudge_count + 1},
+        }
 
     def after_tools(state: StandardAgentState) -> str:
         return _route_after_tools_step(state)
@@ -8217,6 +8312,7 @@ def create_standard_agent(
     workflow.add_node("agent", agent_node)
     workflow.add_node("tools", tool_node_with_scratchpad)
     workflow.add_node("finalize", finalize_answer)
+    workflow.add_node("nudge", nudge_node)
 
     workflow.set_entry_point("agent")
 
@@ -8226,9 +8322,12 @@ def create_standard_agent(
         {
             "tools": "tools",
             "finalize": "finalize",
+            "nudge": "nudge",
             "end": END
         }
     )
+
+    workflow.add_edge("nudge", "agent")
 
     workflow.add_conditional_edges(
         "tools",

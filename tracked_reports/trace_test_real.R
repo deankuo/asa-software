@@ -1,11 +1,13 @@
 # Rscript: trace_test_real.R
 
-# outputs: 
+# outputs:
 #./asa-software/tracked_reports/prompt_example_real.txt
-#./asa-software/tracked_reports/trace_real.txt
+#./asa-software/tracked_reports/trace_real.txt          (asa_trace_v1 structured JSON)
 #./asa-software/tracked_reports/token_stats_real.txt
 #./asa-software/tracked_reports/plan_output_real.txt
-# ./asa-software/tracked_reports/our_answer_real.txt
+#./asa-software/tracked_reports/fold_stats_real.txt
+#./asa-software/tracked_reports/execution_summary_real.txt
+#./asa-software/tracked_reports/our_answer_real.txt
 options(error=NULL)
 # devtools::load_all('~/Documents/asa-software/asa')
 # devtools::install_github( 'cjerzak/asa-software/asa' )
@@ -153,9 +155,9 @@ attempt <- asa::run_task(
     verbose = FALSE,
     use_plan_mode = TRUE, 
     agent = asa::initialize_agent(
-      #backend = "gemini", model = "gemini-3-pro-preview",
+      backend = "gemini", model = "gemini-3-pro-preview",
       #backend = "gemini", model = "gemini-3-flash-preview",
-      backend = "openai", model = "gpt-5-mini-2025-08-07",
+      #backend = "openai", model = "gpt-5-mini-2025-08-07",
       #backend = "openai", model = "gpt-5-nano-2025-08-07",
       # proxy = proxy,
       use_browser = FALSE, 
@@ -185,23 +187,43 @@ attempt <- asa::run_task(
 
 # write to disk for further investigations.
 readr::write_file(prompt, "~/Documents/asa-software/tracked_reports/prompt_example_real.txt")
-writeLines(attempt$trace, "~/Documents/asa-software/tracked_reports/trace_real.txt", useBytes = TRUE)
+
+# Structured trace (asa_trace_v1 format — each message is a distinct JSON object)
+readr::write_file(
+  attempt$trace_json,
+  "~/Documents/asa-software/tracked_reports/trace_real.txt"
+)
+
 readr::write_file(jsonlite::toJSON(attempt$token_stats, auto_unbox = TRUE, pretty = TRUE, null = "null"), "~/Documents/asa-software/tracked_reports/token_stats_real.txt")
 readr::write_file(jsonlite::toJSON(attempt$plan, auto_unbox = TRUE, pretty = TRUE, null = "null"), "~/Documents/asa-software/tracked_reports/plan_output_real.txt")
 
+# fold_stats
+readr::write_file(
+  jsonlite::toJSON(attempt$fold_stats, auto_unbox = TRUE, pretty = TRUE, null = "null"),
+  "~/Documents/asa-software/tracked_reports/fold_stats_real.txt"
+)
 
-attempt$token_stats$tokens_used
-attempt$token_stats$input_tokens
-attempt$token_stats$output_tokens
-attempt$plan
-attempt$plan_history
-plot(unlist(lapply(attempt$token_stats$token_trace,function(l_){l_$input_tokens})))
-plot(unlist(attempt$token_stats$token_trace))
-attempt$elapsed_time
-attempt$fold_stats
+# execution summary (elapsed_time, field_status)
+readr::write_file(
+  jsonlite::toJSON(
+    list(
+      elapsed_time = attempt$elapsed_time,
+      field_status = attempt$execution$field_status
+    ),
+    auto_unbox = TRUE, pretty = TRUE, null = "null"
+  ),
+  "~/Documents/asa-software/tracked_reports/execution_summary_real.txt"
+)
 
-# save final answer
-tmp <- readr::read_file('~/Documents/asa-software/tracked_reports/trace_real.txt')
+cat("Token stats:\n")
+cat("  tokens_used:", attempt$token_stats$tokens_used, "\n")
+cat("  input_tokens:", attempt$token_stats$input_tokens, "\n")
+cat("  output_tokens:", attempt$token_stats$output_tokens, "\n")
+cat("  elapsed_time:", attempt$elapsed_time, "\n")
+cat("  fold_stats:", jsonlite::toJSON(attempt$fold_stats, auto_unbox = TRUE), "\n")
+
+# save final answer (extract from structured trace on disk)
+tmp <- readr::read_file("~/Documents/asa-software/tracked_reports/trace_real.txt")
 final_answer <- asa::extract_agent_results(tmp)[["json_data"]]
 message("Trace test complete")
 
@@ -214,9 +236,11 @@ jsonlite::write_json(
 )
 cat(jsonlite::toJSON(final_answer, pretty = TRUE, auto_unbox = TRUE, null = "null"))
 
-# outputs: 
+# outputs:
 #./asa-software/tracked_reports/prompt_example_real.txt
-#./asa-software/tracked_reports/trace_real.txt
+#./asa-software/tracked_reports/trace_real.txt          (asa_trace_v1 structured JSON)
 #./asa-software/tracked_reports/token_stats_real.txt
 #./asa-software/tracked_reports/plan_output_real.txt
-# ./asa-software/tracked_reports/our_answer_real.txt
+#./asa-software/tracked_reports/fold_stats_real.txt
+#./asa-software/tracked_reports/execution_summary_real.txt
+#./asa-software/tracked_reports/our_answer_real.txt
