@@ -652,14 +652,14 @@ asa::build_backend(conda_env = "asa_env", python_version = "3.12", force = TRUE)
 ## Performance
 
 <!-- SPEED_REPORT_START -->
-**Last Run:** 2026-02-08 18:13:16 CST | **Status:** PASS
+**Last Run:** 2026-02-09 09:02:28 CST | **Status:** PASS
 
 | Benchmark | Current | Baseline | Ratio | Status |
 |-----------|---------|----------|-------|--------|
-| `build_prompt` | 0.074s | 0.09s | 0.82x | PASS |
-| `helper_funcs` | 0.041s | 0.07s | 0.59x | PASS |
-| `combined` | 0.066s | 0.09s | 0.72x | PASS |
-| `agent_search` | 31.2s | 18s | 1.77x | PASS |
+| `build_prompt` | 0.079s | 0.09s | 0.88x | PASS |
+| `helper_funcs` | 0.047s | 0.07s | 0.67x | PASS |
+| `combined` | 0.072s | 0.09s | 0.79x | PASS |
+| `agent_search` | 31.0s | 18s | 1.76x | PASS |
 
 Tests fail if time exceeds 4.00x baseline. 
 See [full report](asa/tests/testthat/SPEED_REPORT.md) for details.
