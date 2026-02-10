@@ -4470,6 +4470,32 @@ def _coerce_found_value_for_descriptor(value: Any, descriptor: Any) -> Any:
                     return int(text)
                 except Exception:
                     return value
+
+    # Enum coercion for pipe-separated descriptors
+    options = [o.strip() for o in descriptor.split("|")]
+    type_keywords = {"string", "integer", "null", "number", "boolean", "float"}
+    options_concrete = [o for o in options if o.lower() not in type_keywords]
+    if len(options_concrete) >= 2:
+        val_str = str(value).strip()
+        # Exact match (case-insensitive)
+        for opt in options_concrete:
+            if opt.lower() == val_str.lower():
+                return opt
+        # Fuzzy match via token overlap (Jaccard)
+        best, best_score = None, 0.0
+        val_tokens = set(val_str.lower().split())
+        for opt in options_concrete:
+            opt_tokens = set(opt.lower().split())
+            if not val_tokens or not opt_tokens:
+                continue
+            jaccard = len(val_tokens & opt_tokens) / len(val_tokens | opt_tokens)
+            if jaccard > best_score:
+                best, best_score = opt, jaccard
+        if best and best_score >= 0.3:
+            return best
+        # No good match — fall back to "Unknown" if available
+        if "Unknown" in options_concrete:
+            return "Unknown"
     return value
 
 
