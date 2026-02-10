@@ -706,12 +706,60 @@
 
 .build_trace <- function(raw_response) {
   tryCatch({
-    cleaned <- .strip_trace_noise(raw_response)
-    out <- paste(
-      lapply(unlist(cleaned), function(l) capture.output(l)),
-      collapse = "\n\n"
-    )
-    .strip_nul(out)
+    messages <- .try_or(raw_response$messages)
+    if (is.null(messages) || length(messages) == 0) {
+      # Fallback: print the whole response if no messages list
+      cleaned <- .strip_trace_noise(raw_response)
+      return(.strip_nul(paste(capture.output(print(cleaned)), collapse = "\n")))
+    }
+    parts <- character(0)
+    for (msg in messages) {
+      entry <- tryCatch({
+        msg_type <- .try_or(as.character(msg$type), "unknown")
+        if (length(msg_type) == 0) msg_type <- "unknown"
+        msg_name <- .try_or(as.character(msg$name), "")
+        if (length(msg_name) == 0) msg_name <- ""
+        header <- if (nzchar(msg_name)) {
+          paste0("[", msg_type, ": ", msg_name, "]")
+        } else {
+          paste0("[", msg_type, "]")
+        }
+        content <- .try_or(msg$content)
+        content_str <- ""
+        if (is.character(content)) {
+          content_str <- paste(content, collapse = "\n")
+        } else if (is.list(content)) {
+          text_parts <- character(0)
+          for (item in content) {
+            if (is.character(item)) {
+              text_parts <- c(text_parts, item)
+            } else if (is.list(item)) {
+              if (!is.null(item$text)) text_parts <- c(text_parts, as.character(item$text))
+              if (!is.null(item$content)) text_parts <- c(text_parts, as.character(item$content))
+            }
+          }
+          content_str <- paste(text_parts[nzchar(text_parts)], collapse = "\n")
+        } else if (!is.null(content)) {
+          content_str <- .try_or(paste(as.character(content), collapse = "\n"), "")
+        }
+        # Include tool calls if present
+        tool_calls <- .try_or(msg$tool_calls)
+        tc_str <- ""
+        if (!is.null(tool_calls) && length(tool_calls) > 0) {
+          tc_parts <- vapply(tool_calls, function(tc) {
+            tc_name <- .try_or(as.character(tc$name), "?")
+            tc_args <- paste(.try_or(as.character(tc$args), ""), collapse = ", ")
+            paste0("  -> ", tc_name, "(", tc_args, ")")
+          }, character(1))
+          tc_str <- paste(tc_parts, collapse = "\n")
+        }
+        paste(c(header, content_str, tc_str), collapse = "\n")
+      }, error = function(e) {
+        paste0("[message format error: ", conditionMessage(e), "]")
+      })
+      parts <- c(parts, entry)
+    }
+    .strip_nul(paste(parts, collapse = "\n\n"))
   }, error = function(e) {
     ""
   })

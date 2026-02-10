@@ -4676,6 +4676,25 @@ def _apply_field_status_terminal_guard(
 
     payload = _canonical_payload_from_field_status(expected_schema, field_status)
     if payload is None:
+        # Canonical payload not built (e.g. no resolved fields), but still
+        # apply derivations (justification, confidence) to model's raw output.
+        normalized_fs = _normalize_field_status_map(field_status, expected_schema)
+        current_content = response.get("content") if isinstance(response, dict) else getattr(response, "content", None)
+        raw_text = _message_content_to_text(current_content).strip()
+        try:
+            raw_json = json.loads(raw_text)
+            patched = _apply_canonical_payload_derivations(raw_json, normalized_fs)
+            patched_text = json.dumps(_json_safe_value(patched), ensure_ascii=False)
+            if patched_text != raw_text:
+                if isinstance(response, dict):
+                    response["content"] = patched_text
+                else:
+                    try:
+                        response.content = patched_text
+                    except Exception:
+                        pass
+        except Exception:
+            pass
         return response, None
 
     try:
@@ -6999,6 +7018,19 @@ def create_memory_folding_agent(
             repair_events.append(canonical_event)
         if repair_events:
             out["json_repair"] = repair_events
+        # Auto-complete plan steps on finalization
+        if plan_mode_enabled and plan:
+            _auto_plan = plan if isinstance(plan, dict) else {}
+            _auto_steps = _auto_plan.get("steps", [])
+            if _auto_steps:
+                for _s in _auto_steps:
+                    if isinstance(_s, dict):
+                        _st = _s.get("status", "")
+                        if _st == "in_progress":
+                            _s["status"] = "completed"
+                        elif _st == "pending":
+                            _s["status"] = "skipped"
+                out["plan"] = _auto_plan
         return out
 
     def summarize_conversation(state: MemoryFoldingAgentState) -> dict:
@@ -8105,6 +8137,19 @@ def create_standard_agent(
             repair_events.append(canonical_event)
         if repair_events:
             out["json_repair"] = repair_events
+        # Auto-complete plan steps on finalization
+        if plan_mode_enabled and plan:
+            _auto_plan = plan if isinstance(plan, dict) else {}
+            _auto_steps = _auto_plan.get("steps", [])
+            if _auto_steps:
+                for _s in _auto_steps:
+                    if isinstance(_s, dict):
+                        _st = _s.get("status", "")
+                        if _st == "in_progress":
+                            _s["status"] = "completed"
+                        elif _st == "pending":
+                            _s["status"] = "skipped"
+                out["plan"] = _auto_plan
         return out
 
     def should_continue(state: StandardAgentState) -> str:

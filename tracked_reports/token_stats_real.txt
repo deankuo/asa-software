@@ -1,62 +1,56 @@
 {
-  "tokens_used": 58613,
-  "input_tokens": 44967,
-  "output_tokens": 13646,
-  "fold_tokens": 14398,
+  "tokens_used": 57778,
+  "input_tokens": 48998,
+  "output_tokens": 8780,
+  "fold_tokens": 14517,
   "token_trace": [
     {
       "node": "agent",
       "input_tokens": 2137,
-      "output_tokens": 479,
-      "total_tokens": 2616
+      "output_tokens": 311,
+      "total_tokens": 2448
     },
     {
       "node": "agent",
-      "input_tokens": 3881,
-      "output_tokens": 332,
-      "total_tokens": 4213
+      "input_tokens": 6124,
+      "output_tokens": 619,
+      "total_tokens": 6743
     },
     {
       "node": "summarize",
-      "input_tokens": 1571,
-      "output_tokens": 2792,
-      "total_tokens": 4363
+      "input_tokens": 3426,
+      "output_tokens": 3064,
+      "total_tokens": 6490
     },
     {
       "node": "agent",
-      "input_tokens": 5597,
-      "output_tokens": 235,
-      "total_tokens": 5832
-    },
-    {
-      "node": "agent",
-      "input_tokens": 6369,
-      "output_tokens": 213,
-      "total_tokens": 6582
-    },
-    {
-      "node": "agent",
-      "input_tokens": 6717,
-      "output_tokens": 114,
-      "total_tokens": 6831
+      "input_tokens": 8670,
+      "output_tokens": 280,
+      "total_tokens": 8950
     },
     {
       "node": "summarize",
-      "input_tokens": 2260,
-      "output_tokens": 7775,
-      "total_tokens": 10035
+      "input_tokens": 4306,
+      "output_tokens": 3721,
+      "total_tokens": 8027
     },
     {
       "node": "agent",
-      "input_tokens": 8335,
-      "output_tokens": 289,
-      "total_tokens": 8624
+      "input_tokens": 7641,
+      "output_tokens": 237,
+      "total_tokens": 7878
     },
     {
-      "node": "finalize",
-      "input_tokens": 8100,
-      "output_tokens": 1417,
-      "total_tokens": 9517
+      "node": "agent",
+      "input_tokens": 8415,
+      "output_tokens": 406,
+      "total_tokens": 8821
+    },
+    {
+      "node": "agent",
+      "input_tokens": 8279,
+      "output_tokens": 142,
+      "total_tokens": 8421
     }
   ]
 }
