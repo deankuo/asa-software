@@ -1,28 +1,28 @@
 {
-  "elapsed_time": 1.8241,
+  "elapsed_time": 5.9222,
   "field_status": {
     "education_level": {
-      "status": "pending",
-      "value": null,
+      "status": "unknown",
+      "value": "Unknown",
       "source_url": null,
       "evidence": null,
-      "attempts": 2,
+      "attempts": 0,
       "descriptor": "High School|Some College|Associate|Bachelor's|Master's/Professional|PhD|Unknown"
     },
     "education_institution": {
-      "status": "pending",
-      "value": null,
+      "status": "unknown",
+      "value": "Unknown",
       "source_url": null,
       "evidence": null,
-      "attempts": 2,
+      "attempts": 0,
       "descriptor": "string|Unknown"
     },
     "education_field": {
-      "status": "pending",
-      "value": null,
+      "status": "unknown",
+      "value": "Unknown",
       "source_url": null,
       "evidence": null,
-      "attempts": 2,
+      "attempts": 0,
       "descriptor": "string|Unknown"
     },
     "education_source": {
@@ -30,23 +30,23 @@
       "value": null,
       "source_url": null,
       "evidence": null,
-      "attempts": 2,
+      "attempts": 0,
       "descriptor": "string|null"
     },
     "prior_occupation": {
-      "status": "found",
-      "value": "Presidenta de la Organización de Mujeres - Sub Central Sécure",
-      "source_url": "http://www.vicepresidencia.gob.bo/spip.php?page=parlamentario&id_parlamentario=609",
+      "status": "unknown",
+      "value": "Unknown",
+      "source_url": null,
       "evidence": null,
-      "attempts": 2,
+      "attempts": 0,
       "descriptor": "string|Unknown"
     },
     "class_background": {
-      "status": "pending",
-      "value": null,
+      "status": "unknown",
+      "value": "Unknown",
       "source_url": null,
       "evidence": null,
-      "attempts": 2,
+      "attempts": 0,
       "descriptor": "Working class|Middle class/professional|Upper/elite|Unknown"
     },
     "prior_occupation_source": {
@@ -54,15 +54,15 @@
       "value": null,
       "source_url": null,
       "evidence": null,
-      "attempts": 2,
+      "attempts": 0,
       "descriptor": "string|null"
     },
     "disability_status": {
-      "status": "pending",
-      "value": null,
+      "status": "unknown",
+      "value": "Unknown",
       "source_url": null,
       "evidence": null,
-      "attempts": 2,
+      "attempts": 0,
       "descriptor": "No disability|Some disability|Unknown"
     },
     "disability_source": {
@@ -70,15 +70,15 @@
       "value": null,
       "source_url": null,
       "evidence": null,
-      "attempts": 2,
+      "attempts": 0,
       "descriptor": "string|null"
     },
     "birth_place": {
-      "status": "pending",
-      "value": null,
+      "status": "unknown",
+      "value": "Unknown",
       "source_url": null,
       "evidence": null,
-      "attempts": 2,
+      "attempts": 0,
       "descriptor": "string|Unknown"
     },
     "birth_place_source": {
@@ -86,15 +86,15 @@
       "value": null,
       "source_url": null,
       "evidence": null,
-      "attempts": 2,
+      "attempts": 0,
       "descriptor": "string|null"
     },
     "birth_year": {
-      "status": "found",
-      "value": "1982",
-      "source_url": "http://www.vicepresidencia.gob.bo/spip.php?page=parlamentario&id_parlamentario=609",
+      "status": "unknown",
+      "value": "Unknown",
+      "source_url": null,
       "evidence": null,
-      "attempts": 2,
+      "attempts": 0,
       "descriptor": "integer|null|Unknown"
     },
     "birth_year_source": {
@@ -102,15 +102,15 @@
       "value": null,
       "source_url": null,
       "evidence": null,
-      "attempts": 2,
+      "attempts": 0,
       "descriptor": "string|null"
     },
     "lgbtq_status": {
-      "status": "pending",
-      "value": null,
+      "status": "unknown",
+      "value": "Unknown",
       "source_url": null,
       "evidence": null,
-      "attempts": 2,
+      "attempts": 0,
       "descriptor": "Non-LGBTQ|Openly LGBTQ|Unknown"
     },
     "lgbtq_details": {
@@ -118,7 +118,7 @@
       "value": null,
       "source_url": null,
       "evidence": null,
-      "attempts": 2,
+      "attempts": 0,
       "descriptor": "string|null"
     },
     "lgbtq_source": {
@@ -126,23 +126,23 @@
       "value": null,
       "source_url": null,
       "evidence": null,
-      "attempts": 2,
+      "attempts": 0,
       "descriptor": "string|null"
     },
     "confidence": {
-      "status": "pending",
-      "value": null,
+      "status": "found",
+      "value": "Low",
       "source_url": null,
-      "evidence": null,
-      "attempts": 2,
+      "evidence": "terminal_payload_source_backed",
+      "attempts": 0,
       "descriptor": "Low|Medium|High"
     },
     "justification": {
-      "status": "pending",
-      "value": null,
+      "status": "unknown",
+      "value": "Unknown",
       "source_url": null,
       "evidence": null,
-      "attempts": 2,
+      "attempts": 0,
       "descriptor": "string"
     }
   }

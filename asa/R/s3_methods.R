@@ -65,6 +65,14 @@ asa_config <- function(backend = NULL,
                        memory_folding = NULL,
                        memory_threshold = NULL,
                        memory_keep_recent = NULL,
+                       use_observational_memory = NULL,
+                       om_observation_token_budget = NULL,
+                       om_reflection_token_budget = NULL,
+                       om_buffer_tokens = NULL,
+                       om_buffer_activation = NULL,
+                       om_block_after = NULL,
+                       om_async_prebuffer = NULL,
+                       om_cross_thread_memory = NULL,
                        temporal = NULL,
                        search = NULL,
                        tor = NULL,
@@ -81,6 +89,14 @@ asa_config <- function(backend = NULL,
   memory_folding <- memory_folding %||% ASA_DEFAULT_MEMORY_FOLDING
   memory_threshold <- memory_threshold %||% ASA_DEFAULT_MEMORY_THRESHOLD
   memory_keep_recent <- memory_keep_recent %||% ASA_DEFAULT_MEMORY_KEEP_RECENT
+  use_observational_memory <- use_observational_memory %||% ASA_DEFAULT_USE_OBSERVATIONAL_MEMORY
+  om_observation_token_budget <- om_observation_token_budget %||% ASA_DEFAULT_OM_OBSERVATION_TOKENS
+  om_reflection_token_budget <- om_reflection_token_budget %||% ASA_DEFAULT_OM_REFLECTION_TOKENS
+  om_buffer_tokens <- om_buffer_tokens %||% ASA_DEFAULT_OM_BUFFER_TOKENS
+  om_buffer_activation <- om_buffer_activation %||% ASA_DEFAULT_OM_BUFFER_ACTIVATION
+  om_block_after <- om_block_after %||% ASA_DEFAULT_OM_BLOCK_AFTER
+  om_async_prebuffer <- om_async_prebuffer %||% ASA_DEFAULT_OM_ASYNC_PREBUFFER
+  om_cross_thread_memory <- om_cross_thread_memory %||% ASA_DEFAULT_OM_CROSS_THREAD_MEMORY
   tor <- tor %||% tor_options()
 
   # Validate backend
@@ -94,6 +110,20 @@ asa_config <- function(backend = NULL,
   .validate_proxy_url(proxy, "proxy")
   .validate_logical(use_browser, "use_browser")
   .validate_recursion_limit(recursion_limit, "recursion_limit")
+  .validate_logical(use_observational_memory, "use_observational_memory")
+  .validate_positive(om_observation_token_budget, "om_observation_token_budget", integer_only = TRUE)
+  .validate_positive(om_reflection_token_budget, "om_reflection_token_budget", integer_only = TRUE)
+  .validate_positive(om_buffer_tokens, "om_buffer_tokens", integer_only = TRUE)
+  .validate_range(om_buffer_activation, "om_buffer_activation", min = 0.05, max = 0.99)
+  .validate_range(om_block_after, "om_block_after", min = 0.10, max = 1.00)
+  .validate_logical(om_async_prebuffer, "om_async_prebuffer")
+  .validate_logical(om_cross_thread_memory, "om_cross_thread_memory")
+
+  om_observation_token_budget <- as.integer(om_observation_token_budget)
+  om_reflection_token_budget <- as.integer(max(om_reflection_token_budget, om_observation_token_budget))
+  om_buffer_tokens <- as.integer(om_buffer_tokens)
+  om_buffer_activation <- as.numeric(om_buffer_activation)
+  om_block_after <- as.numeric(max(om_block_after, om_buffer_activation))
 
   # Validate temporal if provided
   if (!is.null(temporal) && !inherits(temporal, "asa_temporal")) {
@@ -139,6 +169,14 @@ asa_config <- function(backend = NULL,
       memory_folding = memory_folding,
       memory_threshold = as.integer(memory_threshold),
       memory_keep_recent = as.integer(memory_keep_recent),
+      use_observational_memory = use_observational_memory,
+      om_observation_token_budget = om_observation_token_budget,
+      om_reflection_token_budget = om_reflection_token_budget,
+      om_buffer_tokens = om_buffer_tokens,
+      om_buffer_activation = om_buffer_activation,
+      om_block_after = om_block_after,
+      om_async_prebuffer = om_async_prebuffer,
+      om_cross_thread_memory = om_cross_thread_memory,
       recursion_limit = .normalize_recursion_limit(recursion_limit),
       temporal = temporal,
       search = search,
@@ -174,6 +212,16 @@ print.asa_config <- function(x, ...) {
   if (x$memory_folding) {
     cat("  Threshold:     ", x$memory_threshold, " messages\n", sep = "")
     cat("  Keep Recent:   ", x$memory_keep_recent, " exchanges\n", sep = "")
+  }
+  cat("Obs. Memory:     ", if (isTRUE(x$use_observational_memory)) "Enabled" else "Disabled", "\n", sep = "")
+  if (isTRUE(x$use_observational_memory)) {
+    cat("  Obs Tokens:    ", x$om_observation_token_budget %||% NA_integer_, "\n", sep = "")
+    cat("  Refl Tokens:   ", x$om_reflection_token_budget %||% NA_integer_, "\n", sep = "")
+    cat("  Buffer Tokens: ", x$om_buffer_tokens %||% NA_integer_, "\n", sep = "")
+    cat("  Buffer Start:  ", x$om_buffer_activation %||% NA_real_, "\n", sep = "")
+    cat("  Block After:   ", x$om_block_after %||% NA_real_, "\n", sep = "")
+    cat("  Async Buffer:  ", if (isTRUE(x$om_async_prebuffer)) "Enabled" else "Disabled", "\n", sep = "")
+    cat("  Cross Thread:  ", if (isTRUE(x$om_cross_thread_memory)) "Enabled" else "Disabled", "\n", sep = "")
   }
   if (!is.null(x$temporal)) {
     cat("\nTemporal Filtering:\n")

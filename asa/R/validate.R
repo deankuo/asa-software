@@ -468,6 +468,14 @@
 .validate_initialize_agent <- function(backend, model, conda_env, proxy,
                                         use_browser, use_memory_folding,
                                         memory_threshold, memory_keep_recent,
+                                        use_observational_memory = NULL,
+                                        om_observation_token_budget = NULL,
+                                        om_reflection_token_budget = NULL,
+                                        om_buffer_tokens = NULL,
+                                        om_buffer_activation = NULL,
+                                        om_block_after = NULL,
+                                        om_async_prebuffer = NULL,
+                                        om_cross_thread_memory = NULL,
                                         rate_limit, timeout, verbose,
                                         tor = NULL,
                                         recursion_limit = NULL) {
@@ -484,6 +492,30 @@
   .validate_recursion_limit(recursion_limit, "recursion_limit")
   .validate_logical(verbose, "verbose")
   .validate_tor_options(tor, "tor")
+  if (!is.null(use_observational_memory)) {
+    .validate_logical(use_observational_memory, "use_observational_memory")
+  }
+  if (!is.null(om_observation_token_budget)) {
+    .validate_positive(om_observation_token_budget, "om_observation_token_budget", integer_only = TRUE)
+  }
+  if (!is.null(om_reflection_token_budget)) {
+    .validate_positive(om_reflection_token_budget, "om_reflection_token_budget", integer_only = TRUE)
+  }
+  if (!is.null(om_buffer_tokens)) {
+    .validate_positive(om_buffer_tokens, "om_buffer_tokens", integer_only = TRUE)
+  }
+  if (!is.null(om_buffer_activation)) {
+    .validate_range(om_buffer_activation, "om_buffer_activation", min = 0.05, max = 0.99)
+  }
+  if (!is.null(om_block_after)) {
+    .validate_range(om_block_after, "om_block_after", min = 0.10, max = 1.00)
+  }
+  if (!is.null(om_async_prebuffer)) {
+    .validate_logical(om_async_prebuffer, "om_async_prebuffer")
+  }
+  if (!is.null(om_cross_thread_memory)) {
+    .validate_logical(om_cross_thread_memory, "om_cross_thread_memory")
+  }
 
   # memory_keep_recent counts exchanges, so there is no direct consistency check
   # against message-based memory_threshold.

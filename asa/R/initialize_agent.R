@@ -116,6 +116,14 @@ initialize_agent <- function(backend = NULL,
                              memory_threshold = ASA_DEFAULT_MEMORY_THRESHOLD,
                              memory_keep_recent = ASA_DEFAULT_MEMORY_KEEP_RECENT,
                              fold_char_budget = ASA_DEFAULT_FOLD_CHAR_BUDGET,
+                             use_observational_memory = ASA_DEFAULT_USE_OBSERVATIONAL_MEMORY,
+                             om_observation_token_budget = ASA_DEFAULT_OM_OBSERVATION_TOKENS,
+                             om_reflection_token_budget = ASA_DEFAULT_OM_REFLECTION_TOKENS,
+                             om_buffer_tokens = ASA_DEFAULT_OM_BUFFER_TOKENS,
+                             om_buffer_activation = ASA_DEFAULT_OM_BUFFER_ACTIVATION,
+                             om_block_after = ASA_DEFAULT_OM_BLOCK_AFTER,
+                             om_async_prebuffer = ASA_DEFAULT_OM_ASYNC_PREBUFFER,
+                             om_cross_thread_memory = ASA_DEFAULT_OM_CROSS_THREAD_MEMORY,
                              rate_limit = ASA_DEFAULT_RATE_LIMIT,
                              timeout = ASA_DEFAULT_TIMEOUT,
                              tor = tor_options(),
@@ -184,6 +192,14 @@ initialize_agent <- function(backend = NULL,
     use_memory_folding = use_memory_folding,
     memory_threshold = memory_threshold,
     memory_keep_recent = memory_keep_recent,
+    use_observational_memory = use_observational_memory,
+    om_observation_token_budget = om_observation_token_budget,
+    om_reflection_token_budget = om_reflection_token_budget,
+    om_buffer_tokens = om_buffer_tokens,
+    om_buffer_activation = om_buffer_activation,
+    om_block_after = om_block_after,
+    om_async_prebuffer = om_async_prebuffer,
+    om_cross_thread_memory = om_cross_thread_memory,
     rate_limit = rate_limit,
     timeout = timeout,
     recursion_limit = recursion_limit,
@@ -192,6 +208,23 @@ initialize_agent <- function(backend = NULL,
   )
 
   recursion_limit <- .normalize_recursion_limit(recursion_limit)
+  om_observation_token_budget <- as.integer(om_observation_token_budget)
+  om_reflection_token_budget <- as.integer(max(om_reflection_token_budget, om_observation_token_budget))
+  om_buffer_tokens <- as.integer(om_buffer_tokens)
+  om_buffer_activation <- as.numeric(om_buffer_activation)
+  om_block_after <- as.numeric(max(om_block_after, om_buffer_activation))
+
+  om_config <- list(
+    enabled = isTRUE(use_observational_memory),
+    cross_thread_memory = isTRUE(om_cross_thread_memory),
+    scope = if (isTRUE(om_cross_thread_memory)) "resource" else "thread",
+    observation_message_tokens = om_observation_token_budget,
+    reflection_observation_tokens = om_reflection_token_budget,
+    buffer_tokens = om_buffer_tokens,
+    buffer_activation = om_buffer_activation,
+    block_after = om_block_after,
+    async_prebuffer = isTRUE(om_async_prebuffer)
+  )
 
   # Validate OpenRouter model format
   if (backend == "openrouter" && !grepl("/", model)) {
@@ -295,7 +328,8 @@ initialize_agent <- function(backend = NULL,
     use_memory_folding = use_memory_folding,
     memory_threshold = memory_threshold,
     memory_keep_recent = memory_keep_recent,
-    fold_char_budget = fold_char_budget
+    fold_char_budget = fold_char_budget,
+    om_config = om_config
   )
 
   # Store in package environment
@@ -318,6 +352,15 @@ initialize_agent <- function(backend = NULL,
     memory_folding = use_memory_folding,
     memory_threshold = memory_threshold,
     memory_keep_recent = memory_keep_recent,
+    use_observational_memory = om_config$enabled,
+    om_cross_thread_memory = om_config$cross_thread_memory,
+    om_observation_token_budget = om_config$observation_message_tokens,
+    om_reflection_token_budget = om_config$reflection_observation_tokens,
+    om_buffer_tokens = om_config$buffer_tokens,
+    om_buffer_activation = om_config$buffer_activation,
+    om_block_after = om_config$block_after,
+    om_async_prebuffer = om_config$async_prebuffer,
+    om_config = om_config,
     search = search,
     tor = tor
   )
@@ -612,7 +655,8 @@ initialize_agent <- function(backend = NULL,
 #' @keywords internal
 .create_agent <- function(llm, tools, use_memory_folding,
                           memory_threshold, memory_keep_recent,
-                          fold_char_budget = ASA_DEFAULT_FOLD_CHAR_BUDGET) {
+                          fold_char_budget = ASA_DEFAULT_FOLD_CHAR_BUDGET,
+                          om_config = NULL) {
   if (use_memory_folding) {
     # Use custom memory folding agent with unified API
     agent <- asa_env$custom_ddg$create_memory_folding_agent(
@@ -622,7 +666,8 @@ initialize_agent <- function(backend = NULL,
       message_threshold = as.integer(memory_threshold),
       keep_recent = as.integer(memory_keep_recent),
       fold_char_budget = as.integer(fold_char_budget),
-      debug = FALSE
+      debug = FALSE,
+      om_config = om_config %||% list(enabled = FALSE, scope = "thread", cross_thread_memory = FALSE)
     )
   } else {
     # Use standard ReAct agent with RemainingSteps guard

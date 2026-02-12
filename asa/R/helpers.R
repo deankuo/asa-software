@@ -319,6 +319,38 @@
   same_folding <- identical(agent_folding, config$memory_folding)
   same_threshold <- identical(agent$config$memory_threshold, config$memory_threshold)
   same_keep <- identical(agent$config$memory_keep_recent, config$memory_keep_recent)
+  same_om_enabled <- identical(
+    isTRUE(agent$config$use_observational_memory %||% FALSE),
+    isTRUE(config$use_observational_memory %||% FALSE)
+  )
+  same_om_cross_thread <- identical(
+    isTRUE(agent$config$om_cross_thread_memory %||% FALSE),
+    isTRUE(config$om_cross_thread_memory %||% FALSE)
+  )
+  same_om_obs_budget <- identical(
+    as.integer(agent$config$om_observation_token_budget %||% ASA_DEFAULT_OM_OBSERVATION_TOKENS),
+    as.integer(config$om_observation_token_budget %||% ASA_DEFAULT_OM_OBSERVATION_TOKENS)
+  )
+  same_om_ref_budget <- identical(
+    as.integer(agent$config$om_reflection_token_budget %||% ASA_DEFAULT_OM_REFLECTION_TOKENS),
+    as.integer(config$om_reflection_token_budget %||% ASA_DEFAULT_OM_REFLECTION_TOKENS)
+  )
+  same_om_buffer <- identical(
+    as.integer(agent$config$om_buffer_tokens %||% ASA_DEFAULT_OM_BUFFER_TOKENS),
+    as.integer(config$om_buffer_tokens %||% ASA_DEFAULT_OM_BUFFER_TOKENS)
+  )
+  same_om_activation <- identical(
+    as.numeric(agent$config$om_buffer_activation %||% ASA_DEFAULT_OM_BUFFER_ACTIVATION),
+    as.numeric(config$om_buffer_activation %||% ASA_DEFAULT_OM_BUFFER_ACTIVATION)
+  )
+  same_om_block_after <- identical(
+    as.numeric(agent$config$om_block_after %||% ASA_DEFAULT_OM_BLOCK_AFTER),
+    as.numeric(config$om_block_after %||% ASA_DEFAULT_OM_BLOCK_AFTER)
+  )
+  same_om_async <- identical(
+    isTRUE(agent$config$om_async_prebuffer %||% ASA_DEFAULT_OM_ASYNC_PREBUFFER),
+    isTRUE(config$om_async_prebuffer %||% ASA_DEFAULT_OM_ASYNC_PREBUFFER)
+  )
   same_rate <- identical(agent$config$rate_limit, config$rate_limit)
   same_timeout <- identical(agent$config$timeout, config$timeout)
   same_recursion_limit <- identical(
@@ -356,6 +388,9 @@
 
   isTRUE(same_backend && same_model && same_conda && same_proxy && same_browser &&
            same_folding && same_threshold && same_keep &&
+           same_om_enabled && same_om_cross_thread && same_om_obs_budget &&
+           same_om_ref_budget && same_om_buffer && same_om_activation &&
+           same_om_block_after && same_om_async &&
            same_rate && same_timeout && same_recursion_limit &&
            same_tor && same_search_tools)
 }

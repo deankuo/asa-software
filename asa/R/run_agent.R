@@ -86,7 +86,12 @@
             search_budget_limit = search_budget_limit,
             unknown_after_searches = unknown_after_searches,
             finalize_on_all_fields_resolved = finalize_on_all_fields_resolved,
-            use_plan_mode = use_plan_mode
+            use_plan_mode = use_plan_mode,
+            om_config = config$om_config %||% list(
+              enabled = isTRUE(config$use_observational_memory %||% FALSE),
+              scope = if (isTRUE(config$om_cross_thread_memory %||% FALSE)) "resource" else "thread",
+              cross_thread_memory = isTRUE(config$om_cross_thread_memory %||% FALSE)
+            )
           )
         } else {
           .invoke_standard_agent(
@@ -188,6 +193,9 @@
   # Extract plan fields from Python state
   plan <- .try_or(reticulate::py_to_r(raw_response$plan), list())
   plan_history <- .try_or(reticulate::py_to_r(raw_response$plan_history), list())
+  om_stats <- .try_or(reticulate::py_to_r(raw_response$om_stats), list())
+  observations <- .try_or(reticulate::py_to_r(raw_response$observations), list())
+  reflections <- .try_or(reticulate::py_to_r(raw_response$reflections), list())
 
   # Return response object
   resp <- asa_response(
@@ -215,6 +223,9 @@
   )
   resp$plan <- plan
   resp$plan_history <- plan_history
+  resp$om_stats <- om_stats
+  resp$observations <- observations
+  resp$reflections <- reflections
   resp
 }
 
@@ -361,13 +372,15 @@
                                          search_budget_limit = NULL,
                                          unknown_after_searches = NULL,
                                          finalize_on_all_fields_resolved = NULL,
-                                         use_plan_mode = FALSE) {
+                                         use_plan_mode = FALSE,
+                                         om_config = NULL) {
   # Import message type
   from_schema <- reticulate::import("langchain_core.messages")
   initial_message <- from_schema$HumanMessage(content = prompt)
   resolved_thread_id <- .resolve_thread_id(thread_id)
 
   initial_state <- list(messages = list(initial_message))
+  initial_state$thread_id <- resolved_thread_id
   # Reset terminal markers for this invocation so checkpointed threads do not
   # inherit stale stop signals from prior runs.
   initial_state$stop_reason <- NULL
@@ -398,12 +411,19 @@
   initial_state$token_trace <- list()
 
   initial_state$use_plan_mode <- isTRUE(use_plan_mode)
+  if (!is.null(om_config)) {
+    initial_state$om_config <- om_config
+  }
 
   # Only seed summary/fold_stats when starting a fresh (ephemeral) thread.
   if (is.null(thread_id)) {
     initial_state$summary <- reticulate::dict()
     initial_state$archive <- list()
     initial_state$fold_stats <- reticulate::dict(fold_count = 0L)
+    initial_state$observations <- list()
+    initial_state$reflections <- list()
+    initial_state$om_stats <- list()
+    initial_state$om_prebuffer <- list()
   }
 
   response <- python_agent$invoke(
@@ -428,6 +448,7 @@
   resolved_thread_id <- .resolve_thread_id(thread_id)
   initial_state <- list(
     messages = list(list(role = "user", content = prompt)),
+    thread_id = resolved_thread_id,
     stop_reason = NULL,
     tokens_used = 0L,
     input_tokens = 0L,

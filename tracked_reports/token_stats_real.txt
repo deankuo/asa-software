@@ -1,80 +1,32 @@
 {
-  "tokens_used": 107614,
-  "input_tokens": 99073,
-  "output_tokens": 8541,
+  "tokens_used": 0,
+  "input_tokens": 0,
+  "output_tokens": 0,
   "fold_tokens": 0,
   "token_trace": [
     {
       "node": "planner",
-      "input_tokens": 662,
-      "output_tokens": 1495,
-      "total_tokens": 2157
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0
     },
     {
       "node": "agent",
-      "input_tokens": 1536,
-      "output_tokens": 265,
-      "total_tokens": 1801
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0
     },
     {
       "node": "agent",
-      "input_tokens": 3068,
-      "output_tokens": 297,
-      "total_tokens": 3365
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0
     },
     {
       "node": "agent",
-      "input_tokens": 4105,
-      "output_tokens": 386,
-      "total_tokens": 4491
-    },
-    {
-      "node": "agent",
-      "input_tokens": 5177,
-      "output_tokens": 778,
-      "total_tokens": 5955
-    },
-    {
-      "node": "agent",
-      "input_tokens": 7532,
-      "output_tokens": 471,
-      "total_tokens": 8003
-    },
-    {
-      "node": "agent",
-      "input_tokens": 8878,
-      "output_tokens": 357,
-      "total_tokens": 9235
-    },
-    {
-      "node": "agent",
-      "input_tokens": 10427,
-      "output_tokens": 660,
-      "total_tokens": 11087
-    },
-    {
-      "node": "agent",
-      "input_tokens": 12325,
-      "output_tokens": 574,
-      "total_tokens": 12899
-    },
-    {
-      "node": "agent",
-      "input_tokens": 13979,
-      "output_tokens": 611,
-      "total_tokens": 14590
-    },
-    {
-      "node": "agent",
-      "input_tokens": 14818,
-      "output_tokens": 202,
-      "total_tokens": 15020
-    },
-    {
-      "node": "agent",
-      "input_tokens": 15904,
-      "output_tokens": 950,
-      "total_tokens": 16854
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0
     }
   ]
 }

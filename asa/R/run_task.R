@@ -239,6 +239,14 @@ run_task <- function(prompt,
         use_memory_folding = config$memory_folding,
         memory_threshold = config$memory_threshold,
         memory_keep_recent = config$memory_keep_recent,
+        use_observational_memory = config$use_observational_memory %||% FALSE,
+        om_observation_token_budget = config$om_observation_token_budget %||% ASA_DEFAULT_OM_OBSERVATION_TOKENS,
+        om_reflection_token_budget = config$om_reflection_token_budget %||% ASA_DEFAULT_OM_REFLECTION_TOKENS,
+        om_buffer_tokens = config$om_buffer_tokens %||% ASA_DEFAULT_OM_BUFFER_TOKENS,
+        om_buffer_activation = config$om_buffer_activation %||% ASA_DEFAULT_OM_BUFFER_ACTIVATION,
+        om_block_after = config$om_block_after %||% ASA_DEFAULT_OM_BLOCK_AFTER,
+        om_async_prebuffer = config$om_async_prebuffer %||% ASA_DEFAULT_OM_ASYNC_PREBUFFER,
+        om_cross_thread_memory = config$om_cross_thread_memory %||% FALSE,
         rate_limit = config$rate_limit,
         timeout = config$timeout,
         tor = config$tor,
@@ -362,6 +370,9 @@ run_task <- function(prompt,
     field_status = response$field_status %||% list(),
     json_repair = response$json_repair %||% list(),
     token_stats = token_stats,
+    om_stats = response$om_stats %||% list(),
+    observation_count = length(response$observations %||% list()),
+    reflection_count = length(response$reflections %||% list()),
     plan = response$plan %||% list(),
     plan_history = response$plan_history %||% list(),
     action_steps = action_trace$steps %||% list(),
@@ -391,6 +402,9 @@ run_task <- function(prompt,
   result$token_stats <- token_stats
   result$plan <- response$plan %||% list()
   result$plan_history <- response$plan_history %||% list()
+  result$om_stats <- response$om_stats %||% list()
+  result$observations <- response$observations %||% list()
+  result$reflections <- response$reflections %||% list()
   result$action_steps <- action_trace$steps %||% list()
   result$action_ascii <- action_trace$ascii %||% ""
   result$action_overall <- action_trace$overall_summary %||% character(0)
@@ -744,6 +758,14 @@ run_task_batch <- function(prompts,
       memory_folding = config_template$config$use_memory_folding,
       memory_threshold = config_template$config$memory_threshold,
       memory_keep_recent = config_template$config$memory_keep_recent,
+      use_observational_memory = config_template$config$use_observational_memory %||% FALSE,
+      om_observation_token_budget = config_template$config$om_observation_token_budget %||% ASA_DEFAULT_OM_OBSERVATION_TOKENS,
+      om_reflection_token_budget = config_template$config$om_reflection_token_budget %||% ASA_DEFAULT_OM_REFLECTION_TOKENS,
+      om_buffer_tokens = config_template$config$om_buffer_tokens %||% ASA_DEFAULT_OM_BUFFER_TOKENS,
+      om_buffer_activation = config_template$config$om_buffer_activation %||% ASA_DEFAULT_OM_BUFFER_ACTIVATION,
+      om_block_after = config_template$config$om_block_after %||% ASA_DEFAULT_OM_BLOCK_AFTER,
+      om_async_prebuffer = config_template$config$om_async_prebuffer %||% ASA_DEFAULT_OM_ASYNC_PREBUFFER,
+      om_cross_thread_memory = config_template$config$om_cross_thread_memory %||% FALSE,
       recursion_limit = config_template$config$recursion_limit,
       search = config_template$config$search,
       tor = config_template$config$tor

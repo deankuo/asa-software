@@ -94,6 +94,39 @@ ASA_DEFAULT_MEMORY_KEEP_RECENT <- 4L
 #' @keywords internal
 ASA_DEFAULT_FOLD_CHAR_BUDGET <- 30000L
 
+#' Default Observational Memory Enabled
+#' @keywords internal
+ASA_DEFAULT_USE_OBSERVATIONAL_MEMORY <- FALSE
+
+#' Default Observational Memory Cross-Thread Mode
+#' @description Keep OFF by default; memory remains thread-scoped unless explicitly enabled.
+#' @keywords internal
+ASA_DEFAULT_OM_CROSS_THREAD_MEMORY <- FALSE
+
+#' Default OM Observation Trigger Budget (approx tokens)
+#' @keywords internal
+ASA_DEFAULT_OM_OBSERVATION_TOKENS <- 1800L
+
+#' Default OM Reflection Trigger Budget (approx tokens)
+#' @keywords internal
+ASA_DEFAULT_OM_REFLECTION_TOKENS <- 3200L
+
+#' Default OM Buffered Observation Budget (approx tokens)
+#' @keywords internal
+ASA_DEFAULT_OM_BUFFER_TOKENS <- 1200L
+
+#' Default OM Buffer Activation Ratio
+#' @keywords internal
+ASA_DEFAULT_OM_BUFFER_ACTIVATION <- 0.70
+
+#' Default OM Block-After Ratio
+#' @keywords internal
+ASA_DEFAULT_OM_BLOCK_AFTER <- 0.92
+
+#' Default OM Async Prebuffering
+#' @keywords internal
+ASA_DEFAULT_OM_ASYNC_PREBUFFER <- TRUE
+
 # ============================================================================
 # RATE LIMITING AND TIMEOUTS
 # ============================================================================
